@@ -1,0 +1,305 @@
+import type { Game } from '../game';
+import type { Unit } from '../sim/entities';
+
+const EDGE = 14;
+const PAN_SPEED = 900;
+const DRAG_THRESHOLD = 5;
+
+/** Mouse and keyboard handling for the battlefield. */
+export class Input {
+  hoverId = 0;
+  private mouseX = -1;
+  private mouseY = -1;
+  private inWindow = false;
+  private dragStart: { x: number; y: number } | null = null;
+  private panDrag: { x: number; y: number; camX: number; camY: number } | null = null;
+  private keys = new Set<string>();
+  private groups = new Map<string, number[]>();
+  private lastGroupKey = { key: '', time: 0 };
+  private lastClick = { time: 0, id: 0 };
+  private selbox: HTMLElement;
+  private cleanup: Array<() => void> = [];
+
+  constructor(
+    private game: Game,
+    private canvas: HTMLCanvasElement,
+  ) {
+    this.selbox = game.root.querySelector<HTMLElement>('#selbox')!;
+    this.listen(canvas, 'mousedown', (e) => this.onMouseDown(e as MouseEvent));
+    this.listen(window, 'mousemove', (e) => this.onMouseMove(e as MouseEvent));
+    this.listen(window, 'mouseup', (e) => this.onMouseUp(e as MouseEvent));
+    this.listen(canvas, 'contextmenu', (e) => e.preventDefault());
+    this.listen(canvas, 'wheel', (e) => this.onWheel(e as WheelEvent), { passive: false });
+    this.listen(window, 'keydown', (e) => this.onKeyDown(e as KeyboardEvent));
+    this.listen(window, 'keyup', (e) => this.keys.delete((e as KeyboardEvent).key));
+    this.listen(window, 'blur', () => this.keys.clear());
+    this.listen(window, 'resize', () => game.resize());
+    this.listen(document, 'mouseleave', () => (this.inWindow = false));
+    this.listen(document, 'mouseenter', () => (this.inWindow = true));
+    const minimap = game.root.querySelector<HTMLCanvasElement>('#minimap')!;
+    const minimapJump = (e: Event) => {
+      const me = e as MouseEvent;
+      const r = minimap.getBoundingClientRect();
+      const pos = game.minimap.toWorld(me.clientX - r.left, me.clientY - r.top);
+      if (me.button === 2 || (me.type === 'contextmenu' && me.button !== 0)) {
+        e.preventDefault();
+        const ids = game.selectedOwnUnits().map((u) => u.id);
+        if (ids.length) game.world.issue({ type: 'move', player: game.me, ids, x: pos.x, y: pos.y });
+        return;
+      }
+      if (me.buttons & 1 || me.type === 'mousedown') game.centerOn(pos.x, pos.y);
+    };
+    this.listen(minimap, 'mousedown', minimapJump);
+    this.listen(minimap, 'mousemove', minimapJump);
+    this.listen(minimap, 'contextmenu', (e) => e.preventDefault());
+  }
+
+  private listen(target: EventTarget, type: string, fn: (e: Event) => void, opts?: AddEventListenerOptions): void {
+    target.addEventListener(type, fn, opts);
+    this.cleanup.push(() => target.removeEventListener(type, fn, opts));
+  }
+
+  destroy(): void {
+    for (const c of this.cleanup) c();
+    this.selbox.hidden = true;
+  }
+
+  update(dt: number): void {
+    const cam = this.game.camera;
+    let dx = 0;
+    let dy = 0;
+    if (this.keys.has('ArrowLeft')) dx -= 1;
+    if (this.keys.has('ArrowRight')) dx += 1;
+    if (this.keys.has('ArrowUp')) dy -= 1;
+    if (this.keys.has('ArrowDown')) dy += 1;
+    if (this.inWindow && !this.dragStart && !this.panDrag && this.mouseX >= 0) {
+      if (this.mouseX < EDGE) dx -= 1;
+      if (this.mouseX > window.innerWidth - EDGE) dx += 1;
+      if (this.mouseY < EDGE) dy -= 1;
+      if (this.mouseY > window.innerHeight - EDGE) dy += 1;
+    }
+    if (dx || dy) {
+      cam.x += (dx * PAN_SPEED * dt) / cam.zoom;
+      cam.y += (dy * PAN_SPEED * dt) / cam.zoom;
+    }
+    if (this.mouseX >= 0 && !this.dragStart) {
+      const over = this.overCanvas();
+      const hit = over ? this.game.renderer.pick(this.mouseX, this.mouseY, 1) : null;
+      this.hoverId = hit ? hit.id : 0;
+      this.canvas.style.cursor = this.cursorFor(hit?.id ?? 0);
+    }
+  }
+
+  private overCanvas(): boolean {
+    const el = document.elementFromPoint(this.mouseX, this.mouseY);
+    return el === this.canvas;
+  }
+
+  private cursorFor(hoverId: number): string {
+    const game = this.game;
+    if (game.mode === 'attackMove') return 'crosshair';
+    if (game.mode === 'place') return 'copy';
+    if (!hoverId || game.selectedOwnUnits().length === 0) return 'default';
+    const e = game.world.get(hoverId);
+    if (!e) return 'default';
+    if (e.kind !== 'resource' && game.world.areEnemies(game.me, e.owner)) return 'crosshair';
+    if (e.kind === 'resource') return 'pointer';
+    return 'default';
+  }
+
+  private onMouseDown(e: MouseEvent): void {
+    this.inWindow = true;
+    const game = this.game;
+    if (game.hud.overlayOpen()) return;
+    if (e.button === 1) {
+      e.preventDefault();
+      this.panDrag = { x: e.clientX, y: e.clientY, camX: game.camera.x, camY: game.camera.y };
+      return;
+    }
+    if (e.button === 2) {
+      if (game.mode !== 'normal') {
+        game.cancelMode();
+        return;
+      }
+      game.rightClick(e.clientX, e.clientY);
+      return;
+    }
+    if (e.button !== 0) return;
+    if (game.mode === 'place') {
+      game.updatePlacement(e.clientX, e.clientY);
+      game.confirmPlacement(e.shiftKey);
+      return;
+    }
+    if (game.mode === 'attackMove') {
+      game.attackMoveTo(e.clientX, e.clientY);
+      return;
+    }
+    this.dragStart = { x: e.clientX, y: e.clientY };
+  }
+
+  private onMouseMove(e: MouseEvent): void {
+    this.mouseX = e.clientX;
+    this.mouseY = e.clientY;
+    this.inWindow = true;
+    const game = this.game;
+    if (this.panDrag) {
+      game.camera.x = this.panDrag.camX - (e.clientX - this.panDrag.x) / game.camera.zoom;
+      game.camera.y = this.panDrag.camY - (e.clientY - this.panDrag.y) / game.camera.zoom;
+      return;
+    }
+    if (game.mode === 'place') game.updatePlacement(e.clientX, e.clientY);
+    if (this.dragStart) {
+      const x0 = Math.min(this.dragStart.x, e.clientX);
+      const y0 = Math.min(this.dragStart.y, e.clientY);
+      const w = Math.abs(e.clientX - this.dragStart.x);
+      const h = Math.abs(e.clientY - this.dragStart.y);
+      if (w > DRAG_THRESHOLD || h > DRAG_THRESHOLD) {
+        Object.assign(this.selbox.style, { left: `${x0}px`, top: `${y0}px`, width: `${w}px`, height: `${h}px` });
+        this.selbox.hidden = false;
+      }
+    }
+  }
+
+  private onMouseUp(e: MouseEvent): void {
+    if (e.button === 1) {
+      this.panDrag = null;
+      return;
+    }
+    if (e.button !== 0 || !this.dragStart) return;
+    const start = this.dragStart;
+    this.dragStart = null;
+    this.selbox.hidden = true;
+    const game = this.game;
+    const moved = Math.abs(e.clientX - start.x) > DRAG_THRESHOLD || Math.abs(e.clientY - start.y) > DRAG_THRESHOLD;
+    if (moved) {
+      this.boxSelect(start.x, start.y, e.clientX, e.clientY, e.shiftKey);
+      return;
+    }
+    const hit = game.renderer.pick(e.clientX, e.clientY, 1);
+    const now = performance.now();
+    if (hit && hit.kind === 'unit' && hit.owner === game.me && now - this.lastClick.time < 350 && this.lastClick.id === hit.id) {
+      this.selectSameType(hit);
+      this.lastClick = { time: 0, id: 0 };
+      return;
+    }
+    this.lastClick = { time: now, id: hit?.id ?? 0 };
+    if (!hit) {
+      if (!e.shiftKey) game.select([]);
+      return;
+    }
+    if (e.shiftKey && game.selection.has(hit.id)) {
+      game.selection.delete(hit.id);
+      game.hud.selectionChanged();
+      return;
+    }
+    // Shift adds own units only; buildings and foreign entities are always single selections.
+    const add = e.shiftKey && hit.kind === 'unit' && hit.owner === game.me && game.selectedOwnUnits().length > 0;
+    game.select([hit.id], add);
+  }
+
+  private boxSelect(x0: number, y0: number, x1: number, y1: number, add: boolean): void {
+    const game = this.game;
+    const minX = Math.min(x0, x1);
+    const maxX = Math.max(x0, x1);
+    const minY = Math.min(y0, y1);
+    const maxY = Math.max(y0, y1);
+    const inside: Unit[] = [];
+    for (const u of game.world.units) {
+      if (u.dead || u.owner !== game.me) continue;
+      const [sx, sy] = game.renderer.screenPosOf(u, 1);
+      if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) inside.push(u);
+    }
+    // Soldiers take priority over workers, like in the classics.
+    const military = inside.filter((u) => u.role !== 'citizen');
+    const pick = military.length ? military : inside;
+    if (pick.length || !add) game.select(pick.map((u) => u.id), add);
+  }
+
+  private selectSameType(unit: Unit): void {
+    const game = this.game;
+    const ids: number[] = [];
+    for (const u of game.world.units) {
+      if (u.dead || u.owner !== game.me || u.role !== unit.role || u.tier !== unit.tier) continue;
+      const [sx, sy] = game.renderer.screenPosOf(u, 1);
+      if (sx >= 0 && sy >= 0 && sx <= game.camera.viewW && sy <= game.camera.viewH) ids.push(u.id);
+    }
+    game.select(ids);
+  }
+
+  private onWheel(e: WheelEvent): void {
+    e.preventDefault();
+    this.game.camera.zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+  }
+
+  private onKeyDown(e: KeyboardEvent): void {
+    const game = this.game;
+    const target = e.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+    if (e.key.startsWith('Arrow')) {
+      this.keys.add(e.key);
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'F1') {
+      e.preventDefault();
+      game.hud.showHelp();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (game.hud.overlayOpen()) {
+        if (game.world.over) game.hud.closeOverlay();
+        else game.togglePause(false);
+      } else if (game.mode !== 'normal') game.cancelMode();
+      else if (game.selection.size) game.select([]);
+      else game.hud.showPauseMenu();
+      return;
+    }
+    if (game.hud.overlayOpen()) return;
+    if (e.key === 'p' || e.key === 'P' || e.key === 'Pause') {
+      game.togglePause();
+      return;
+    }
+    if (game.paused) return;
+    if (e.key === '+' || e.key === '=') return game.changeSpeed(1);
+    if (e.key === '-') return game.changeSpeed(-1);
+    if (e.key === ' ') {
+      e.preventDefault();
+      if (game.lastAlert) game.centerOn(game.lastAlert.x, game.lastAlert.y);
+      return;
+    }
+    if (e.key === 'Home') {
+      const tc = game.world.buildingsOf(game.me, 'towncenter')[0];
+      if (tc) {
+        game.select([tc.id]);
+        game.centerOn(tc.x, tc.y);
+      }
+      return;
+    }
+    if (e.key === '.') {
+      game.selectNextIdle();
+      return;
+    }
+    const digit = e.code.startsWith('Digit') ? e.code.slice(5) : '';
+    if (digit && digit !== '0') {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        this.groups.set(digit, game.selectedOwnUnits().map((u) => u.id));
+        game.hud.message('info', `Gruppe ${digit} gespeichert.`);
+        return;
+      }
+      const ids = (this.groups.get(digit) ?? []).filter((id) => game.world.get(id));
+      if (!ids.length) return;
+      const now = performance.now();
+      if (this.lastGroupKey.key === digit && now - this.lastGroupKey.time < 400) {
+        const first = game.world.get(ids[0]);
+        if (first) game.centerOn(first.x, first.y);
+      }
+      this.lastGroupKey = { key: digit, time: now };
+      game.select(ids);
+      return;
+    }
+    if (e.key.length === 1 && /[a-z]/i.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (game.hud.hotkey(e.key, e.shiftKey)) e.preventDefault();
+    }
+  }
+}
