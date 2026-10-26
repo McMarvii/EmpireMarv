@@ -1,6 +1,7 @@
-import { BUILDING_DEFS, buildingAttack, buildingMaxHp, buildingName, FARM_CAPACITY } from '../data/buildings';
+import { BUILDING_DEFS, buildingName, FARM_CAPACITY } from '../data/buildings';
 import { epochLabel, EPOCHS } from '../data/epochs';
-import { BUILD_RATE, CARRY_CAPACITY, gatherRate, ROLE_DEFS, unitStats } from '../data/units';
+import { TECH_BY_ID } from '../data/techs';
+import { BUILD_RATE, gatherRate, ROLE_DEFS } from '../data/units';
 import { fire } from './combat';
 import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type ResourceNode, type Unit } from './entities';
 import { distToRect, type PathGoal, type Rect } from './pathfinding';
@@ -126,6 +127,9 @@ export function findTarget(w: World, owner: number, x: number, y: number, radius
 
 export function updateUnit(w: World, u: Unit): void {
   u.cooldown = Math.max(0, u.cooldown - DT);
+  // Medizin: wounds heal once a unit has been out of combat for a while.
+  const regen = w.players[u.owner].mods.regen;
+  if (regen > 0 && u.hp < u.maxHp && w.tick - u.lastHitTick > 5 * TICK_RATE) u.hp = Math.min(u.maxHp, u.hp + regen * DT);
   if (u.attackAnim > 0) u.attackAnim = Math.max(0, u.attackAnim - DT);
   switch (u.order.kind) {
     case 'idle':
@@ -336,7 +340,8 @@ function updateGather(w: World, u: Unit): void {
     u.carry = o.res;
     u.carryAmount = 0;
   }
-  let amount = gatherRate(player.epoch) * player.gatherBonus * DT;
+  const bonus = player.mods.gather[o.res] * (isFarm ? player.mods.farm : 1);
+  let amount = gatherRate(player.epoch) * player.gatherBonus * bonus * DT;
   if (target.kind === 'resource') {
     amount = Math.min(amount, target.amount);
     target.amount -= amount;
@@ -345,7 +350,7 @@ function updateGather(w: World, u: Unit): void {
   }
   u.carryAmount += amount;
   u.attackAnim = u.attackAnim > 0 ? u.attackAnim : 0.5;
-  if (u.carryAmount >= CARRY_CAPACITY) {
+  if (u.carryAmount >= w.carryCapacity(u.owner)) {
     o.phase = 'toDrop';
     o.dropId = 0;
     u.path = [];
@@ -508,7 +513,7 @@ function updateBuild(w: World, u: Unit): void {
     u.attackAnim = u.attackAnim > 0 ? u.attackAnim : 0.5;
     const def = BUILDING_DEFS[b.type];
     if (!b.built) {
-      const delta = (BUILD_RATE * DT) / def.buildTime;
+      const delta = (BUILD_RATE * w.players[u.owner].mods.build * DT) / def.buildTime;
       b.progress = Math.min(1, b.progress + delta);
       b.hp = Math.min(b.maxHp, b.hp + b.maxHp * delta);
       if (b.progress >= 1) completeBuilding(w, b);
@@ -574,7 +579,7 @@ export function updateBuilding(w: World, b: Building): void {
 
   if (def.attack) {
     b.cooldown = Math.max(0, b.cooldown - DT);
-    const atk = buildingAttack(b.type, player.epoch)!;
+    const atk = w.buildingAttackFor(b.owner, b.type)!;
     let target = b.targetId ? w.get(b.targetId) : undefined;
     if (target && (target.kind === 'resource' || distTo(b, target) > atk.range + b.size / 2 || !w.inSight(b.owner, target))) {
       target = undefined;
@@ -592,7 +597,7 @@ export function updateBuilding(w: World, b: Building): void {
   }
 
   if (b.research) {
-    b.research.progress += DT;
+    b.research.progress += DT * player.mods.research;
     if (b.research.progress >= b.research.total) {
       const epoch = EPOCHS[b.research.targetEpoch];
       player.epoch = epoch.index;
@@ -602,7 +607,7 @@ export function updateBuilding(w: World, b: Building): void {
         if (other.dead || other.owner !== b.owner) continue;
         const ratio = other.hp / other.maxHp;
         other.epoch = epoch.index;
-        other.maxHp = buildingMaxHp(other.type, epoch.index);
+        other.maxHp = w.buildingMaxHpFor(other.owner, other.type, epoch.index);
         other.hp = Math.max(1, ratio * other.maxHp);
       }
       for (const p of w.players) {
@@ -612,6 +617,16 @@ export function updateBuilding(w: World, b: Building): void {
       }
     }
     return;
+  }
+
+  if (b.tech) {
+    b.tech.progress += DT * player.mods.research;
+    if (b.tech.progress >= b.tech.total) {
+      const tech = TECH_BY_ID.get(b.tech.id)!;
+      b.tech = null;
+      w.completeTech(b.owner, tech.id);
+      w.emit({ type: 'tech', player: b.owner, text: `Erforscht: ${tech.name} – ${tech.branch.text}.`, tech: tech.id });
+    }
   }
 
   const item = b.queue[0];
@@ -625,7 +640,7 @@ export function updateBuilding(w: World, b: Building): void {
     return;
   }
   b.popBlocked = false;
-  item.progress += DT;
+  item.progress += DT * player.mods.train;
   if (item.progress < ROLE_DEFS[item.role].trainTime) return;
   const towards = b.rally ?? { x: b.x + b.size, y: b.y + b.size };
   const spot = w.findSpawnPoint(b, towards);
@@ -633,7 +648,7 @@ export function updateBuilding(w: World, b: Building): void {
   b.queue.shift();
   const u = w.spawnUnit(b.owner, item.role, spot.x, spot.y);
   player.stats.unitsTrained++;
-  w.emit({ type: 'trained', player: b.owner, text: `${unitStats(u.role, u.tier).name} bereit.` });
+  w.emit({ type: 'trained', player: b.owner, text: `${u.stats.name} bereit.` });
   if (b.rally) sendToRally(w, u, b.rally.x, b.rally.y);
 }
 

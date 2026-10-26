@@ -1,7 +1,8 @@
-import { BUILDING_DEFS, buildingMaxHp, buildingName, MORALE_MAX_HOUSES, MORALE_RADIUS, type BuildingType } from '../data/buildings';
+import { buildingAttack, BUILDING_DEFS, buildingMaxHp, buildingName, MORALE_MAX_HOUSES, MORALE_RADIUS, type BuildingType } from '../data/buildings';
 import { EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
-import { bestTier, ROLE_DEFS, unitStats, type Projectile, type Role } from '../data/units';
+import { modsFor, TECH_BY_ID, TECHS, TECHS_FOR_ADVANCE, type Tech } from '../data/techs';
+import { bestTier, CARRY_CAPACITY, ROLE_DEFS, unitStats, type Projectile, type Role, type UnitStats } from '../data/units';
 import { updateBuilding, updateUnit, separateUnits, setPathTo } from './behavior';
 import { updateProjectiles } from './combat';
 import { rectOf, type Building, type Entity, type NodeType, type Player, type ResourceNode, type Unit } from './entities';
@@ -51,11 +52,13 @@ export const DEFAULT_SETTINGS: GameSettings = {
 };
 
 export interface GameEvent {
-  type: 'info' | 'warn' | 'epoch' | 'attack' | 'built' | 'trained' | 'gameover';
+  type: 'info' | 'warn' | 'epoch' | 'attack' | 'built' | 'trained' | 'tech' | 'gameover';
   player: number;
   text: string;
   /** Epoch events: the epoch that was reached. */
   epoch?: number;
+  /** Tech events: the finished technology. */
+  tech?: string;
   x?: number;
   y?: number;
 }
@@ -102,6 +105,8 @@ export type Command =
   | { type: 'train'; player: number; buildingId: number; role: Role; count?: number }
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
+  | { type: 'research'; player: number; buildingId: number; tech: string }
+  | { type: 'cancelTech'; player: number; buildingId: number }
   | { type: 'rally'; player: number; buildingId: number; x: number; y: number }
   | { type: 'deposit'; player: number; ids: number[]; targetId: number }
   | { type: 'explore'; player: number; ids: number[] }
@@ -143,6 +148,8 @@ export class World {
   winnerTeam: number | null = null;
 
   private nextId = 1;
+  /** Unit stats with each player's tech bonuses, per "role:tier". */
+  private statCache: Array<Map<string, UnitStats>> = [];
   private grid: Unit[][];
   private gridCols: number;
   private lastAlertTick: number[] = [];
@@ -181,7 +188,10 @@ export class World {
           buildingsLost: 0,
         },
         gatherBonus: 1,
+        techs: new Set(),
+        mods: modsFor([]),
       });
+      this.statCache.push(new Map());
       this.lastAlertTick.push(-1000);
     });
 
@@ -227,7 +237,7 @@ export class World {
   }
 
   spawnUnit(owner: number, role: Role, x: number, y: number, tier = bestTier(role, this.players[owner].epoch)): Unit {
-    const stats = unitStats(role, Math.max(0, tier));
+    const stats = this.unitStatsFor(owner, role, Math.max(0, tier));
     const u: Unit = {
       kind: 'unit',
       id: this.nextId++,
@@ -264,7 +274,7 @@ export class World {
   addBuilding(owner: number, type: BuildingType, tx: number, ty: number, built: boolean): Building {
     const def = BUILDING_DEFS[type];
     const epoch = this.players[owner].epoch;
-    const maxHp = buildingMaxHp(type, epoch);
+    const maxHp = this.buildingMaxHpFor(owner, type, epoch);
     const b: Building = {
       kind: 'building',
       id: this.nextId++,
@@ -284,6 +294,7 @@ export class World {
       epoch,
       queue: [],
       research: null,
+      tech: null,
       rally: null,
       cooldown: 0,
       scanTick: 0,
@@ -297,6 +308,88 @@ export class World {
     this.displaceUnits(b);
     if (built) this.openGate(b);
     return b;
+  }
+
+  // ------------------------------------------------------------ tech bonuses
+
+  /** A role's stats at a tier, with the owner's researched bonuses. */
+  unitStatsFor(owner: number, role: Role, tier: number): UnitStats {
+    const base = unitStats(role, tier);
+    if (owner < 0) return base;
+    const cache = this.statCache[owner];
+    const key = `${role}:${tier}`;
+    const hit = cache.get(key);
+    if (hit) return hit;
+    const m = this.players[owner].mods.unit[role];
+    const range = base.range + m.range;
+    const stats: UnitStats = {
+      ...base,
+      hp: Math.round(base.hp * m.hp),
+      dmg: Math.round(base.dmg * m.dmg * 10) / 10,
+      // Armor bonuses grow with the tier's epoch, like the base value does.
+      armor: Math.round((base.armor + m.armor * (1 + 0.22 * base.epoch)) * 10) / 10,
+      speed: base.speed * m.speed,
+      range,
+      sight: Math.max(base.sight + m.sight, range + 1.5),
+    };
+    cache.set(key, stats);
+    return stats;
+  }
+
+  buildingMaxHpFor(owner: number, type: BuildingType, epoch: number): number {
+    const m = this.players[owner].mods;
+    return Math.round(buildingMaxHp(type, epoch) * m.buildingHpAll * (m.buildingHp[type] ?? 1));
+  }
+
+  /** Tower and town center fire, with Mathematik and Wachdienst. */
+  buildingAttackFor(owner: number, type: BuildingType) {
+    const a = buildingAttack(type, this.players[owner].epoch);
+    if (!a) return undefined;
+    const m = this.players[owner].mods;
+    return { dmg: a.dmg * m.towerDmg, range: a.range + m.towerRange, cooldown: a.cooldown };
+  }
+
+  carryCapacity(owner: number): number {
+    return CARRY_CAPACITY + this.players[owner].mods.carry;
+  }
+
+  /** Whether a tech can be started now (epoch, prerequisites, not done or running). */
+  techAvailable(owner: number, tech: Tech): boolean {
+    const p = this.players[owner];
+    if (p.techs.has(tech.id) || tech.epoch > p.epoch) return false;
+    if (!tech.requires.every((r) => p.techs.has(r))) return false;
+    return !this.buildings.some((b) => !b.dead && b.owner === owner && b.tech?.id === tech.id);
+  }
+
+  /** Techs of the current epoch still missing for the next advance. */
+  missingTechs(owner: number): { have: number; need: number } {
+    const p = this.players[owner];
+    let have = 0;
+    for (const id of p.techs) if (TECH_BY_ID.get(id)?.epoch === p.epoch) have++;
+    const offered = TECHS.filter((t) => t.epoch === p.epoch).length;
+    return { have, need: Math.min(TECHS_FOR_ADVANCE, offered) };
+  }
+
+  /** Applies a finished tech: new bonuses for every unit and building of the player. */
+  completeTech(owner: number, id: string): void {
+    const p = this.players[owner];
+    if (p.techs.has(id) || !TECH_BY_ID.has(id)) return;
+    p.techs.add(id);
+    p.mods = modsFor(p.techs);
+    this.statCache[owner].clear();
+    for (const u of this.units) {
+      if (u.dead || u.owner !== owner) continue;
+      const ratio = u.hp / u.maxHp;
+      u.stats = this.unitStatsFor(owner, u.role, u.tier);
+      u.maxHp = u.stats.hp;
+      u.hp = Math.max(1, ratio * u.maxHp);
+    }
+    for (const b of this.buildings) {
+      if (b.dead || b.owner !== owner) continue;
+      const ratio = b.hp / b.maxHp;
+      b.maxHp = this.buildingMaxHpFor(owner, b.type, b.epoch);
+      b.hp = Math.max(1, ratio * b.maxHp);
+    }
   }
 
   /** A finished gate opens for its owner's team. */
@@ -656,6 +749,16 @@ export class World {
       case 'advance':
         this.commandAdvance(cmd.player, cmd.buildingId);
         break;
+      case 'research':
+        this.commandResearch(cmd.player, cmd.buildingId, cmd.tech);
+        break;
+      case 'cancelTech': {
+        const b = this.get(cmd.buildingId);
+        if (!b || b.kind !== 'building' || b.owner !== cmd.player || !b.tech) return;
+        refund(player.stock, b.tech.cost);
+        b.tech = null;
+        break;
+      }
       case 'rally': {
         const b = this.get(cmd.buildingId);
         if (b && b.kind === 'building' && b.owner === cmd.player) b.rally = { x: cmd.x, y: cmd.y };
@@ -804,6 +907,20 @@ export class World {
     return true;
   }
 
+  private commandResearch(player: number, buildingId: number, id: string): void {
+    const p = this.players[player];
+    const b = this.get(buildingId);
+    const tech = TECH_BY_ID.get(id);
+    if (!tech || !b || b.kind !== 'building' || b.owner !== player || !b.built || b.type !== tech.building) return;
+    if (b.tech || b.research || !this.techAvailable(player, tech)) return;
+    if (!canAfford(p.stock, tech.cost)) {
+      this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, tech.cost)}` });
+      return;
+    }
+    pay(p.stock, tech.cost);
+    b.tech = { id, progress: 0, total: tech.time, cost: tech.cost };
+  }
+
   private commandAdvance(player: number, buildingId: number): void {
     const p = this.players[player];
     const b = this.get(buildingId);
@@ -815,9 +932,11 @@ export class World {
     if (this.isResearching(player)) return;
     const next = EPOCHS[p.epoch + 1];
     const missing = this.missingRequirements(player);
-    if (missing.length) {
-      const list = missing.map((m) => `${m.need - m.have}× ${buildingName(m.type, p.epoch)}`).join(', ');
-      this.emit({ type: 'warn', player, text: `Für den Aufstieg fehlt: ${list}` });
+    const techs = this.missingTechs(player);
+    if (missing.length || techs.have < techs.need) {
+      const list = missing.map((m) => `${m.need - m.have}× ${buildingName(m.type, p.epoch)}`);
+      if (techs.have < techs.need) list.push(`${techs.need - techs.have} Technik(en) dieser Epoche`);
+      this.emit({ type: 'warn', player, text: `Für den Aufstieg fehlt: ${list.join(', ')}` });
       return;
     }
     if (!canAfford(p.stock, next.advanceCost)) {

@@ -655,6 +655,8 @@ const GEOMETRY: Record<BuildingType, Geometry> = {
   tower: { inset: 0.55, wall: 84 },
   wall: { inset: 0, wall: 20 },
   gate: { inset: 0, wall: 20 },
+  smithy: { inset: 0.3, wall: 30 },
+  academy: { inset: 0.25, wall: 42 },
 };
 
 interface WallLook {
@@ -990,6 +992,38 @@ export function drawBuilding(ctx: Ctx, project: Project, scale: number, b: Build
   }
 
   if (palisaded) palisade(ctx, project, b, true, scale);
+  if (b.type === 'smithy') {
+    // Forge chimney with smoke, glowing hearth and an anvil out front.
+    box3d(ctx, project, x0 + 0.35, y0 + 0.35, 0, 0.18, 0.18, 0, h + roof.h + 10, '#5a4a3e', '#4a3c32');
+    const [cx0, cy0] = project(x0 + 0.35, y0 + 0.35, h + roof.h + 10);
+    for (let i = 0; i < 2; i++) {
+      const puff = (time * 0.5 + i * 0.5 + b.seed * 0.1) % 1;
+      circle(ctx, cx0 + puff * 8 * scale, cy0 - puff * 22 * scale, (3 + puff * 6) * scale, `rgba(90,90,90,${0.55 * (1 - puff)})`);
+    }
+    const glow = 0.6 + 0.3 * Math.sin(time * 5 + b.seed);
+    poly(ctx, [project(cx - 0.25, y1, 0), project(cx + 0.25, y1, 0), project(cx + 0.25, y1, 9), project(cx - 0.25, y1, 9)], `rgba(255,140,40,${glow})`);
+    box3d(ctx, project, x1 + 0.12, cy + 0.35, 0, 0.12, 0.07, 3, 6, '#3a3a3a', '#2a2a2a');
+    box3d(ctx, project, x1 + 0.12, cy + 0.35, 0, 0.04, 0.04, 0, 3, '#3a3a3a', '#2a2a2a');
+  }
+  if (b.type === 'academy') {
+    if (style === 'stone') {
+      // Standing stones of the ancestors.
+      for (const [dx, dy] of [
+        [0.15, 0.15],
+        [0.5, 0.05],
+        [0.85, 0.15],
+      ]) {
+        box3d(ctx, project, x0 + (x1 - x0) * dx, y1 + 0.25 + dy, 0, 0.07, 0.09, 0, 16, '#a3a29b', '#8d8c85');
+      }
+    } else if (style === 'future') {
+      const [ax, ay] = project(cx, cy, h + roof.h);
+      line(ctx, ax, ay, ax, ay - 14 * scale, '#c3d0d8', 1.5 * scale);
+      ellipse(ctx, ax + 2 * scale, ay - 16 * scale, 7 * scale, 3 * scale, '#e8f0f4');
+    } else {
+      // Observatory dome on the roof.
+      dome(ctx, project, cx, cy, h + roof.h * 0.6, 7, scale, style === 'modern' ? '#9cc3dd' : '#6d8fb3');
+    }
+  }
   if (b.type === 'storehouse') {
     for (const [dx, dy] of [
       [0.2, 0.28],
