@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.2).** Wirtschaft, Kampf, 18 Epochen, Mauern und Tore, Späher, KI-Gegner und Fog of War funktionieren. Technologiebaum, Sound, Befehlsketten, Formationen und Mehrspieler fehlen noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.2 + Technologiebaum).** Wirtschaft, Kampf, 18 Epochen, 165 Technologien, Mauern und Tore, Späher, KI-Gegner und Fog of War funktionieren. Sound, Befehlsketten, Formationen und Mehrspieler fehlen noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -27,10 +27,11 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 ## Was schon drin ist
 
 - **18 Epochen** mit eigenem Namen, Zeitraum, Baustil, eigenen Einheiten und einem Emblem mit römischer Ziffer (I–XVIII). Start- und Endepoche sind pro Partie wählbar – wie früher.
-- **Aufstieg braucht Gebäude**: Jede Epoche verlangt Gebäude der bisherigen Epochen, z. B. für die Bronzezeit ein Kriegerlager, eine Werkstatt und zwei Hütten. Der Tooltip zeigt die Checkliste.
+- **Aufstieg braucht Gebäude und Forschung**: Jede Epoche verlangt Gebäude der bisherigen Epochen, z. B. für die Bronzezeit ein Kriegerlager, eine Werkstatt und zwei Hütten, und zwei erforschte Techniken der aktuellen Epoche. Der Tooltip zeigt die Checkliste.
+- **Technologiebaum mit 165 Techniken** in 24 Zweigen – Waffen, Rüstungen, Werkzeuge, Bergbau, Ackerbau, Medizin, Schrift, Mathematik, Antriebe … Jede Epoche schaltet neue Stufen frei, von Feuersteinklingen bis Nanoklingen. Geforscht wird in Schmiede, Akademie und den Produktionsgebäuden.
 - **5 Rohstoffe**: Nahrung, Holz, Stein, Gold, Eisen. Bürger sammeln, bauen und reparieren; Felder liefern unbegrenzt Nahrung. Rechtsklick auf Dorfzentrum oder Lager lagert die Ladung sofort ein.
 - **Kampfdreieck**, das über alle Epochen gleich bleibt: Sturminfanterie › Abwehrinfanterie › Kavallerie & Fahrzeuge › Fernkampf › Sturminfanterie. Belagerung und Artillerie zerstören Gebäude.
-- **10 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
+- **12 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
 - **Mauern und Tore**, als Linie gezogen: Palisade, Lehmziegel, Zinnenmauer, Bastion, Beton, Energiebarriere. Tore lassen nur das eigene Team durch.
 - **Späher** mit großer Sichtweite und **Erkundenmodus** für jede Einheit.
 - **Moral**: Häuser stärken Einheiten in ihrer Nähe – sichtbar als Punkte am Lebensbalken und als Kreis um das Haus.
@@ -54,6 +55,8 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 | `E`                             | Erkunden (mit Einheiten ausgewählt)                 |
 | `M` / `G`, dann ziehen          | Mauer / Tor als Linie bauen                         |
 | `Entf`                          | Auswahl abreißen bzw. entlassen                     |
+| `A`, `S`, `D` … (Gebäude gewählt) | Nächste Stufe eines Forschungszweigs              |
+| `F2` oder „Forschung“           | Technologiebaum                                     |
 | Buchstaben                      | Befehle (stehen auf den Knöpfen, z. B. `H` = Haus)  |
 | Umschalt + Bauen / Ausbilden    | Mehrfach platzieren / 5 Einheiten                   |
 | `Strg`+`1–9`, dann `1–9`        | Gruppe speichern / wählen (zweimal: hinspringen); auch über die Gruppenleiste |

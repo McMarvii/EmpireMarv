@@ -47,9 +47,9 @@ Ein Echtzeitstrategiespiel, das das Versprechen der klassischen Epochen-RTS einl
 
 Epochen werden wie in den Klassikern römisch gezählt; jede Stilfamilie hat ein eigenes Emblem (Steintafel, Münze, Wappenschild, Orden, Abzeichen, Hexagon).
 
-**Aufstieg braucht Gebäude.** Neben Rohstoffen verlangt jeder Aufstieg fertige Gebäude, die in den Epochen davor freigeschaltet wurden – in wachsender Zahl. So wächst die Stadt mit ihrer Epoche, statt nur das Dorfzentrum durchzuklicken. Die Stadt zieht beim Aufstieg weiterhin als Ganzes in die neue Ära um.
+**Aufstieg braucht Gebäude und Forschung.** Neben Rohstoffen verlangt jeder Aufstieg fertige Gebäude, die in den Epochen davor freigeschaltet wurden – in wachsender Zahl – und **zwei erforschte Techniken der aktuellen Epoche** (siehe [Technologien](#technologien)). So wächst die Zivilisation mit ihrer Epoche, statt nur das Dorfzentrum durchzuklicken. Die Stadt zieht beim Aufstieg weiterhin als Ganzes in die neue Ära um.
 
-Aufstiegskosten wachsen linear (+35 % der Grundkosten pro Epoche). Stein wird ab III verlangt, Gold ab V, Eisen ab VII. In einem KI-gegen-KI-Testlauf mit Gebäude-Voraussetzungen (mittlere Karte, Seed 7) stehen nach 40 Minuten beide Seiten in der Renaissance (X) bzw. im Zeitalter der Imperien (XI). Eine Partie über alle 18 Epochen dürfte demnach 1,5 bis 2 Stunden dauern. Für kürzere Partien wählt man Start- und Endepoche.
+Aufstiegskosten wachsen linear (+35 % der Grundkosten pro Epoche). Stein wird ab III verlangt, Gold ab V, Eisen ab VII. In einem KI-gegen-KI-Testlauf mit Gebäude- und Forschungs-Voraussetzungen (mittlere Karte, Seed 7) stehen nach 40 Minuten beide Seiten im Zeitalter der Imperien (XI) und haben je 60–75 Techniken erforscht. Eine Partie über alle 18 Epochen dürfte demnach 1,5 bis 2 Stunden dauern. Für kürzere Partien wählt man Start- und Endepoche.
 
 ## Wirtschaft
 
@@ -93,10 +93,48 @@ Fünf Rollen, jede Epoche liefert eine neue Stufe pro Rolle:
 | Kriegerlager / Kaserne | 1 | Sturm-, Abwehr- und Fernkampfinfanterie |
 | Feld / Bauernhof | 2 | Unerschöpfliche Nahrung |
 | Wachturm / Bastion / Bunker | 2 | Verteidigung |
+| Werkplatz → Schmiede → Rüstungswerk → Waffenlabor | 1 | Forschung: Waffen und Rüstungen |
+| Ahnenstätte → Akademie → Universität → Forschungszentrum | 1 | Forschung: Bauwesen, Wissenschaft, Verwaltung |
 | Palisade → Steinmauer → Betonmauer → Energiebarriere | 2 | Mauer (1×1), als Linie gezogen; schließt an Türme an |
 | Palisadentor → Torhaus → Schranke → Energietor | 2 | Lässt eigenes Team durch, Gegner nicht |
 | Belagerungswerkstatt / Gießerei / Waffenfabrik | 3 | Belagerung und Artillerie |
 | Stall / Fahrzeugwerk / Mech-Hangar | 4 | Kavallerie, Fahrzeuge, Mechs |
+
+## Technologien
+
+Der Technologiebaum umfasst **165 Techniken in 24 Zweigen**. Jeder Zweig hat eine Wirkung, die jede seiner Stufen erneut hinzufügt, und Stufen, die Epoche für Epoche freigeschaltet werden. Jede Stufe verlangt die vorige, einige zusätzlich eine Stufe eines anderen Zweigs (z. B. Luntenschloss → Schwarzpulver, Verbrennungsmotor → Dampfpumpe). So entwickelt sich die Zivilisation mit jeder Epoche weiter, statt einmal fertig erforscht zu sein.
+
+- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, parallel zur Ausbildung.
+- **Kosten**: Grundpreis des Zweigs × (1 + 0,3 × Epoche). Vor der Kupferzeit wird statt Gold Holz bezahlt, vor der Eisenzeit statt Eisen Stein. Dauer 18 s + 2 s je Epoche.
+- **Aufstieg**: Pro Epoche müssen zwei ihrer Techniken erforscht sein. Jede Epoche bietet 5–14 Techniken aus mindestens zwei Gebäuden.
+- **Bedienung**: Im Gebäude zeigt je Zweig ein Knopf die nächste Stufe (Tasten A, S, D …). Der Technologiebaum (Knopf „Forschung“ oder F2) zeigt alle Zweige mit Zustand und startet Forschung per Klick im nächsten freien Gebäude.
+
+| Gebäude | Zweig | Wirkung je Stufe | Stufen (ab Epoche) |
+| --- | --- | --- | --- |
+| Schmiede | Infanteriewaffen | Sturm- und Abwehrinfanterie +6 % Schaden | Feuersteinklingen (I) → Kupferguss (III) → Bronzeklingen (IV) → Eisenschmieden (V) → Stahlhärtung (VIII) → Damaszener Stahl (X) → Gezogene Läufe (XII) → Maschinenpistolen (XIV) → Verbundwerkstoffe (XVI) → Nanoklingen (XVII) |
+| Schmiede | Fernwaffen | Fernkampf +5 % Schaden, +0,15 Reichweite | Wurfholz (I) → Sehnenbogen (III) → Kompositbogen (V) → Eisenspitzen (VII) → Eibenholz (IX) → Luntenschloss (X) → Steinschloss (XI) → Hinterlader (XIII) → Zielfernrohr (XV) → Fokuslinsen (XVII) |
+| Schmiede | Infanterierüstung | Fußtruppen +0,3 Rüstung, +3 % Lebenspunkte | Lederwams (II) → Bronzeschild (IV) → Kettenhemd (VI) → Plattenpanzer (VIII) → Kürass (X) → Stahlhelm (XIV) → Splitterschutz (XV) → Kevlarweste (XVI) → Exoskelett (XVIII) |
+| Schmiede | Reiterharnisch | Kavallerie und Fahrzeuge +5 % Schaden, +0,3 Rüstung | Bronzebeschläge (IV) → Steigbügel (VI) → Rossharnisch (VII) → Lanzenstahl (VIII) → Säbelschmiede (XI) → Panzerstahl (XIII) → Verbundpanzerung (XIV) → Reaktivpanzerung (XVI) → Plasmaschilde (XVII) |
+| Akademie | Baukunst | Bürger bauen 12 % schneller | Lehmziegel (II) → Mörtel (IV) → Gewölbe (VI) → Gerüstbau (IX) → Dampfkran (XII) → Fertigteile (XIV) → Baudrohnen (XVII) |
+| Akademie | Mauerwerk | Gebäude +8 % Lebenspunkte, Mauern und Tore weitere +15 % | Trockenmauer (II) → Quaderbau (V) → Zinnenbau (VIII) → Sternschanze (X) → Stahlbeton (XIII) → Bunkerbau (XV) → Nanokeramik (XVII) |
+| Akademie | Mathematik | Türme und Dorfzentren +8 % Schaden, +0,25 Reichweite | Zählkunst (III) → Geometrie (V) → Algebra (VII) → Ballistik (X) → Feuerleitung (XIII) → Radar (XV) → Zielrechner (XVII) |
+| Akademie | Medizin | Verwundete Einheiten heilen sich außerhalb des Kampfes (+0,15 LP/s) | Heilkräuter (II) → Wundversorgung (VI) → Feldscher (IX) → Impfung (XII) → Antibiotika (XIV) → Gentherapie (XVI) → Nanomedizin (XVIII) |
+| Akademie | Schrift | Forschung und Epochenaufstieg 10 % schneller | Bilderschrift (II) → Keilschrift (IV) → Alphabet (VI) → Buchdruck (X) → Telegrafie (XIII) → Computer (XV) → Quantenrechner (XVII) |
+| Akademie | Kartografie | Alle Einheiten +0,5 Sichtweite | Sternkunde (III) → Kompass (VII) → Kartografie (X) → Fernrohr (XI) → Luftaufklärung (XIV) → Satelliten (XVI) |
+| Akademie | Staatskunst | Alle Gebäude bilden 6 % schneller aus | Gesetzestafeln (IV) → Verwaltung (VI) → Lehnswesen (VIII) → Wehrpflicht (XI) → Massenfertigung (XIII) → Logistik (XV) → Klonfabriken (XVIII) |
+| Dorfzentrum | Werkzeuge | Bürger sammeln alle Rohstoffe 6 % schneller | Grabstock (I) → Kupferwerkzeug (III) → Eisenwerkzeug (V) → Stahlwerkzeug (IX) → Maschinenwerkzeug (XIII) → Robotik (XVI) |
+| Dorfzentrum | Tragekunst | Bürger tragen 2 Einheiten mehr | Tragekorb (I) → Rad (IV) → Schubkarre (VIII) → Handkarren (XII) → Lastwagen (XIV) → Antigravträger (XVII) |
+| Dorfzentrum | Bürgerwehr | Bürger +15 % Lebenspunkte und Schaden, +0,5 Rüstung | Dorfwache (II) → Landwehr (VII) → Bürgerwehr (XI) → Zivilschutz (XV) |
+| Kaserne | Drill | Fußtruppen +6 % Lebenspunkte | Kriegstanz (I) → Phalanxdrill (IV) → Legionsdrill (VI) → Exerzierreglement (X) → Grundausbildung (XIII) → Spezialausbildung (XVI) |
+| Kaserne | Gewaltmarsch | Fußtruppen 5 % schneller | Läuferpfade (III) → Römerstraßen (VI) → Marschordnung (XI) → Motorisierung (XIV) → Sprunganzüge (XVII) |
+| Stall | Zucht und Antrieb | Kavallerie und Fahrzeuge +6 % Lebenspunkte | Pferdezucht (IV) → Schlachtrösser (VII) → Remonte (X) → Verbrennungsmotor (XIII) → Gasturbine (XV) → Fusionsantrieb (XVII) |
+| Stall | Beweglichkeit | Kavallerie, Fahrzeuge und Späher 5 % schneller | Leichte Wagen (V) → Hufbeschlag (VIII) → Leichte Reiterei (XII) → Kettenlaufwerk (XIV) → Hybridantrieb (XVI) |
+| Werkstatt | Geschützbau | Belagerung und Artillerie +7 % Schaden | Holzverbindungen (III) → Torsionsfedern (VI) → Gegengewicht (VIII) → Schwarzpulver (X) → Bronzeguss (XI) → Rücklaufbremse (XIII) → Raketentechnik (XV) → Ionentechnik (XVII) |
+| Werkstatt | Zielkunst | Belagerung und Artillerie +0,4 Reichweite | Spannwerk (VII) → Richtaufsatz (X) → Gezogene Rohre (XIII) → Lenkflugkörper (XV) → Orbitale Zielerfassung (XVIII) |
+| Wachturm | Wachdienst | Türme und Dorfzentren +10 % Schaden | Wachfeuer (III) → Pechnasen (VIII) → Kasematten (XI) → MG-Nest (XIV) → Raketenabwehr (XVI) |
+| Lager | Holzwirtschaft | Holz wird 10 % schneller gesammelt | Steinaxt (I) → Bronzeaxt (IV) → Zugsäge (VII) → Sägemühle (X) → Dampfsäge (XIII) → Kettensäge (XV) → Holzernter (XVII) |
+| Lager | Bergbau | Stein, Gold und Eisen werden 10 % schneller gesammelt | Schlägel und Eisen (II) → Stollenbau (V) → Grubenlampe (VIII) → Sprengpulver (XI) → Dampfpumpe (XIII) → Pressluftbohrer (XIV) → Asteroidenbergbau (XVII) |
+| Lager | Ackerbau | Felder bringen 10 % mehr Nahrung | Hakenpflug (II) → Bewässerung (V) → Dreifelderwirtschaft (VII) → Kummet (IX) → Fruchtwechsel (XII) → Kunstdünger (XIII) → Traktoren (XIV) → Gentechnik (XVI) → Hydroponik (XVIII) |
 
 ## KI
 
@@ -106,6 +144,7 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
 - **Ausbau**: zuerst die Gebäude, die der nächste Aufstieg verlangt; dann Lager an entfernten Minen, Kaserne, Werkstatt, Stall, Türme, Felder sobald die Beeren aufgebraucht sind.
 - **Mauern**: ab der Kupferzeit ein quadratischer Ring um das Dorfzentrum mit einem Tor je Seite; blockierte Torplätze rutschen an der Seite entlang.
 - **Erkundung**: mit dem Späher im Erkundenmodus.
+- **Forschung**: hält Forschungsgebäude beschäftigt. Fehlen Techniken für den Aufstieg, haben die der aktuellen Epoche Vorrang; sonst Wirtschaft vor Militär, Militärtechniken erst ab sechs Soldaten und nur aus Überschuss.
 - **Militär**: Rollenmix, der auf die sichtbare gegnerische Armee kontert. Verteidigt die Basis und greift in wachsenden Wellen an.
 - **Schwierigkeit**: Leicht, Mittel, Schwer. Unterschiede bei Reaktionszeit, Sammelrate und Angriffszeitpunkt.
 
@@ -125,7 +164,7 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | --- | --- |
 | 0.1 | 18 Epochen, 5 Rollen, 8 Gebäude, Wirtschaft, KI, Fog of War, Minimap |
 | **0.2** (jetzt) | Mauern und Tore (auch für die KI), Späher und Erkundenmodus, Aufstieg mit Gebäude-Voraussetzungen, Epochen-Embleme, Gruppenleiste, sichtbare Moral, Durchsicht hinter Gebäuden, Karte per Rechts-Ziehen verschieben, Einlagern per Rechtsklick, Abriss mit Entf |
-| 0.3 | **Großer Technologiebaum** wie in den Klassikern (viele Einzeltechnologien mit Abhängigkeiten, je Epoche neue Zweige: Angriff, Rüstung, Sammelrate, Bauzeit, Reichweite …) und **Sound & Musik** (Befehlsrückmeldungen, Kampfgeräusche, Alarm, Musik je Ära) |
+| 0.3 | ✔ **Großer Technologiebaum** (165 Techniken, 24 Zweige, Schmiede und Akademie, Forschung als Aufstiegsvoraussetzung). Offen: **Sound & Musik** (Befehlsrückmeldungen, Kampfgeräusche, Alarm, Musik je Ära) |
 | 0.4 | **Bedienung**: Befehlsketten mit Umschalt (Wegpunkte, mehrere Bauaufträge), Formationen (Linie, Block, Keil; Fernkampf hinten), globale Gebäude-Hotkeys |
 | 0.5 | **Mehrspieler per Link** (Spiel erstellen, Link teilen, direkt über WebRTC verbunden; Lockstep auf der deterministischen Simulation), Replays |
 | 0.6 | Helden (Stratege, Krieger), Priester und Propheten, Wunder mit Wundersieg |
