@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.2 + Technologiebaum).** Wirtschaft, Kampf, 18 Epochen, 165 Technologien, Mauern und Tore, Späher, KI-Gegner und Fog of War funktionieren. Sound, Befehlsketten, Formationen und Mehrspieler fehlen noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.3).** Wirtschaft, Kampf, 18 Epochen, 165 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War sowie Ton und Musik funktionieren. Befehlsketten, Formationen und Mehrspieler fehlen noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -36,6 +36,7 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 - **Späher** mit großer Sichtweite und **Erkundenmodus** für jede Einheit.
 - **Moral**: Häuser stärken Einheiten in ihrer Nähe – sichtbar als Punkte am Lebensbalken und als Kreis um das Haus.
 - **Lesbarkeit**: Einheiten, Minen und Büsche hinter Gebäuden scheinen durch.
+- **Ton und Musik**, komplett im Browser erzeugt, ohne Audiodateien: Waffen klingen nach ihrer Epoche (Schleuder, Bogen, Muskete, Gewehr, Kanone, Laser), Bürger hacken, schürfen und hämmern, Einheiten antworten auf Befehle. Ein Alarm passend zur Ära (Kriegshorn, Glocke, Signalhorn, Sirene) und eine Fanfare beim Aufstieg. Die Musik wird für jede Ära neu komponiert, von der Knochenflöte bis zum Synthesizer, und wird im Kampf treibender. Man hört nur, was man sieht.
 - **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee.
 - **Fog of War**, Minimap, Sammelpunkte, Kontrollgruppen mit Gruppenleiste, Angriffsbewegung, Anzeige untätiger Bürger.
 - **Deterministische Simulation**: Gleicher Seed und gleiche Befehle ergeben dieselbe Partie. Das ist die Grundlage für Replays und Mehrspieler.
@@ -66,6 +67,7 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 | Pfeiltasten, Bildschirmrand, Mausrad | Kamera bewegen und zoomen                      |
 | `+` / `−`                       | Spielgeschwindigkeit                                |
 | `P` / `Esc` / `F1`              | Pause / Menü / Hilfe                                |
+| `Strg`+`M` oder 🔊              | Ton ein/aus; Lautstärke unter Menü → Ton & Musik    |
 
 ![Schlacht in den Weltkriegen](docs/screenshots/schlacht.jpg)
 
@@ -76,8 +78,9 @@ src/
   data/      Spielinhalte als Daten: Epochen, Einheiten, Gebäude, Kampfdreieck
   sim/       Deterministische Simulation: Welt, Befehle, Verhalten, Kampf, Wegfindung, KI
   render/    Isometrische Darstellung, prozedurale Sprites, Minimap
+  audio/     Prozedurale Klänge, generative Musik je Ära, Mischpult
   ui/        HUD, Eingabe, Startmenü
-tests/       Vitest: Daten, Wegfindung, Wirtschaft, Kampf, KI-gegen-KI
+tests/       Vitest: Daten, Wegfindung, Wirtschaft, Kampf, KI-gegen-KI, Klänge und Musik
 docs/        Game Design und Screenshots
 ```
 
@@ -93,4 +96,4 @@ Einmalig nötig: unter *Settings → Pages → Build and deployment → Source* 
 
 ## Rechtliches
 
-EmpireMarv ist ein eigenständiges Fanprojekt. Es verwendet weder Code noch Grafiken, Namen oder Sounds aus anderen Spielen. Alle Grafiken werden prozedural im Code gezeichnet. „Empire Earth“ ist eine Marke ihrer jeweiligen Rechteinhaber und wird hier nur zur Einordnung des Genres erwähnt.
+EmpireMarv ist ein eigenständiges Fanprojekt. Es verwendet weder Code noch Grafiken, Namen oder Sounds aus anderen Spielen. Alle Grafiken werden prozedural im Code gezeichnet, alle Klänge und die Musik zur Laufzeit synthetisiert. „Empire Earth“ ist eine Marke ihrer jeweiligen Rechteinhaber und wird hier nur zur Einordnung des Genres erwähnt.

@@ -136,6 +136,28 @@ Der Technologiebaum umfasst **165 Techniken in 24 Zweigen**. Jeder Zweig hat ein
 | Lager | Bergbau | Stein, Gold und Eisen werden 10 % schneller gesammelt | Schlägel und Eisen (II) → Stollenbau (V) → Grubenlampe (VIII) → Sprengpulver (XI) → Dampfpumpe (XIII) → Pressluftbohrer (XIV) → Asteroidenbergbau (XVII) |
 | Lager | Ackerbau | Felder bringen 10 % mehr Nahrung | Hakenpflug (II) → Bewässerung (V) → Dreifelderwirtschaft (VII) → Kummet (IX) → Fruchtwechsel (XII) → Kunstdünger (XIII) → Traktoren (XIV) → Gentechnik (XVI) → Hydroponik (XVIII) |
 
+## Ton und Musik
+
+Alles wird mit der Web Audio API zur Laufzeit erzeugt: Oszillatoren, gefiltertes Rauschen und FM-Synthese. Das Spiel liefert keine einzige Audiodatei aus. Die Simulation meldet nur, *was* zu hören ist (`SoundCue`: Schuss, Hieb, Treffer, Explosion, Tod, Einsturz, Arbeit). Sie liest davon nichts zurück und bleibt so deterministisch.
+
+- **Kampf**: Der Klang folgt der Waffe und ihrer Epoche. Steine und Pfeile surren, Keulen pochen, Bronze und Stahl klirren. Schwarzpulver knallt dumpf, Gewehre knallen scharf, Sturmtruppen und Panzerwagen feuern Salven. Dazu kommen Kanonendonner, Raketen, Laser und Plasma. Mit Holz zerbersten Belagerungsgeräte, mit Metall Fahrzeuge, Gebäude stürzen polternd ein.
+- **Arbeit**: Axt auf Holz, Spitzhacke auf Stein, Gold und Eisen (mit unterschiedlichem Klang), raschelnde Felder, Hammer auf der Baustelle (in der Zukunft ein Schweißgerät).
+- **Rückmeldungen**: Bei Auswahl, Bewegen, Angriff und Arbeit antworten Einheiten mit zwei Tönen auf dem Leitinstrument ihrer Ära, Reiter zusätzlich mit Hufschlag. Späher pfeifen, Fahrzeuge lassen den Motor aufheulen, Mechs surren, Drohnen brummen. Gebäude antworten mit einem kurzen Akkord.
+- **Meldungen**: Gebäude fertig, Einheit bereit, Technik erforscht, Fehler, Sieg und Niederlage. Beim Aufstieg spielt eine Fanfare, die Musik wird dabei leiser.
+- **Mischung**: Hörbar ist nur, was auf sichtbaren Feldern passiert. Lautstärke und Stereoposition ergeben sich aus der Bildschirmposition; Kampf ist noch 60 % einer Bildschirmbreite außerhalb zu hören, Arbeit nur im Bild. Jede Klangart hat einen Mindestabstand (z. B. 35 ms für Schüsse), höchstens 28 Effekte klingen gleichzeitig, ein Kompressor verhindert Übersteuern.
+- **Musik**: Ein Komponist schreibt Takt für Takt aus Tonleiter, Akkordfolge, Rhythmusmustern und Motiven (A B A C, A B A Kadenz). So wiederholen sich Melodien, statt zufällig zu klingen. Jeder vierte ruhige Abschnitt lässt die Melodie pausieren. Sichtbare Kämpfe erhöhen die *Kampf-Hitze*; ab 18 Punkten wechselt die Musik zur Kampfvariante mit treibendem Bass und Schlagzeug, unter 8 Punkten zurück (Abklingzeit 8 s). Alle Ären sind gleich laut eingepegelt.
+
+| Ära | Epochen | Tonleiter | Tempo | Instrumente | Alarm |
+| --- | --- | --- | --- | --- | --- |
+| Steinzeit | I–III | Moll-Pentatonik | 80 | Knochenflöte, Bordun, Rahmentrommel | Kriegshorn |
+| Antike | IV–VI | Hijaz (phrygisch-dominant) | 88 | Leier, Harfen-Arpeggio, Bordun | Kriegshorn |
+| Mittelalter | VII–IX | Dorisch, 6/8-Takt | 64 | Schalmei, Bordun, Tabor | Glocke |
+| Imperial | X–XII | Dur | 104 | Blechbläser, Streicher, Marschtrommel, Pauke | Signalhorn |
+| Moderne | XIII–XV | Natürliches Moll | 92 | E-Piano, Flächen, Sub-Bass, Schlagzeug | Sirene |
+| Zukunft | XVI–XVIII | Natürliches Moll | 116 | Synthesizer-Arpeggios, Flächen, Sub-Bass | Sirene |
+
+Lautstärke für Gesamt, Effekte und Musik sowie Stumm (`Strg`+`M`) stehen im Menü unter „Ton & Musik“ und werden im Browser gespeichert. Wegen der Autoplay-Regeln der Browser startet der Ton erst mit dem ersten Klick.
+
 ## KI
 
 Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Menschen. Sie kennt allerdings die Lage gegnerischer Gebäude, wie in klassischen RTS-KIs üblich.
@@ -155,6 +177,7 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
 - **Befehle** (`world.issue`) sind die einzige Schnittstelle für Spieler und KI. Für Replays reicht es, sie aufzuzeichnen.
 - **Darstellung** mit Canvas 2D, isometrisch, alle Sprites prozedural. Gebäude und Einheiten werden pro Epoche umgefärbt und umgebaut, Positionen zwischen Ticks interpoliert.
 - **Wegfindung**: A* auf 8er-Nachbarschaft mit wiederverwendeten Puffern und String-Pulling-Glättung.
+- **Audio** (`src/audio`): Synthese-Bausteine, Instrumente, Klangrezepte, reiner Musik-Komponist (testbar ohne Browser) und ein Mischpult mit Bussen für Effekte, Oberfläche und Musik.
 
 ## Roadmap
 
@@ -163,8 +186,8 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | Version | Inhalt |
 | --- | --- |
 | 0.1 | 18 Epochen, 5 Rollen, 8 Gebäude, Wirtschaft, KI, Fog of War, Minimap |
-| **0.2** (jetzt) | Mauern und Tore (auch für die KI), Späher und Erkundenmodus, Aufstieg mit Gebäude-Voraussetzungen, Epochen-Embleme, Gruppenleiste, sichtbare Moral, Durchsicht hinter Gebäuden, Karte per Rechts-Ziehen verschieben, Einlagern per Rechtsklick, Abriss mit Entf |
-| 0.3 | ✔ **Großer Technologiebaum** (165 Techniken, 24 Zweige, Schmiede und Akademie, Forschung als Aufstiegsvoraussetzung). Offen: **Sound & Musik** (Befehlsrückmeldungen, Kampfgeräusche, Alarm, Musik je Ära) |
+| 0.2 | Mauern und Tore (auch für die KI), Späher und Erkundenmodus, Aufstieg mit Gebäude-Voraussetzungen, Epochen-Embleme, Gruppenleiste, sichtbare Moral, Durchsicht hinter Gebäuden, Karte per Rechts-Ziehen verschieben, Einlagern per Rechtsklick, Abriss mit Entf |
+| **0.3** (jetzt) | ✔ **Großer Technologiebaum** (165 Techniken, 24 Zweige, Schmiede und Akademie, Forschung als Aufstiegsvoraussetzung). ✔ **Ton und Musik** (Befehlsrückmeldungen, Kampf- und Arbeitsgeräusche, Alarm und Fanfaren je Ära, generative Musik je Ära mit Kampfvariante) |
 | 0.4 | **Bedienung**: Befehlsketten mit Umschalt (Wegpunkte, mehrere Bauaufträge), Formationen (Linie, Block, Keil; Fernkampf hinten), globale Gebäude-Hotkeys |
 | 0.5 | **Mehrspieler per Link** (Spiel erstellen, Link teilen, direkt über WebRTC verbunden; Lockstep auf der deterministischen Simulation), Replays |
 | 0.6 | Helden (Stratege, Krieger), Priester und Propheten, Wunder mit Wundersieg |

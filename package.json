@@ -1,7 +1,7 @@
 {
   "name": "empiremarv",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Echtzeit-Strategiespiel über 18 Epochen der Menschheitsgeschichte – spielbarer Prototyp",
   "type": "module",
   "scripts": {
