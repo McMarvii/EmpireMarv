@@ -2,7 +2,7 @@ import { buildingAttack, BUILDING_DEFS, buildingMaxHp, buildingName, MORALE_MAX_
 import { EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
 import { modsFor, TECH_BY_ID, TECHS, TECHS_FOR_ADVANCE, type Tech } from '../data/techs';
-import { bestTier, CARRY_CAPACITY, ROLE_DEFS, unitStats, type Projectile, type Role, type UnitStats } from '../data/units';
+import { bestTier, CARRY_CAPACITY, ROLE_DEFS, unitStats, type Look, type Projectile, type Role, type UnitStats } from '../data/units';
 import { updateBuilding, updateUnit, separateUnits, setPathTo } from './behavior';
 import { updateProjectiles } from './combat';
 import { rectOf, type Building, type Entity, type NodeType, type Player, type ResourceNode, type Unit } from './entities';
@@ -80,6 +80,27 @@ export interface ProjectileFx {
   splash: number;
 }
 
+/**
+ * Something audible happened. The client turns cues into sound; the
+ * simulation never reads them back, so they cannot affect determinism.
+ */
+export interface SoundCue {
+  kind: 'shot' | 'melee' | 'impact' | 'blast' | 'death' | 'collapse' | 'work';
+  x: number;
+  y: number;
+  owner: number;
+  /** Epoch of the unit tier or building: decides the material (club, sword, rifle …). */
+  epoch?: number;
+  look?: Look;
+  projectile?: Projectile;
+  /** Work cues: what is being worked on. */
+  work?: Res | 'build';
+  size?: number;
+}
+
+/** Cues kept until the client drains them; headless runs simply stop recording. */
+const MAX_CUES = 256;
+
 export interface Effect {
   kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit';
   x: number;
@@ -143,6 +164,7 @@ export class World {
   projectiles: ProjectileFx[] = [];
   effects: Effect[] = [];
   events: GameEvent[] = [];
+  cues: SoundCue[] = [];
   controllers: Controller[] = [];
   over = false;
   winnerTeam: number | null = null;
@@ -662,6 +684,10 @@ export class World {
     this.events.push(ev);
   }
 
+  cue(c: SoundCue): void {
+    if (this.cues.length < MAX_CUES) this.cues.push(c);
+  }
+
   alertAttack(owner: number, x: number, y: number): void {
     if (owner < 0 || this.tick - this.lastAlertTick[owner] < TICK_RATE * 12) return;
     this.lastAlertTick[owner] = this.tick;
@@ -995,8 +1021,10 @@ export class World {
     if (killerOwner >= 0 && killerOwner !== e.owner) this.players[killerOwner].stats.kills++;
     if (e.kind === 'unit') {
       owner.stats.unitsLost++;
+      this.cue({ kind: 'death', x: e.x, y: e.y, owner: e.owner, epoch: e.stats.epoch, look: e.stats.look });
     } else {
       owner.stats.buildingsLost++;
+      this.cue({ kind: 'collapse', x: e.x, y: e.y, owner: e.owner, epoch: e.epoch, size: e.size });
       this.effects.push({ kind: 'collapse', x: e.x, y: e.y, t: 0, dur: 1.6, size: e.size });
       if (e.type === 'towncenter') {
         this.emit({ type: 'warn', player: e.owner, text: `${buildingName(e.type, e.epoch)} wurde zerstört!`, x: e.x, y: e.y });

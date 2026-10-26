@@ -10,6 +10,7 @@ import {
 import { epochLabel, epochNumeral, EPOCHS } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
 import { bestTier, GATHER_LABEL, ROLE_DEFS, type Role } from '../data/units';
+import { audio } from '../audio/engine';
 import type { Game } from '../game';
 import { buildingIcon, epochIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
@@ -88,6 +89,7 @@ export class Hud {
       idleCount: q('idle-count'),
       groups: q('groups'),
       techBtn: q('btn-tech'),
+      soundBtn: q('btn-sound'),
     };
     this.els.hud.hidden = false;
     this.els.resources.innerHTML = RESOURCES.map(
@@ -100,6 +102,8 @@ export class Hud {
     this.els.menuBtn.onclick = () => this.showPauseMenu();
     this.els.idleBtn.onclick = () => this.game.selectNextIdle();
     this.els.techBtn.onclick = () => this.showTechTree();
+    this.els.soundBtn.onclick = () => this.toggleMute();
+    this.updateSoundBtn();
     this.els.commands.onmouseleave = () => this.hideTooltip();
   }
 
@@ -126,6 +130,7 @@ export class Hud {
       el.append(img);
     }
     el.append(text);
+    if (type === 'warn') this.game.audio.ui('error', 300);
     if (onClick) {
       el.classList.add('clickable');
       el.onclick = onClick;
@@ -138,7 +143,8 @@ export class Hud {
 
   setPaused(paused: boolean): void {
     this.els.pauseBtn.textContent = paused ? '▶' : '❚❚';
-    if (!paused && this.els.overlay.dataset.kind === 'pause') this.closeOverlay();
+    const kind = this.els.overlay.dataset.kind;
+    if (!paused && (kind === 'pause' || kind === 'sound')) this.closeOverlay();
   }
 
   update(): void {
@@ -634,7 +640,10 @@ export class Hud {
       .join('');
     el.querySelectorAll<HTMLButtonElement>('button.cmd').forEach((btn) => {
       const i = Number(btn.dataset.i);
-      btn.onclick = (ev) => this.commands[i]?.action(ev.shiftKey);
+      btn.onclick = (ev) => {
+        this.game.audio.ui('click', 40);
+        this.commands[i]?.action(ev.shiftKey);
+      };
       btn.onmouseenter = () => {
         this.hoverCmd = i;
         this.showTooltip(this.commands[i].tooltip);
@@ -650,6 +659,7 @@ export class Hud {
   hotkey(key: string, shift: boolean): boolean {
     const cmd = this.commands.find((c) => c.key === key.toUpperCase());
     if (!cmd || cmd.locked) return false;
+    this.game.audio.ui('click', 40);
     cmd.action(shift);
     this.sig = '';
     return true;
@@ -691,14 +701,63 @@ export class Hud {
        <div class="dialog-buttons">
          <button data-act="resume" class="primary">Weiterspielen</button>
          <button data-act="help">Steuerung</button>
+         <button data-act="sound">Ton &amp; Musik</button>
          <button data-act="quit">Aufgeben &amp; Hauptmenü</button>
        </div>`,
     );
     this.bindOverlay({
       resume: () => this.game.togglePause(false),
       help: () => this.showHelp(),
+      sound: () => this.showSound(),
       quit: () => this.game.exitToMenu(),
     });
+  }
+
+  toggleMute(): void {
+    audio.setSettings({ muted: !audio.settings.muted });
+    this.updateSoundBtn();
+    if (this.els.overlay.dataset.kind === 'sound') this.showSound();
+  }
+
+  private updateSoundBtn(): void {
+    this.els.soundBtn.textContent = audio.settings.muted ? '🔇' : '🔊';
+    this.els.soundBtn.classList.toggle('muted', audio.settings.muted);
+  }
+
+  /** Volume sliders; changes apply (and are remembered) right away. */
+  showSound(): void {
+    this.game.togglePause(true);
+    const s = audio.settings;
+    const slider = (key: 'master' | 'sfx' | 'music', label: string) =>
+      `<label class="vol"><span>${label}</span><input type="range" min="0" max="100" step="5" value="${Math.round(s[key] * 100)}" data-vol="${key}"><output>${Math.round(s[key] * 100)} %</output></label>`;
+    this.openOverlay(
+      'sound',
+      `<h2>Ton &amp; Musik</h2>
+       <div class="vol-list">
+         ${slider('master', 'Gesamt')}
+         ${slider('sfx', 'Effekte')}
+         ${slider('music', 'Musik')}
+         <label class="vol-mute"><input type="checkbox" data-mute${s.muted ? ' checked' : ''}> Stumm (Strg+M)</label>
+       </div>
+       <p class="dim">Alle Klänge und die Musik entstehen live im Browser – passend zur Epoche. Im Kampf wird die Musik treibender.</p>
+       <div class="dialog-buttons"><button data-act="back">Zurück</button><button data-act="resume" class="primary">Weiterspielen</button></div>`,
+    );
+    this.els.overlay.querySelectorAll<HTMLInputElement>('[data-vol]').forEach((input) => {
+      input.oninput = () => {
+        const key = input.dataset.vol as 'master' | 'sfx' | 'music';
+        audio.setSettings({ [key]: Number(input.value) / 100 });
+        input.nextElementSibling!.textContent = `${input.value} %`;
+      };
+      input.onchange = () => {
+        if (input.dataset.vol !== 'music') this.game.audio.ui('built', 0);
+      };
+    });
+    const mute = this.els.overlay.querySelector<HTMLInputElement>('[data-mute]')!;
+    mute.onchange = () => {
+      audio.setSettings({ muted: mute.checked });
+      this.updateSoundBtn();
+    };
+    this.bindOverlay({ back: () => this.showPauseMenu(), resume: () => this.game.togglePause(false) });
   }
 
   showHelp(): void {
@@ -725,6 +784,7 @@ export class Hud {
         <tr><td>Pfeiltasten / Bildschirmrand / Mausrad</td><td>Kamera bewegen / zoomen</td></tr>
         <tr><td>+ / −</td><td>Spielgeschwindigkeit</td></tr>
         <tr><td>F2</td><td>Technologiebaum</td></tr>
+        <tr><td>Strg + M</td><td>Ton ein/aus (Lautstärke: Menü → Ton &amp; Musik)</td></tr>
         <tr><td>P / Esc</td><td>Pause / Menü</td></tr>
       </table>
       <h3>Kampfdreieck</h3>

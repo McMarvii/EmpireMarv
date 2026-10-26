@@ -667,6 +667,39 @@ kbd {
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
 }
 
+#btn-sound.muted {
+  color: #a59a85;
+}
+
+.vol-list {
+  display: grid;
+  gap: 10px;
+  margin: 6px 0 14px;
+}
+
+.vol {
+  display: grid;
+  grid-template-columns: 80px 1fr 52px;
+  align-items: center;
+  gap: 10px;
+}
+
+.vol input[type='range'] {
+  width: 100%;
+  accent-color: var(--gold);
+}
+
+.vol output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.vol-mute {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .dialog.wide {
   width: min(1280px, calc(100vw - 32px));
   max-width: min(1280px, calc(100vw - 32px));

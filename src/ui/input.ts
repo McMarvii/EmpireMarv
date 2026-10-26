@@ -264,7 +264,12 @@ export class Input {
   private onKeyDown(e: KeyboardEvent): void {
     const game = this.game;
     const target = e.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) {
+      // A focused slider or checkbox (sound dialog) still lets Esc close and Ctrl+M mute.
+      const type = (target as HTMLInputElement).type;
+      const passive = target.tagName === 'INPUT' && (type === 'range' || type === 'checkbox');
+      if (!passive || (e.key !== 'Escape' && !(e.ctrlKey && (e.key === 'm' || e.key === 'M')))) return;
+    }
     if (e.key.startsWith('Arrow')) {
       this.keys.add(e.key);
       e.preventDefault();
@@ -279,6 +284,11 @@ export class Input {
       e.preventDefault();
       if (game.hud.overlayOpen()) game.togglePause(false);
       else game.hud.showTechTree();
+      return;
+    }
+    if (e.ctrlKey && (e.key === 'm' || e.key === 'M')) {
+      e.preventDefault();
+      game.hud.toggleMute();
       return;
     }
     if (e.key === 'Escape') {
