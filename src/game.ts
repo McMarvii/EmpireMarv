@@ -181,6 +181,12 @@ export class Game {
         world.issue({ type: 'construct', player: this.me, ids: citizens, targetId: target.id });
       } else if (target.type === 'farm') {
         world.issue({ type: 'gather', player: this.me, ids: citizens, targetId: target.id });
+      } else if (BUILDING_DEFS[target.type].dropoff) {
+        // Citizens with a load store it, the others just walk over.
+        const carriers = units.filter((u) => u.role === 'citizen' && u.carryAmount > 0).map((u) => u.id);
+        if (carriers.length) world.issue({ type: 'deposit', player: this.me, ids: carriers, targetId: target.id });
+        const rest = citizens.filter((id) => !carriers.includes(id));
+        if (rest.length) world.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y });
       } else {
         world.issue({ type: 'move', player: this.me, ids: citizens, x: pos.x, y: pos.y });
       }

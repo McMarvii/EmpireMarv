@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EPOCHS } from '../src/data/epochs';
+import { rectOf } from '../src/sim/entities';
+import { distToRect } from '../src/sim/pathfinding';
 import { emptyWorld, run } from './helpers';
 
 describe('economy', () => {
@@ -46,6 +48,86 @@ describe('economy', () => {
     run(w, 80);
     expect(w.popCount(0)).toBe(7);
     expect(tc.popBlocked).toBe(true);
+  });
+
+  it('miners work right at the edge of the deposit', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    const mine = w.addResource('gold', tc.tx + 8, tc.ty + 1, 2, 800);
+    const citizens = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    w.issue({ type: 'gather', player: 0, ids: citizens.map((u) => u.id), targetId: mine.id });
+    let checked = 0;
+    for (let t = 0; t < 40; t++) {
+      run(w, 1);
+      for (const u of citizens) {
+        if (u.order.kind !== 'gather' || u.order.phase !== 'work') continue;
+        expect(distToRect(u.x, u.y, rectOf(mine))).toBeLessThanOrEqual(0.35);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(20);
+  });
+
+  it('right-click deposit stores the load and sends gatherers back', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    const tree = w.addResource('tree', tc.tx + 9, tc.ty + 1, 1, 400);
+    const [c] = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    w.issue({ type: 'gather', player: 0, ids: [c.id], targetId: tree.id });
+    for (let i = 0; i < 400 && c.carryAmount < 4; i++) w.step();
+    const load = c.carryAmount;
+    expect(load).toBeGreaterThanOrEqual(4);
+    const wood = w.players[0].stock.wood;
+    w.issue({ type: 'deposit', player: 0, ids: [c.id], targetId: tc.id });
+    expect(c.order.kind).toBe('deposit');
+    for (let i = 0; i < 400 && c.order.kind === 'deposit'; i++) w.step();
+    expect(w.players[0].stock.wood).toBeCloseTo(wood + load, 5);
+    expect(c.order.kind).toBe('gather');
+    if (c.order.kind === 'gather') expect(c.order.targetId).toBe(tree.id);
+
+    // Without a previous gather order the citizen just goes idle afterwards.
+    c.order = { kind: 'idle' };
+    c.carry = 'gold';
+    c.carryAmount = 6;
+    w.issue({ type: 'deposit', player: 0, ids: [c.id], targetId: tc.id });
+    run(w, 15);
+    expect(c.order.kind).toBe('idle');
+    expect(c.carryAmount).toBe(0);
+  });
+
+  it('builders of a storehouse work the nearest deposit of any kind', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    const sx = tc.tx + 12;
+    const sy = tc.ty;
+    w.addResource('tree', sx + 6, sy, 1, 300);
+    const gold = w.addResource('gold', sx + 3, sy, 2, 800);
+    const [c] = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    w.issue({ type: 'place', player: 0, ids: [c.id], building: 'storehouse', tx: sx, ty: sy });
+    run(w, 60);
+    expect(w.buildingsOf(0, 'storehouse')[0].built).toBe(true);
+    expect(c.order.kind).toBe('gather');
+    if (c.order.kind === 'gather') expect(c.order.targetId).toBe(gold.id);
+  });
+
+  it('demolishing a construction site refunds what was not built yet', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    const [c] = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    const wood = w.players[0].stock.wood;
+    w.issue({ type: 'place', player: 0, ids: [c.id], building: 'storehouse', tx: tc.tx + 7, ty: tc.ty });
+    const site = w.buildingsOf(0, 'storehouse')[0];
+    w.issue({ type: 'destroy', player: 0, ids: [site.id] });
+    expect(w.players[0].stock.wood).toBe(wood);
+
+    w.issue({ type: 'place', player: 0, ids: [c.id], building: 'storehouse', tx: tc.tx + 7, ty: tc.ty });
+    const second = w.buildingsOf(0, 'storehouse')[0];
+    for (let i = 0; i < 2000 && second.progress < 0.4; i++) w.step();
+    w.issue({ type: 'destroy', player: 0, ids: [second.id] });
+    const back = w.players[0].stock.wood - (wood - 100);
+    expect(back).toBeGreaterThan(30);
+    expect(back).toBeLessThan(70);
+    expect(second.dead).toBe(true);
   });
 
   it('refunds cancelled training', () => {

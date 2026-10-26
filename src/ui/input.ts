@@ -1,3 +1,4 @@
+import { BUILDING_DEFS } from '../data/buildings';
 import type { Game } from '../game';
 import type { Unit } from '../sim/entities';
 
@@ -112,6 +113,9 @@ export class Input {
     if (!e) return 'default';
     if (e.kind !== 'resource' && game.world.areEnemies(game.me, e.owner)) return 'crosshair';
     if (e.kind === 'resource') return 'pointer';
+    if (e.kind === 'building' && e.owner === game.me && e.built && BUILDING_DEFS[e.type].dropoff) {
+      if (game.selectedOwnUnits().some((u) => u.role === 'citizen' && u.carryAmount > 0)) return 'pointer';
+    }
     return 'default';
   }
 

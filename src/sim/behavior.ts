@@ -2,12 +2,14 @@ import { BUILDING_DEFS, buildingAttack, buildingMaxHp, buildingName, FARM_CAPACI
 import { EPOCHS } from '../data/epochs';
 import { BUILD_RATE, CARRY_CAPACITY, gatherRate, ROLE_DEFS, unitStats } from '../data/units';
 import { fire } from './combat';
-import { rectOf, UNIT_RADIUS, type Building, type Entity, type Unit } from './entities';
+import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type ResourceNode, type Unit } from './entities';
 import { distToRect, type PathGoal, type Rect } from './pathfinding';
 import { DT, TICK_RATE, type World } from './world';
 
 const WORK_REACH = 1.0;
 const APPROACH_REACH = 0.85;
+/** How close gatherers stand to a node's edge while working. */
+const SNUG_REACH = 0.2;
 const SCAN_INTERVAL = 8;
 
 export function setPathTo(w: World, u: Unit, goal: PathGoal): void {
@@ -130,6 +132,9 @@ export function updateUnit(w: World, u: Unit): void {
     case 'build':
       updateBuild(w, u);
       break;
+    case 'deposit':
+      updateDeposit(w, u);
+      break;
   }
   followPath(w, u);
 }
@@ -236,12 +241,9 @@ function updateGather(w: World, u: Unit): void {
     }
     const d = distTo(u, drop);
     if (d <= WORK_REACH) {
-      if (u.carry && u.carryAmount > 0) {
-        player.stock[u.carry] += u.carryAmount;
-        player.stats.gathered[u.carry] += u.carryAmount;
-      }
-      u.carryAmount = 0;
+      deliver(w, u);
       o.phase = 'toNode';
+      o.snug = false;
       u.path = [];
       u.repathTick = -1000;
       return;
@@ -261,6 +263,7 @@ function updateGather(w: World, u: Unit): void {
       o.lx = next.x;
       o.ly = next.y;
       o.phase = 'toNode';
+      o.snug = false;
       u.path = [];
       u.repathTick = -1000;
       node = next;
@@ -283,6 +286,14 @@ function updateGather(w: World, u: Unit): void {
     const d = distTo(u, target);
     const inReach = isFarm ? d <= 0.05 : d <= WORK_REACH;
     if (inReach) {
+      // Take the last step right up to the node instead of working from a distance.
+      if (!isFarm && d > SNUG_REACH + 0.1) {
+        if (u.path.length > 0) return;
+        if (!o.snug) {
+          o.snug = true;
+          if (snugUp(w, u, target as Building | ResourceNode)) return;
+        }
+      }
       o.phase = 'work';
       u.path = [];
     } else if (u.path.length === 0) {
@@ -295,6 +306,7 @@ function updateGather(w: World, u: Unit): void {
           o.targetId = alt.id;
           o.lx = alt.x;
           o.ly = alt.y;
+          o.snug = false;
         } else {
           goIdle(u);
         }
@@ -323,6 +335,71 @@ function updateGather(w: World, u: Unit): void {
     o.dropId = 0;
     u.path = [];
   }
+}
+
+/** Books a citizen's load into the owner's stock. */
+function deliver(w: World, u: Unit): void {
+  const player = w.players[u.owner];
+  if (u.carry && u.carryAmount > 0) {
+    player.stock[u.carry] += u.carryAmount;
+    player.stats.gathered[u.carry] += u.carryAmount;
+  }
+  u.carryAmount = 0;
+}
+
+/**
+ * Steps a gatherer from the neighbouring tile up to the node's edge. Each
+ * worker takes a slightly different spot along that edge (by id), so a crowd
+ * at a mine spreads out instead of stacking.
+ */
+function snugUp(w: World, u: Unit, node: Building | ResourceNode): boolean {
+  const r = rectOf(node);
+  const px = Math.max(r.x, Math.min(r.x + r.w, u.x));
+  const py = Math.max(r.y, Math.min(r.y + r.h, u.y));
+  const d = Math.hypot(u.x - px, u.y - py);
+  if (d < 1e-6) return false;
+  const nx = (u.x - px) / d;
+  const ny = (u.y - py) / d;
+  const slot = ((u.id % 5) - 2) * 0.35;
+  let ex = px;
+  let ey = py;
+  const sideX = px === r.x || px === r.x + r.w;
+  const sideY = py === r.y || py === r.y + r.h;
+  if (sideX && !sideY) ey = Math.max(r.y + 0.15, Math.min(r.y + r.h - 0.15, py + slot));
+  else if (sideY && !sideX) ex = Math.max(r.x + 0.15, Math.min(r.x + r.w - 0.15, px + slot));
+  const tx = ex + nx * SNUG_REACH;
+  const ty = ey + ny * SNUG_REACH;
+  for (let s = 1; s <= 4; s++) {
+    const t = s / 4;
+    if (!w.map.passable(Math.floor(u.x + (tx - u.x) * t), Math.floor(u.y + (ty - u.y) * t))) return false;
+  }
+  u.path = [{ x: tx, y: ty }];
+  return true;
+}
+
+function updateDeposit(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'deposit') return;
+  if (u.carryAmount <= 0) return finishDeposit(u, o.resume);
+  let drop = w.get(o.targetId);
+  if (!drop || drop.kind !== 'building' || !drop.built || drop.owner !== u.owner || !BUILDING_DEFS[drop.type].dropoff) {
+    drop = w.nearestDropoff(u.owner, u.x, u.y) ?? undefined;
+    if (!drop) return goIdle(u);
+    o.targetId = drop.id;
+    u.path = [];
+  }
+  if (distTo(u, drop) <= WORK_REACH) {
+    deliver(w, u);
+    return finishDeposit(u, o.resume);
+  }
+  if (u.path.length === 0 && !approach(w, u, rectOf(drop as Building), APPROACH_REACH)) goIdle(u);
+}
+
+function finishDeposit(u: Unit, resume: GatherOrder | null): void {
+  if (!resume) return goIdle(u);
+  u.order = { ...resume, phase: 'toNode', dropId: 0, snug: false };
+  u.path = [];
+  u.repathTick = -1000;
 }
 
 function updateBuild(w: World, u: Unit): void {
@@ -379,13 +456,11 @@ function afterBuild(w: World, u: Unit, b: Building): void {
     }
   }
   if (BUILDING_DEFS[b.type].dropoff) {
-    for (const res of ['wood', 'gold', 'stone', 'iron', 'food'] as const) {
-      const n = w.nearestResource(res, b.x, b.y, 8, u.owner);
-      if (n) {
-        u.order = { kind: 'gather', targetId: n.id, res, phase: 'toNode', dropId: 0, lx: n.x, ly: n.y };
-        u.path = [];
-        return;
-      }
+    const n = w.nearestAnyResource(b.x, b.y, 10, u.owner);
+    if (n) {
+      u.order = { kind: 'gather', targetId: n.id, res: n.res, phase: 'toNode', dropId: 0, lx: n.x, ly: n.y };
+      u.path = [];
+      return;
     }
   }
   goIdle(u);

@@ -226,6 +226,7 @@ export class Hud {
       let activity = '';
       if (e.order.kind === 'gather') activity = GATHER_LABEL[e.order.res];
       else if (e.order.kind === 'build') activity = 'baut';
+      else if (e.order.kind === 'deposit') activity = 'lagert ein';
       else if (e.order.kind === 'attack') activity = 'kämpft';
       else if (e.order.kind === 'move') activity = 'unterwegs';
       else activity = 'untätig';

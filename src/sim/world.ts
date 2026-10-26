@@ -99,6 +99,7 @@ export type Command =
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
   | { type: 'rally'; player: number; buildingId: number; x: number; y: number }
+  | { type: 'deposit'; player: number; ids: number[]; targetId: number }
   | { type: 'stop'; player: number; ids: number[] }
   | { type: 'destroy'; player: number; ids: number[] };
 
@@ -448,6 +449,21 @@ export class World {
     return best;
   }
 
+  /** Nearest visible deposit of any kind, e.g. for builders of a new storehouse. */
+  nearestAnyResource(x: number, y: number, maxDist: number, player: number): ResourceNode | null {
+    let best: ResourceNode | null = null;
+    let bestD = maxDist;
+    for (const n of this.resources) {
+      if (n.dead || !this.isVisibleTo(player, n)) continue;
+      const d = distToRect(x, y, rectOf(n));
+      if (d < bestD) {
+        bestD = d;
+        best = n;
+      }
+    }
+    return best;
+  }
+
   farmWorkers(farm: Building, except?: Unit): number {
     let n = 0;
     for (const u of this.units) {
@@ -603,6 +619,21 @@ export class World {
       case 'rally': {
         const b = this.get(cmd.buildingId);
         if (b && b.kind === 'building' && b.owner === cmd.player) b.rally = { x: cmd.x, y: cmd.y };
+        break;
+      }
+      case 'deposit': {
+        const target = this.get(cmd.targetId);
+        if (!target || target.kind !== 'building' || target.owner !== cmd.player || !target.built) return;
+        if (!BUILDING_DEFS[target.type].dropoff) return;
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
+          if (u.role !== 'citizen' || !u.carry || u.carryAmount <= 0) continue;
+          // Gatherers go back to their node afterwards.
+          const o = u.order;
+          const resume = o.kind === 'gather' ? { ...o } : o.kind === 'deposit' ? o.resume : null;
+          u.order = { kind: 'deposit', targetId: target.id, resume };
+          u.path = [];
+          u.repathTick = -1000;
+        }
         break;
       }
       case 'stop':

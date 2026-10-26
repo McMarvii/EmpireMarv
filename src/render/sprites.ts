@@ -882,7 +882,9 @@ export function drawNode(ctx: Ctx, project: Project, scale: number, n: NodeLook,
     default: {
       const base = n.nodeType === 'gold' ? '#8d8576' : n.nodeType === 'iron' ? '#6e6a68' : '#a3a29b';
       const fleck = n.nodeType === 'gold' ? '#f2c84b' : n.nodeType === 'iron' ? '#b5603a' : '#d9d8d2';
-      const amount = 0.55 + 0.45 * n.ratio;
+      // Rocks fill the whole footprint and only shrink a little while mined out.
+      const amount = (0.75 + 0.25 * n.ratio) * 0.9 * n.size;
+      const bulk = 0.6 + 0.4 * n.size;
       const rocks: Array<[number, number, number]> = [
         [-0.35, -0.3, 0.55],
         [0.3, -0.35, 0.5],
@@ -892,7 +894,7 @@ export function drawNode(ctx: Ctx, project: Project, scale: number, n: NodeLook,
       ];
       for (const [dx, dy, r] of rocks) {
         const [rx, ry] = project(cx + dx * amount, cy + dy * amount);
-        const rr = r * amount * 13 * k * 0.8;
+        const rr = r * (amount / (0.9 * n.size)) * bulk * 13 * k * 0.8;
         poly(
           ctx,
           [
