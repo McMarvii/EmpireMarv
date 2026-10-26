@@ -36,26 +36,31 @@ export function fire(w: World, attacker: Unit | Building, target: Entity): void 
   let dmg: number;
   let projectile: Projectile;
   let splash = 0;
+  let epoch: number;
   if (attacker.kind === 'unit') {
     role = attacker.role;
     dmg = attacker.stats.dmg * (1 + attacker.morale * MORALE_PER_HOUSE);
     projectile = attacker.stats.projectile;
     splash = attacker.stats.splash;
+    epoch = attacker.stats.epoch;
     attacker.attackAnim = 0.35;
   } else {
     role = 'tower';
     dmg = w.buildingAttackFor(attacker.owner, attacker.type)!.dmg;
-    const epoch = w.players[attacker.owner].epoch;
+    epoch = w.players[attacker.owner].epoch;
     projectile = epoch >= 16 ? 'laser' : epoch >= 9 ? 'bullet' : 'arrow';
   }
+  const look = attacker.kind === 'unit' ? attacker.stats.look : undefined;
 
   if (projectile === 'none') {
+    w.cue({ kind: 'melee', x: target.x, y: target.y, owner: attacker.owner, epoch, look });
     applyDamage(w, target, dmg, role, attacker.owner, attacker.id);
     if (splash > 0) splashDamage(w, target.x, target.y, splash, dmg * 0.5, role, attacker.owner, attacker.id, target.id);
     return;
   }
   const from = centerOf(attacker);
   const to = centerOf(target);
+  w.cue({ kind: 'shot', x: from.x, y: from.y, owner: attacker.owner, epoch, look, projectile });
   const dist = Math.hypot(to.x - from.x, to.y - from.y);
   w.projectiles.push({
     kind: projectile,
@@ -95,7 +100,9 @@ export function updateProjectiles(w: World): void {
       }
       splashDamage(w, p.x1, p.y1, p.splash, p.dmg * 0.5, p.attackerRole, p.owner, p.attackerId, p.targetId);
       w.effects.push({ kind: p.kind === 'laser' ? 'laserhit' : 'explosion', x: p.x1, y: p.y1, t: 0, dur: 0.6, size: p.splash });
+      w.cue({ kind: 'blast', x: p.x1, y: p.y1, owner: p.owner, projectile: p.kind, size: p.splash });
     } else if (target && target.kind !== 'resource') {
+      w.cue({ kind: 'impact', x: p.x1, y: p.y1, owner: p.owner, projectile: p.kind, size: target.kind === 'building' ? target.size : 0 });
       applyDamage(w, target, p.dmg, p.attackerRole, p.owner, p.attackerId);
       w.effects.push({ kind: p.kind === 'laser' ? 'laserhit' : 'hit', x: p.x1, y: p.y1, t: 0, dur: 0.25, size: 0.3 });
     }

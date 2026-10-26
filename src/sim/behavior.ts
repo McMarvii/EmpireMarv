@@ -349,7 +349,10 @@ function updateGather(w: World, u: Unit): void {
     if (target.amount <= 0.0001) w.remove(target);
   }
   u.carryAmount += amount;
-  u.attackAnim = u.attackAnim > 0 ? u.attackAnim : 0.5;
+  if (u.attackAnim <= 0) {
+    u.attackAnim = 0.5;
+    w.cue({ kind: 'work', x: u.x, y: u.y, owner: u.owner, epoch: player.epoch, work: isFarm ? 'food' : o.res });
+  }
   if (u.carryAmount >= w.carryCapacity(u.owner)) {
     o.phase = 'toDrop';
     o.dropId = 0;
@@ -510,7 +513,10 @@ function updateBuild(w: World, u: Unit): void {
   if (d <= (walkable ? 0.6 : WORK_REACH)) {
     u.path = [];
     face(u, b);
-    u.attackAnim = u.attackAnim > 0 ? u.attackAnim : 0.5;
+    if (u.attackAnim <= 0) {
+      u.attackAnim = 0.5;
+      w.cue({ kind: 'work', x: u.x, y: u.y, owner: u.owner, epoch: w.players[u.owner].epoch, work: 'build' });
+    }
     const def = BUILDING_DEFS[b.type];
     if (!b.built) {
       const delta = (BUILD_RATE * w.players[u.owner].mods.build * DT) / def.buildTime;
