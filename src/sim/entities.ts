@@ -2,6 +2,7 @@ import type { BuildingType } from '../data/buildings';
 import type { Cost, Res, Stock } from '../data/resources';
 import type { Mods } from '../data/techs';
 import type { Role, UnitStats } from '../data/units';
+import type { Formation } from './formation';
 import type { Point, Rect } from './pathfinding';
 
 export interface GatherOrder {
@@ -17,16 +18,36 @@ export interface GatherOrder {
   snug?: boolean;
 }
 
+export interface PatrolOrder {
+  kind: 'patrol';
+  /** Walked in a loop; enemies on the way are fought, then the round goes on. */
+  points: Point[];
+  index: number;
+}
+
 export type Order =
   | { kind: 'idle' }
-  | { kind: 'move'; x: number; y: number; attackMove: boolean }
-  | { kind: 'attack'; targetId: number; resume: Point | null; leash: Point | null }
+  /** `pace` caps the speed so a group arrives together. */
+  | { kind: 'move'; x: number; y: number; attackMove: boolean; pace?: number }
+  /** `resume`: the walk to pick up again after the fight (attack-move or patrol). */
+  | { kind: 'attack'; targetId: number; resume: Order | null; leash: Point | null }
   | GatherOrder
   | { kind: 'build'; targetId: number }
   /** Carry the load to a drop-off, then go back to `resume` (or idle). */
   | { kind: 'deposit'; targetId: number; resume: GatherOrder | null }
   /** Head for the nearest unexplored ground until the whole map is known. */
-  | { kind: 'explore'; tx: number; ty: number; skip: number[] };
+  | { kind: 'explore'; tx: number; ty: number; skip: number[] }
+  | PatrolOrder;
+
+/** A queued command (Shift), turned into an order once the unit gets to it. */
+export type Plan =
+  | { kind: 'move'; x: number; y: number; attackMove: boolean; pace?: number }
+  | { kind: 'attack'; targetId: number }
+  | { kind: 'gather'; targetId: number; res: Res; lx: number; ly: number }
+  | { kind: 'build'; targetId: number }
+  | { kind: 'deposit'; targetId: number; resume: GatherOrder | null }
+  | { kind: 'explore' }
+  | { kind: 'patrol'; points: Point[] };
 
 interface BaseEntity {
   id: number;
@@ -49,6 +70,9 @@ export interface Unit extends BaseEntity {
   py: number;
   facing: number;
   order: Order;
+  /** Orders to carry out after the current one, oldest first. */
+  queue: Plan[];
+  formation: Formation;
   path: Point[];
   repathTick: number;
   scanTick: number;
@@ -82,7 +106,8 @@ export interface Building extends BaseEntity {
   research: { targetEpoch: number; progress: number; total: number } | null;
   /** Technology being researched here; runs alongside unit training. */
   tech: { id: string; progress: number; total: number; cost: Cost } | null;
-  rally: Point | null;
+  /** Waypoints for new units; the last one is the gathering point. */
+  rally: Point[];
   cooldown: number;
   scanTick: number;
   targetId: number;

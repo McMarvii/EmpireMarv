@@ -83,6 +83,16 @@ Fünf Rollen, jede Epoche liefert eine neue Stufe pro Rolle:
 - Türme und Dorfzentren schießen und werden mit jeder Epoche stärker.
 - **Späher** stehen außerhalb des Kampfdreiecks: schnell, Sichtweite 11, kaum Kampfkraft, greifen nie von selbst an. Stufen: Läufer → Kundschafter → Meldereiter → Spähwagen → Aufklärungsdrohne. Jede Einheit kann in den **Erkundenmodus** geschickt werden und zieht dann selbstständig zum nächsten unerkundeten Rand.
 
+## Befehle und Formationen
+
+- **Formationen**: Linie (breite Front, wenige Reihen), Block (kompaktes Quadrat, Standard) und Keil (Spitze voran). Unabhängig von der Formation steht die Infanterie vorn, dahinter Reiter, dann Bürger und Späher, dann Fernkampf, ganz hinten Belagerung. Jede Rang-Gruppe füllt eigene Reihen. Einheiten behalten ihre Seite, damit sich ihre Wege nicht kreuzen. Ein Klick auf eine Formation (`N`, `O`, `V`) ordnet eine stehende Gruppe sofort neu.
+- **Gleichschritt**: Bei jedem Gruppenbefehl bekommt jede Einheit ein Marschtempo, mit dem alle zur selben Zeit am Ziel sind. Die Einheit mit dem (gemessen an ihrem Tempo) weitesten Weg gibt die Zeit vor, alle anderen werden langsamer, aber höchstens auf 35 % ihres Tempos. Reiter laufen so nicht mehr voraus. Bei Gefechten in einer Angriffsbewegung endet der Gleichschritt.
+- **Blickrichtung**: Normalerweise zeigt die Front in Laufrichtung. Mit eigenen Einheiten in der Auswahl legt Rechts-Ziehen sie fest: Startpunkt = Ziel, Zugrichtung = Front, mit Pfeil und Vorschau der Plätze. Ohne Einheiten in der Auswahl schwenkt Rechts-Ziehen die Karte.
+- **Befehlsketten**: Mit gedrückter Umschalttaste werden Befehle angehängt statt ersetzt: Wegpunkte, Angriffsbewegungen, Angriffsziele, Sammeln, Einlagern, Bauaufträge (auch Mauerlinien) und Erkunden, bis zu 40 je Einheit. Befehle, die nie von selbst enden (Sammeln, Erkunden, Patrouille, Nichtstun), weichen einem angehängten Befehl sofort. So baut ein Holzfäller bei Umschalt+Bauen erst, statt ewig weiter Holz zu hacken. Halt (`X`) und jeder Befehl ohne Umschalt leeren die Kette.
+- **Patrouille** (`R`): Die Einheiten pendeln zwischen ihrem Standort und dem Ziel. Umschalt+Klick fügt der Runde weitere Punkte hinzu (bis 8). Soldaten greifen unterwegs an und setzen danach die Runde fort; Späher und Bürger laufen nur.
+- **Sammelpunkt-Ketten**: Umschalt+Rechtsklick mit einem Gebäude hängt Wegpunkte an (bis 8). Neue Einheiten laufen sie der Reihe nach ab; Bürger beginnen am Ende zu sammeln, wenn dort ein Rohstoff liegt.
+- **Anzeige**: Ausgewählte Einheiten mit Kette oder Patrouille zeigen ihre Wegpunkte als gestrichelte Linien in der Farbe der Befehlsart (Bewegen grün, Kampf rot, Sammeln gelb, Bauen blau). Bei gedrückter Umschalttaste werden alle Pläne gezeigt. Größere Gruppen bekommen eine gemeinsame Linie durch die Mitte und einen Punkt je Einheit.
+
 ## Gebäude
 
 | Gebäude | Ab Epoche | Funktion |
@@ -187,8 +197,8 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | --- | --- |
 | 0.1 | 18 Epochen, 5 Rollen, 8 Gebäude, Wirtschaft, KI, Fog of War, Minimap |
 | 0.2 | Mauern und Tore (auch für die KI), Späher und Erkundenmodus, Aufstieg mit Gebäude-Voraussetzungen, Epochen-Embleme, Gruppenleiste, sichtbare Moral, Durchsicht hinter Gebäuden, Karte per Rechts-Ziehen verschieben, Einlagern per Rechtsklick, Abriss mit Entf |
-| **0.3** (jetzt) | ✔ **Großer Technologiebaum** (165 Techniken, 24 Zweige, Schmiede und Akademie, Forschung als Aufstiegsvoraussetzung). ✔ **Ton und Musik** (Befehlsrückmeldungen, Kampf- und Arbeitsgeräusche, Alarm und Fanfaren je Ära, generative Musik je Ära mit Kampfvariante) |
-| 0.4 | **Bedienung**: Befehlsketten mit Umschalt (Wegpunkte, mehrere Bauaufträge), Formationen (Linie, Block, Keil; Fernkampf hinten), globale Gebäude-Hotkeys |
+| 0.3 | ✔ **Großer Technologiebaum** (165 Techniken, 24 Zweige, Schmiede und Akademie, Forschung als Aufstiegsvoraussetzung). ✔ **Ton und Musik** (Befehlsrückmeldungen, Kampf- und Arbeitsgeräusche, Alarm und Fanfaren je Ära, generative Musik je Ära mit Kampfvariante) |
+| **0.4** (jetzt) | ✔ **Befehlsketten** mit Umschalt (Wegpunkte, Ziele, Bauaufträge, Mauerlinien), ✔ **Formationen** (Linie, Block, Keil; Fernkampf hinten; Gleichschritt; Blickrichtung per Rechts-Ziehen), ✔ **Patrouille**, ✔ **Sammelpunkt-Ketten**, ✔ Wegpunkt-Anzeige. Offen: globale Gebäude-Hotkeys |
 | 0.5 | **Mehrspieler per Link** (Spiel erstellen, Link teilen, direkt über WebRTC verbunden; Lockstep auf der deterministischen Simulation), Replays |
 | 0.6 | Helden (Stratege, Krieger), Priester und Propheten, Wunder mit Wundersieg |
 | 0.7 | Seekrieg und Luftkrieg, Kartentypen, Speichern & Laden, Tutorial |

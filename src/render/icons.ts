@@ -2,6 +2,7 @@ import { BUILDING_DEFS, type BuildingType } from '../data/buildings';
 import { epochNumeral, epochStyle, toRoman, type EraStyle } from '../data/epochs';
 import type { Tech, TechGlyph } from '../data/techs';
 import { bestTier, ROLE_DEFS, type Role } from '../data/units';
+import { formationSlots, type Formation } from '../sim/formation';
 import type { Project } from './camera';
 import { drawBuilding, drawUnit, LINK_E, LINK_W, VEHICLE_LOOKS } from './sprites';
 
@@ -374,5 +375,44 @@ export function techIcon(tech: Tech, size = 44): string {
     ctx.strokeText(text, size - pad * 2, size - pad * 2);
     ctx.fillStyle = look.text;
     ctx.fillText(text, size - pad * 2, size - pad * 2);
+  });
+}
+
+/**
+ * Formation button: the real slot layout of a small army seen from above,
+ * front up – infantry gold, archers blue behind them.
+ */
+export function formationIcon(kind: Formation, size = 44): string {
+  return render(`f:${kind}:${size}`, size, (ctx) => {
+    const members = [
+      ...Array.from({ length: 6 }, (_, i) => ({ id: i + 1, role: 'assault' as const, x: i, y: 0 })),
+      ...Array.from({ length: 4 }, (_, i) => ({ id: i + 7, role: 'ranged' as const, x: i, y: 1 })),
+    ];
+    const slots = formationSlots(members, kind, 0, 0, -Math.PI / 2);
+    const xs = slots.map((s) => s.x);
+    const ys = slots.map((s) => s.y);
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
+    const k = (size * 0.62) / span;
+    const cx = size / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * k;
+    const cy = size * 0.58 - ((Math.max(...ys) + Math.min(...ys)) / 2) * k;
+    // Arrow pointing to the front.
+    ctx.strokeStyle = 'rgba(240,231,211,0.75)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(size / 2, size * 0.2);
+    ctx.lineTo(size / 2, size * 0.04);
+    ctx.moveTo(size / 2 - 4, size * 0.12);
+    ctx.lineTo(size / 2, size * 0.04);
+    ctx.lineTo(size / 2 + 4, size * 0.12);
+    ctx.stroke();
+    for (const s of slots) {
+      ctx.beginPath();
+      ctx.arc(cx + s.x * k, cy + s.y * k, Math.max(2, size * 0.055), 0, Math.PI * 2);
+      ctx.fillStyle = s.id <= 6 ? '#e0ad4a' : '#6fb7ff';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
   });
 }

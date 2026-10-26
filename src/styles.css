@@ -550,6 +550,12 @@ button.primary {
   overflow-wrap: anywhere;
 }
 
+.cmd.active {
+  border-color: var(--gold);
+  background: linear-gradient(#5a4a2c, #34291a);
+  box-shadow: inset 0 0 0 1px var(--gold);
+}
+
 .cmd .hk {
   position: absolute;
   left: 2px;
