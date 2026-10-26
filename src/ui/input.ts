@@ -17,8 +17,6 @@ export class Input {
   /** Right button held: a drag pans the camera, a click without drag issues a command. */
   private rightDrag: { x: number; y: number; camX: number; camY: number; panning: boolean } | null = null;
   private keys = new Set<string>();
-  private groups = new Map<string, number[]>();
-  private lastGroupKey = { key: '', time: 0 };
   private lastClick = { time: 0, id: 0 };
   private selbox: HTMLElement;
   private cleanup: Array<() => void> = [];
@@ -318,20 +316,8 @@ export class Input {
     const digit = e.code.startsWith('Digit') ? e.code.slice(5) : '';
     if (digit && digit !== '0') {
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        this.groups.set(digit, game.selectedOwnUnits().map((u) => u.id));
-        game.hud.message('info', `Gruppe ${digit} gespeichert.`);
-        return;
-      }
-      const ids = (this.groups.get(digit) ?? []).filter((id) => game.world.get(id));
-      if (!ids.length) return;
-      const now = performance.now();
-      if (this.lastGroupKey.key === digit && now - this.lastGroupKey.time < 400) {
-        const first = game.world.get(ids[0]);
-        if (first) game.centerOn(first.x, first.y);
-      }
-      this.lastGroupKey = { key: digit, time: now };
-      game.select(ids);
+      if (e.ctrlKey || e.metaKey) game.saveGroup(digit);
+      else game.recallGroup(digit);
       return;
     }
     if (e.key.length === 1 && /[a-z]/i.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {

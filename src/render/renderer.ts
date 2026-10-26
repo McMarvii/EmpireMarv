@@ -1,4 +1,4 @@
-import { BUILDING_DEFS, type BuildingType } from '../data/buildings';
+import { BUILDING_DEFS, MORALE_RADIUS, type BuildingType } from '../data/buildings';
 import { rectOf, type Building, type Entity, type ResourceNode, type Unit } from '../sim/entities';
 import { Terrain } from '../sim/map';
 import type { World } from '../sim/world';
@@ -20,6 +20,20 @@ export interface Placement {
   /** Walls and gates: where the drag started, and the segments planned so far. */
   anchor?: { tx: number; ty: number } | null;
   line?: LineSegment[] | null;
+}
+
+/** Whether a point lies inside a convex polygon given in either winding. */
+function inConvex(pts: Array<[number, number]>, [px, py]: [number, number]): boolean {
+  let sign = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [ax, ay] = pts[i];
+    const [bx, by] = pts[(i + 1) % pts.length];
+    const cross = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+    if (cross === 0) continue;
+    if (sign === 0) sign = Math.sign(cross);
+    else if (Math.sign(cross) !== sign) return false;
+  }
+  return true;
 }
 
 /** Neighbour bitmask of a wall tile, from a tile → owner lookup. */
@@ -166,6 +180,9 @@ export class Renderer {
 
     // --- ground layer: farms, selection rings, rally points ---------------
     const drawables: Array<{ depth: number; draw: () => void }> = [];
+    // Screen outlines of solid buildings, and things that may hide behind them.
+    const hulls: Array<{ depth: number; pts: Array<[number, number]> }> = [];
+    const ghosts: Array<{ depth: number; probes: Array<[number, number]>; draw: () => void; ring?: string }> = [];
     const time = state.time;
     // Tiles of visible walls, gates and towers, so wall segments can join up.
     const joins = new Map<number, number>();
@@ -194,10 +211,27 @@ export class Renderer {
       };
       const selected = state.selection.has(b.id) || state.hoverId === b.id;
       if (selected) this.footprint(b.tx, b.ty, b.size, this.ringColor(b.owner), state.selection.has(b.id) ? 2 : 1);
+      // Morale reach of houses: when one is selected and while a new one is being placed.
+      if (b.type === 'house' && b.owner === this.me && b.built && (state.selection.has(b.id) || state.placement?.type === 'house')) {
+        this.moraleRing(b.x, b.y, state.selection.has(b.id) ? 0.9 : 0.5);
+      }
       if (BUILDING_DEFS[b.type].walkable) {
         drawBuilding(ctx, project, zoom, look, time);
       } else {
         drawables.push({ depth: b.tx + b.ty + b.size, draw: () => drawBuilding(ctx, project, zoom, look, time) });
+        const top = buildingTopZ(b.type, b.epoch, b.size) * (b.built ? 1 : Math.min(1, b.progress * 1.2));
+        const e = b.size;
+        hulls.push({
+          depth: b.tx + b.ty + e,
+          pts: [
+            project(b.tx, b.ty + e),
+            project(b.tx + e, b.ty + e),
+            project(b.tx + e, b.ty),
+            project(b.tx + e, b.ty, top),
+            project(b.tx, b.ty, top),
+            project(b.tx, b.ty + e, top),
+          ],
+        });
       }
       if (state.selection.has(b.id) && b.owner === this.me && b.rally) {
         const [rx, ry] = project(b.rally.x, b.rally.y);
@@ -227,7 +261,9 @@ export class Renderer {
       if (!this.onScreen(sx, sy, 80 * zoom)) continue;
       if (state.hoverId === n.id || state.selection.has(n.id)) this.footprint(n.tx, n.ty, n.size, '#ffd24d', 1);
       const look = { nodeType: n.nodeType, tx: n.tx, ty: n.ty, size: n.size, ratio: n.amount / n.maxHp, variant: n.variant };
-      drawables.push({ depth: n.tx + n.ty + n.size, draw: () => drawNode(ctx, project, zoom, look, time) });
+      const drawIt = () => drawNode(ctx, project, zoom, look, time);
+      drawables.push({ depth: n.tx + n.ty + n.size, draw: drawIt });
+      if (n.nodeType !== 'tree') ghosts.push({ depth: n.tx + n.ty + n.size, probes: [project(n.x, n.y, 4), project(n.x, n.y, 14)], draw: drawIt });
     }
 
     const unitScale = zoom * UNIT_SCALE;
@@ -255,11 +291,30 @@ export class Renderer {
         carry: u.carryAmount > 0 ? u.carry : null,
         seed: u.id,
       };
-      drawables.push({ depth: x + y, draw: () => drawUnit(ctx, project, unitScale, x, y, look, time) });
+      const drawIt = () => drawUnit(ctx, project, unitScale, x, y, look, time);
+      drawables.push({ depth: x + y, draw: drawIt });
+      ghosts.push({ depth: x + y, probes: [project(x, y, 4), project(x, y, 14 * UNIT_SCALE)], draw: drawIt, ring: world.players[u.owner].color });
     }
 
     drawables.sort((a, b) => a.depth - b.depth);
     for (const d of drawables) d.draw();
+
+    // X-ray: whatever stands behind a building shows through it.
+    for (const g of ghosts) {
+      if (!hulls.some((h) => h.depth > g.depth && g.probes.some((p) => inConvex(h.pts, p)))) continue;
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      g.draw();
+      ctx.restore();
+      if (g.ring) {
+        const [fx, fy] = g.probes[0];
+        ctx.beginPath();
+        ctx.ellipse(fx, fy + 4 * zoom, 7 * unitScale, 3.5 * unitScale, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = g.ring;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
 
     this.drawProjectiles(state);
     this.drawEffects();
@@ -280,6 +335,22 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.stroke();
     }
+  }
+
+  /** Dashed ground circle showing how far a house's morale bonus reaches. */
+  private moraleRing(x: number, y: number, strength: number): void {
+    const { ctx, camera } = this;
+    const [sx, sy] = camera.project(x, y);
+    const k = Math.SQRT2 * MORALE_RADIUS * camera.zoom;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, k * 32, k * 16, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(242,200,75,${0.08 * strength})`;
+    ctx.fill();
+    ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = `rgba(242,200,75,${0.75 * strength})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   /** Gates swing open while a unit of the owner's team is close. */
@@ -444,6 +515,16 @@ export class Renderer {
       const tall = wide(u) ? 34 : 30;
       const [sx, sy] = camera.project(x, y, tall * UNIT_SCALE);
       bar(sx, sy, 22 * zoom, u.hp / u.maxHp, hpColor(u.hp / u.maxHp));
+      // Morale: one gold pip per house in reach, right of the bar.
+      if (selected && u.morale > 0 && u.owner === this.me) {
+        for (let i = 0; i < u.morale; i++) {
+          const px = sx + 11 * zoom + 3 + i * 4;
+          ctx.fillStyle = 'rgba(0,0,0,0.65)';
+          ctx.fillRect(px - 1, sy - 1, 5, 5);
+          ctx.fillStyle = '#f2c84b';
+          ctx.fillRect(px, sy, 3, 3);
+        }
+      }
     }
     for (const b of world.buildings) {
       if (b.dead || !world.isVisibleTo(this.me, b)) continue;
@@ -465,6 +546,10 @@ export class Renderer {
         this.drawGhost(p.type, seg.tx, seg.ty, seg.valid, time, links);
       }
       return;
+    }
+    if (p.type === 'house') {
+      const size = BUILDING_DEFS.house.size;
+      this.moraleRing(p.tx + size / 2, p.ty + size / 2, 1);
     }
     this.drawGhost(p.type, p.tx, p.ty, p.valid, time, BUILDING_DEFS[p.type].line ? LINK_E | LINK_W : 0);
   }
@@ -509,8 +594,9 @@ export class Renderer {
   }
 
   /**
-   * Entity under a screen point. Units win over buildings, buildings over
-   * resources, and among equals the one drawn in front.
+   * Entity under a screen point. Units win over mines and bushes (which show
+   * through buildings), those over buildings, buildings over trees, and
+   * among equals the one drawn in front.
    */
   pick(sx: number, sy: number, alpha: number): Entity | null {
     const { world, camera } = this;
@@ -542,6 +628,19 @@ export class Renderer {
       const [cx] = camera.project(e.x, e.y);
       return inside || Math.abs(sx - cx) < ((right - left) / 2) * 0.75;
     };
+    const vis = world.players[this.me].vis;
+    const nodes = (trees: boolean) => {
+      for (const n of world.resources) {
+        if (n.dead || (n.nodeType === 'tree') !== trees || vis[world.map.idx(Math.floor(n.x), Math.floor(n.y))] === 0) continue;
+        const depth = n.tx + n.ty + n.size;
+        if (depth > bestDepth && hitsSprite(n, trees ? 64 : 28)) {
+          best = n;
+          bestDepth = depth;
+        }
+      }
+    };
+    nodes(false);
+    if (best) return best;
     for (const b of world.buildings) {
       if (b.dead || !world.isVisibleTo(this.me, b)) continue;
       const depth = b.tx + b.ty + b.size;
@@ -551,15 +650,7 @@ export class Renderer {
       }
     }
     if (best) return best;
-    const vis = world.players[this.me].vis;
-    for (const n of world.resources) {
-      if (n.dead || vis[world.map.idx(Math.floor(n.x), Math.floor(n.y))] === 0) continue;
-      const depth = n.tx + n.ty + n.size;
-      if (depth > bestDepth && hitsSprite(n, n.nodeType === 'tree' ? 64 : 28)) {
-        best = n;
-        bestDepth = depth;
-      }
-    }
+    nodes(true);
     return best;
   }
 

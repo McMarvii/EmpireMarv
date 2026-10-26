@@ -1,4 +1,12 @@
-import { BUILDABLE, BUILDING_DEFS, buildingName, FARM_CAPACITY, type BuildingType } from '../data/buildings';
+import {
+  BUILDABLE,
+  BUILDING_DEFS,
+  buildingName,
+  FARM_CAPACITY,
+  MORALE_MAX_HOUSES,
+  MORALE_PER_HOUSE,
+  type BuildingType,
+} from '../data/buildings';
 import { epochLabel, epochNumeral, EPOCHS } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
 import { bestTier, GATHER_LABEL, ROLE_DEFS, unitStats, type Role } from '../data/units';
@@ -52,6 +60,7 @@ export class Hud {
   private els: Record<string, HTMLElement>;
   private resEls: Record<string, HTMLElement> = {};
   private sig = '';
+  private groupSig = '';
   private lastPanel = 0;
   private hoverCmd: number = -1;
 
@@ -73,6 +82,7 @@ export class Hud {
       menuBtn: q('btn-menu'),
       idleBtn: q('btn-idle'),
       idleCount: q('idle-count'),
+      groups: q('groups'),
     };
     this.els.hud.hidden = false;
     this.els.resources.innerHTML = RESOURCES.map(
@@ -88,6 +98,8 @@ export class Hud {
   }
 
   destroy(): void {
+    this.els.groups.hidden = true;
+    this.els.groups.innerHTML = '';
     this.els.hud.hidden = true;
     this.els.overlay.hidden = true;
     this.els.overlay.innerHTML = '';
@@ -156,7 +168,45 @@ export class Hud {
     if (now - this.lastPanel > 120) {
       this.lastPanel = now;
       this.updatePanels();
+      this.updateGroups();
     }
+  }
+
+  /** Bar of control groups: number, portrait of the most common unit, head count. */
+  private updateGroups(): void {
+    const game = this.game;
+    const color = game.world.players[game.me].color;
+    const entries = [...game.groups.keys()]
+      .sort()
+      .map((key) => {
+        const units = game.groupUnits(key);
+        const counts = new Map<string, { unit: Unit; n: number }>();
+        for (const u of units) {
+          const k = `${u.role}:${u.tier}`;
+          const c = counts.get(k);
+          if (c) c.n++;
+          else counts.set(k, { unit: u, n: 1 });
+        }
+        const top = [...counts.values()].sort((a, b) => b.n - a.n)[0];
+        return { key, count: units.length, top: top?.unit };
+      })
+      .filter((g) => g.count > 0);
+    const sig = entries.map((g) => `${g.key}:${g.count}:${g.top!.role}${g.top!.tier}`).join(',') + `|${game.activeGroup}`;
+    if (sig === this.groupSig) return;
+    this.groupSig = sig;
+    const el = this.els.groups;
+    el.hidden = entries.length === 0;
+    el.innerHTML = entries
+      .map(
+        (g) =>
+          `<button class="grp${g.key === game.activeGroup ? ' active' : ''}" data-grp="${g.key}" title="Gruppe ${g.key}: ${g.count} Einheiten (Doppelklick: hinspringen)">` +
+          `<img src="${unitIcon(g.top!.role, g.top!.stats.epoch, color, 32)}" alt=""><span class="grp-key">${g.key}</span><span class="grp-count">${g.count}</span></button>`,
+      )
+      .join('');
+    el.querySelectorAll<HTMLElement>('[data-grp]').forEach((b) => {
+      b.onclick = () => game.recallGroup(b.dataset.grp!);
+      b.ondblclick = () => game.recallGroup(b.dataset.grp!, true);
+    });
   }
 
   private handleEvent(ev: GameEvent): void {
@@ -182,6 +232,7 @@ export class Hud {
       this.game.world.players[this.game.me].epoch,
       commands.map((c) => `${c.key}${c.enabled ? 1 : 0}${c.locked ? 1 : 0}${c.badge ?? ''}${c.text ?? ''}`).join(''),
       this.dynamicSig(ents),
+      ents.reduce((s, e) => s + (e.kind === 'unit' ? e.morale : 0), 0),
     ];
     const sig = sigParts.join('|');
     if (sig === this.sig) return;
@@ -220,7 +271,12 @@ export class Hud {
         if (g) g.count++;
         else groups.set(key, { unit: e, count: 1 });
       }
-      return `<div class="sel-multi">${[...groups.entries()]
+      const units = ents.filter((e): e is Unit => e.kind === 'unit');
+      const avg = units.length ? units.reduce((s, u) => s + u.morale, 0) / units.length : 0;
+      const moraleLine = units.length
+        ? `<div class="morale-line${avg > 0 ? ' up' : ''}">${avg > 0 ? `Moral Ø +${Math.round(avg * MORALE_PER_HOUSE * 100)} %` : 'Keine Moral – eigene Häuser in der Nähe stärken Einheiten'}</div>`
+        : '';
+      return `${moraleLine}<div class="sel-multi">${[...groups.entries()]
         .map(
           ([key, g]) =>
             `<button class="sel-group" data-group="${key}" title="${esc(g.unit.stats.name)}"><img src="${unitIcon(g.unit.role, g.unit.stats.epoch, world.players[g.unit.owner].color, 40)}"><span>${g.count}</span></button>`,
@@ -245,13 +301,20 @@ export class Hud {
       else if (e.order.kind === 'move') activity = 'unterwegs';
       else activity = 'untätig';
       const carry = e.carry && e.carryAmount > 0 ? ` · trägt ${Math.floor(e.carryAmount)} ${RES_LABEL[e.carry]}` : '';
-      const morale = e.morale > 0 ? ` · Moral +${e.morale}` : '';
+      const pct = Math.round(e.morale * MORALE_PER_HOUSE * 100);
+      const moraleLine =
+        e.owner !== me
+          ? ''
+          : e.morale > 0
+            ? `<div class="morale-line up">${'★'.repeat(e.morale)}${'☆'.repeat(MORALE_MAX_HOUSES - e.morale)} Moral: +${pct} % Angriff, −${pct} % Schaden</div>`
+            : '<div class="morale-line">☆ Keine Moral – eigene Häuser in der Nähe stärken Einheiten</div>';
       return `<div class="sel-single">
         <img class="portrait" src="${unitIcon(e.role, s.epoch, owner!.color, 64)}">
         <div class="sel-info">
           <div class="sel-name">${esc(s.name)} ${ownerLine}</div>
-          <div class="sel-sub">${esc(def.label)} · ${epochTag(s.epoch)} · ${activity}${carry}${morale}</div>
+          <div class="sel-sub">${esc(def.label)} · ${epochTag(s.epoch)} · ${activity}${carry}</div>
           ${hpBar(e.hp, e.maxHp)}
+          ${moraleLine}
           <div class="stats"><span>Angriff ${s.dmg}</span><span>Rüstung ${s.armor}</span><span>Reichweite ${s.range.toFixed(1)}</span><span>Tempo ${s.speed.toFixed(1)}</span></div>
           ${
             e.role === 'scout'
@@ -273,7 +336,7 @@ export class Hud {
         );
       }
       if (e.type === 'farm' && e.built) lines.push(`Bauern: ${world.farmWorkers(e)} / ${FARM_CAPACITY}`);
-      if (e.type === 'house') lines.push('Moral für Einheiten in der Nähe.');
+      if (e.type === 'house') lines.push('Der Kreis auf dem Boden zeigt, wie weit die Moral reicht.');
       if (e.popBlocked) lines.push('<span class="warn">Bevölkerungslimit erreicht</span>');
       let queue = '';
       if (e.queue.length && e.owner === me) {

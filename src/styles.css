@@ -255,7 +255,7 @@ button.primary {
   bottom: 0;
   height: 172px;
   display: grid;
-  grid-template-columns: 262px minmax(0, 1fr) 300px;
+  grid-template-columns: 262px minmax(0, 1fr) 330px;
   background: linear-gradient(#211c15, #120f0b);
   border-top: 2px solid var(--border);
   box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.5);
@@ -412,6 +412,67 @@ button.primary {
   background: var(--green);
 }
 
+#groups {
+  position: fixed;
+  left: 262px;
+  bottom: 176px;
+  display: flex;
+  gap: 4px;
+  padding: 0 8px;
+  z-index: 5;
+}
+
+.grp {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: rgba(18, 15, 11, 0.88);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.grp.active {
+  border-color: var(--gold);
+  box-shadow: 0 0 6px rgba(224, 173, 74, 0.5);
+}
+
+.grp img {
+  width: 32px;
+  height: 32px;
+  display: block;
+  margin: 3px auto 0;
+}
+
+.grp-key {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold);
+  text-shadow: 0 1px 2px #000;
+}
+
+.grp-count {
+  position: absolute;
+  right: 3px;
+  bottom: 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-shadow: 0 1px 2px #000;
+}
+
+.morale-line {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.morale-line.up {
+  color: #f2c84b;
+}
+
 .sel-multi {
   display: flex;
   flex-wrap: wrap;
@@ -447,10 +508,11 @@ button.primary {
   padding: 10px;
   border-left: 1px solid var(--border-soft);
   display: grid;
-  grid-template-columns: repeat(5, 52px);
-  grid-auto-rows: 52px;
+  grid-template-columns: repeat(6, 48px);
+  grid-auto-rows: 48px;
   gap: 4px;
   align-content: start;
+  overflow-y: auto;
 }
 
 .cmd {
@@ -468,17 +530,20 @@ button.primary {
 }
 
 .cmd img {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   display: block;
   margin: 2px auto 0;
 }
 
 .cmd .cmd-text {
   display: block;
-  padding-top: 18px;
-  font-size: 12px;
+  padding: 16px 1px 0;
+  font-size: 10.5px;
   font-weight: 600;
+  letter-spacing: -0.2px;
+  hyphens: auto;
+  overflow-wrap: anywhere;
 }
 
 .cmd .hk {
@@ -813,7 +878,7 @@ table.help td:first-child {
   }
 
   #bottombar {
-    grid-template-columns: 170px minmax(0, 1fr) 236px;
+    grid-template-columns: 170px minmax(0, 1fr) 278px;
   }
 
   #minimap {
@@ -822,7 +887,11 @@ table.help td:first-child {
   }
 
   #commands {
-    grid-template-columns: repeat(4, 52px);
+    grid-template-columns: repeat(5, 48px);
+  }
+
+  #groups {
+    left: 170px;
   }
 }
 
@@ -842,8 +911,12 @@ table.help td:first-child {
   }
 
   #commands {
-    grid-template-columns: repeat(3, 52px);
-    overflow-y: auto;
+    grid-template-columns: repeat(3, 48px);
+  }
+
+  #groups {
+    left: 0;
+    bottom: 154px;
   }
 
   #tooltip {

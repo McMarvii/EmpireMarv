@@ -25,6 +25,10 @@ export class Game {
   readonly input: Input;
   readonly me = 0;
   selection = new Set<number>();
+  /** Control groups (Strg+1–9), shown in the group bar. */
+  readonly groups = new Map<string, number[]>();
+  activeGroup = '';
+  private lastGroupTap = { key: '', time: 0 };
   mode: Mode = 'normal';
   placement: Placement | null = null;
   paused = false;
@@ -134,6 +138,39 @@ export class Game {
       if (e) out.push(e);
     }
     return out;
+  }
+
+  saveGroup(key: string): void {
+    const ids = this.selectedOwnUnits().map((u) => u.id);
+    if (ids.length) this.groups.set(key, ids);
+    else this.groups.delete(key);
+    this.activeGroup = ids.length ? key : '';
+    this.hud.message('info', ids.length ? `Gruppe ${key} gespeichert.` : `Gruppe ${key} geleert.`);
+  }
+
+  /** Living members of a control group. */
+  groupUnits(key: string): Unit[] {
+    const out: Unit[] = [];
+    for (const id of this.groups.get(key) ?? []) {
+      const e = this.world.get(id);
+      if (e && e.kind === 'unit' && e.owner === this.me) out.push(e);
+    }
+    return out;
+  }
+
+  /** Selects a group; a second tap within 400 ms (or `center`) jumps to it. */
+  recallGroup(key: string, center = false): void {
+    const units = this.groupUnits(key);
+    if (!units.length) return;
+    const now = performance.now();
+    if (center || (this.lastGroupTap.key === key && now - this.lastGroupTap.time < 400)) {
+      const x = units.reduce((s, u) => s + u.x, 0) / units.length;
+      const y = units.reduce((s, u) => s + u.y, 0) / units.length;
+      this.centerOn(x, y);
+    }
+    this.lastGroupTap = { key, time: now };
+    this.activeGroup = key;
+    this.select(units.map((u) => u.id));
   }
 
   selectedOwnUnits(): Unit[] {
