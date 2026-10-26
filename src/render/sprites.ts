@@ -117,7 +117,7 @@ function screenDir(facing: number): { dx: number; dy: number } {
 
 // -------------------------------------------------------------------- units
 
-const VEHICLE_LOOKS = new Set<Look>(['tank', 'mech', 'armoredcar', 'ram', 'catapult', 'trebuchet', 'cannon', 'rocket', 'beam']);
+export const VEHICLE_LOOKS = new Set<Look>(['tank', 'mech', 'armoredcar', 'ram', 'catapult', 'trebuchet', 'cannon', 'rocket', 'beam', 'jeep', 'drone']);
 
 export function drawUnit(ctx: Ctx, project: Project, scale: number, wx: number, wy: number, u: UnitLook, time: number): void {
   const [sx, sy] = project(wx, wy);
@@ -125,7 +125,7 @@ export function drawUnit(ctx: Ctx, project: Project, scale: number, wx: number, 
     drawVehicle(ctx, project, scale, wx, wy, u, time);
     return;
   }
-  const big = u.look === 'horse' || u.look === 'chariot';
+  const big = u.look === 'horse' || u.look === 'chariot' || u.look === 'scouthorse';
   ellipse(ctx, sx, sy, (big ? 10 : 6) * scale, (big ? 4.5 : 3) * scale, 'rgba(0,0,0,0.28)');
   const flip = screenDir(u.facing).dx < 0 ? -1 : 1;
   ctx.save();
@@ -198,7 +198,8 @@ function helmet(ctx: Ctx, style: EraStyle, x: number, y: number, citizen: boolea
 /** Upright figure facing right; feet at (ox, oy). */
 function drawHumanoid(ctx: Ctx, u: UnitLook, time: number, ox: number, oy: number, k: number): void {
   const style = epochStyle(u.epoch);
-  const citizen = u.look === 'citizen';
+  // Scouts on foot travel light, dressed like civilians.
+  const citizen = u.look === 'citizen' || u.look === 'runner';
   const phase = u.moving ? Math.sin(time * 11 + u.seed) : 0;
   const swing = u.attackAnim > 0 ? Math.sin((u.attackAnim / 0.35) * Math.PI) : 0;
   const workSwing = u.working ? Math.sin(time * 7 + u.seed) : 0;
@@ -241,6 +242,13 @@ function drawHumanoid(ctx: Ctx, u: UnitLook, time: number, ox: number, oy: numbe
       } else {
         line(ctx, hx - 1, hy, hx + 1, hy + 4, SKIN, 1.6);
       }
+      break;
+    }
+    case 'runner': {
+      // Signal pennant instead of a weapon.
+      const wave = Math.sin(time * 6 + u.seed) * 1.2;
+      line(ctx, hx, hy + 3, hx + 1, hy - 13, wood, 1.2);
+      poly(ctx, [[hx + 1, hy - 13], [hx + 9, hy - 11 + wave], [hx + 1, hy - 8]], u.color);
       break;
     }
     case 'club': {
@@ -332,6 +340,10 @@ function drawMounted(ctx: Ctx, u: UnitLook, time: number): void {
     line(ctx, -7, -9, -3, -9.5, '#4a3020', 1.2);
   }
   ellipse(ctx, 0, -10, 8.5, 4, horse);
+  if (u.look === 'scouthorse') {
+    // Light saddle blanket in the player's colour.
+    poly(ctx, [[-4, -13], [3, -13], [3.5, -9], [-4.5, -9]], u.color);
+  }
   // Caparison in the player's colour from the high middle ages on.
   if (u.epoch >= 7 && u.look === 'horse') {
     poly(ctx, [[-7, -12], [6, -12], [7, -6], [-8, -6]], u.color);
@@ -342,7 +354,11 @@ function drawMounted(ctx: Ctx, u: UnitLook, time: number): void {
   const riderY = u.look === 'chariot' ? -11 : -11;
   drawHumanoid(
     ctx,
-    { ...u, look: style === 'stone' || style === 'ancient' ? 'spear' : u.epoch >= 10 ? 'gun' : 'sword', moving: false },
+    {
+      ...u,
+      look: u.look === 'scouthorse' ? 'runner' : style === 'stone' || style === 'ancient' ? 'spear' : u.epoch >= 10 ? 'gun' : 'sword',
+      moving: false,
+    },
     time,
     riderX,
     riderY + 5,
@@ -486,6 +502,45 @@ function drawVehicle(ctx: Ctx, baseProject: Project, scale: number, wx: number, 
         const [x, y] = project(wx - c * 0.4, wy - s * 0.4, 14);
         circle(ctx, x, y, 4 * scale, '#f7a540');
       }
+      break;
+    }
+    case 'jeep': {
+      for (const [dl, dw] of [
+        [0.22, 0.17],
+        [-0.22, 0.17],
+        [0.22, -0.17],
+        [-0.22, -0.17],
+      ]) {
+        const [x, y] = project(wx + c * dl - s * dw, wy + s * dl + c * dw, 2);
+        circle(ctx, x, y, 2.2 * scale, '#1e1e1e');
+      }
+      box3d(ctx, project, wx, wy, f, 0.3, 0.17, 2, 6, '#6f7550', '#5c6340');
+      // Windscreen and a radio mast with a pennant in the player's colour.
+      box3d(ctx, project, wx + c * 0.1, wy + s * 0.1, f, 0.02, 0.16, 6, 9, '#9cc3dd', '#7a9cb2');
+      const [mx0, my0] = project(wx - c * 0.22, wy - s * 0.22, 6);
+      const [mx1, my1] = project(wx - c * 0.22, wy - s * 0.22, 20);
+      line(ctx, mx0, my0, mx1, my1, '#2b2b2b', 0.9 * scale);
+      poly(ctx, [[mx1, my1], [mx1 + 7 * scale, my1 + 2 * scale], [mx1, my1 + 4 * scale]], u.color);
+      break;
+    }
+    case 'drone': {
+      const hover = 16 + Math.sin(time * 4 + u.seed) * 1.5;
+      box3d(ctx, project, wx, wy, f, 0.12, 0.12, hover, hover + 3, u.color, '#3a4048');
+      for (const [dl, dw] of [
+        [0.2, 0.2],
+        [-0.2, 0.2],
+        [0.2, -0.2],
+        [-0.2, -0.2],
+      ]) {
+        const px = wx + c * dl - s * dw;
+        const py = wy + s * dl + c * dw;
+        const [ax, ay] = project(wx, wy, hover + 2);
+        const [bx, by] = project(px, py, hover + 2);
+        line(ctx, ax, ay, bx, by, '#3a4048', 1.2 * scale);
+        ellipse(ctx, bx, by - 1 * scale, 5 * scale, 2 * scale, 'rgba(200,215,225,0.55)');
+      }
+      const [lx, ly] = project(wx + c * 0.12, wy + s * 0.12, hover + 1);
+      circle(ctx, lx, ly, 1.2 * scale, '#38d6f5');
       break;
     }
     case 'beam': {

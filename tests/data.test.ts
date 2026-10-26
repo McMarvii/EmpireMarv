@@ -46,6 +46,11 @@ describe('units', () => {
     }
   });
 
+  it('keeps scouts out of the counter loop', () => {
+    expect(COMBAT_ROLES).not.toContain('scout');
+    expect(ROLE_DEFS.scout.producedAt).toBe('towncenter');
+  });
+
   it('makes later tiers stronger', () => {
     for (const role of COMBAT_ROLES) {
       const tiers = ROLE_DEFS[role].tiers;

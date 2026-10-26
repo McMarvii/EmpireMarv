@@ -104,6 +104,7 @@ export type Command =
   | { type: 'advance'; player: number; buildingId: number }
   | { type: 'rally'; player: number; buildingId: number; x: number; y: number }
   | { type: 'deposit'; player: number; ids: number[]; targetId: number }
+  | { type: 'explore'; player: number; ids: number[] }
   | { type: 'stop'; player: number; ids: number[] }
   | { type: 'destroy'; player: number; ids: number[] };
 
@@ -204,6 +205,8 @@ export class World {
         const spot = this.findSpawnPoint(tc, { x: start.x + 4, y: start.y + 4 }, n);
         if (spot) this.spawnUnit(p.id, 'citizen', spot.x, spot.y);
       }
+      const scoutSpot = this.findSpawnPoint(tc, { x: start.x + 4, y: start.y - 4 });
+      if (scoutSpot) this.spawnUnit(p.id, 'scout', scoutSpot.x, scoutSpot.y);
       // Later start epochs come with a small garrison, like the classic "start units" setting.
       if (s.startEpoch >= 2) {
         const roles: Role[] = ['assault', 'ranged', 'pike'];
@@ -673,6 +676,13 @@ export class World {
         }
         break;
       }
+      case 'explore':
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
+          u.order = { kind: 'explore', tx: -1, ty: -1, skip: [] };
+          u.path = [];
+          u.repathTick = -1000;
+        }
+        break;
       case 'stop':
         for (const u of this.ownUnits(cmd.player, cmd.ids)) {
           u.order = { kind: 'idle' };

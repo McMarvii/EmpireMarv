@@ -34,6 +34,7 @@ const PROFILES: Record<Difficulty, Profile> = {
 /** Counter picks: what to build more of when the enemy fields a role. */
 const COUNTERS: Record<Role, CombatRole[]> = {
   citizen: [],
+  scout: [],
   assault: ['ranged'],
   pike: ['assault', 'ranged'],
   ranged: ['mounted', 'assault'],
@@ -83,10 +84,18 @@ export class AIController implements Controller {
     this.scout(w, s);
   }
 
-  /** Sends one soldier to uncover the map, so new deposits become known. */
+  /**
+   * Uncovers the map so new deposits become known: scouts explore on their
+   * own, without one a soldier is sent to unexplored spots now and then.
+   */
   private scout(w: World, s: ReturnType<AIController['snapshot']>): void {
     if (w.tick < this.nextScout) return;
     this.nextScout = w.tick + 30 * 20;
+    if (s.scouts.length) {
+      const idle = s.scouts.filter((u) => u.order.kind === 'idle').map((u) => u.id);
+      if (idle.length) w.issue({ type: 'explore', player: this.playerId, ids: idle });
+      return;
+    }
     let scout = this.scoutId ? w.get(this.scoutId) : undefined;
     if (!scout || scout.kind !== 'unit' || scout.order.kind !== 'idle') {
       const candidates = s.army.filter((u) => !this.attackers.has(u.id) && u.order.kind === 'idle');
@@ -119,9 +128,10 @@ export class AIController implements Controller {
     const tc = buildings.find((b) => b.type === 'towncenter' && b.built) ?? null;
     const base: Point = tc ? { x: tc.x, y: tc.y } : w.startPositions[id];
     const citizens = units.filter((u) => u.role === 'citizen');
-    const army = units.filter((u) => u.role !== 'citizen');
+    const army = units.filter((u) => u.role !== 'citizen' && u.role !== 'scout');
+    const scouts = units.filter((u) => u.role === 'scout');
     const count = (t: BuildingType) => buildings.filter((b) => b.type === t).length;
-    return { player: w.players[id], units, buildings, tc, base, citizens, army, count };
+    return { player: w.players[id], units, buildings, tc, base, citizens, army, scouts, count };
   }
 
   // -------------------------------------------------------------- economy

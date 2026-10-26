@@ -146,6 +146,9 @@ export function updateUnit(w: World, u: Unit): void {
     case 'deposit':
       updateDeposit(w, u);
       break;
+    case 'explore':
+      updateExplore(w, u);
+      break;
   }
   followPath(w, u);
 }
@@ -157,7 +160,7 @@ function scanDue(w: World, u: Unit): boolean {
 }
 
 function updateIdle(w: World, u: Unit): void {
-  if (u.role === 'citizen' || !scanDue(w, u)) return;
+  if (u.role === 'citizen' || u.role === 'scout' || !scanDue(w, u)) return;
   const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
   if (target) {
     u.order = { kind: 'attack', targetId: target.id, resume: null, leash: { x: u.x, y: u.y } };
@@ -347,6 +350,86 @@ function updateGather(w: World, u: Unit): void {
     o.dropId = 0;
     u.path = [];
   }
+}
+
+/**
+ * Exploring: walk towards the nearest unexplored tile on the edge of the
+ * known map, preferring what lies ahead. A new target is picked as soon as
+ * the current one comes into sight; targets the unit could not get to are
+ * remembered and skipped. Exploring units ignore enemies.
+ */
+function updateExplore(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'explore') return;
+  const vis = w.players[u.owner].vis;
+  const hasTarget = o.tx >= 0;
+  const seen = hasTarget && vis[w.map.idx(o.tx, o.ty)] !== 0;
+  if (hasTarget && !seen) {
+    if (u.path.length > 0) return;
+    // Walked as far as possible, but the target is still unknown: give up on it.
+    o.skip.push(w.map.idx(o.tx, o.ty));
+    if (o.skip.length > 32) o.skip.shift();
+  }
+  const next = frontierTile(w, u, o.skip);
+  if (!next) {
+    goIdle(u);
+    w.emit({ type: 'info', player: u.owner, text: 'Die Karte ist vollständig erkundet.' });
+    return;
+  }
+  o.tx = next.x;
+  o.ty = next.y;
+  setPathTo(w, u, { kind: 'point', x: next.x + 0.5, y: next.y + 0.5 });
+}
+
+/** Within three tiles of a target the unit already failed to reach (e.g. across a lake). */
+function nearSkipped(width: number, x: number, y: number, skip: number[]): boolean {
+  for (const i of skip) {
+    const sx = i % width;
+    if (Math.abs(sx - x) <= 3 && Math.abs((i - sx) / width - y) <= 3) return true;
+  }
+  return false;
+}
+
+/** Unexplored tile next to explored, walkable ground, scored by distance and heading. */
+function frontierTile(w: World, u: Unit, skip: number[]): { x: number; y: number } | null {
+  const map = w.map;
+  const vis = w.players[u.owner].vis;
+  const ux = Math.floor(u.x);
+  const uy = Math.floor(u.y);
+  const fx = Math.cos(u.facing);
+  const fy = Math.sin(u.facing);
+  let best: { x: number; y: number } | null = null;
+  let bestScore = Infinity;
+  let foundRing = -1;
+  const maxR = Math.max(map.width, map.height);
+  for (let r = 1; r <= maxR; r++) {
+    if (foundRing >= 0 && r > foundRing + 6) break;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = ux + dx;
+        const y = uy + dy;
+        if (!map.inBounds(x, y)) continue;
+        const i = map.idx(x, y);
+        if (vis[i] !== 0 || nearSkipped(map.width, x, y, skip)) continue;
+        const edge =
+          (map.inBounds(x + 1, y) && vis[i + 1] !== 0 && map.passable(x + 1, y)) ||
+          (map.inBounds(x - 1, y) && vis[i - 1] !== 0 && map.passable(x - 1, y)) ||
+          (map.inBounds(x, y + 1) && vis[i + map.width] !== 0 && map.passable(x, y + 1)) ||
+          (map.inBounds(x, y - 1) && vis[i - map.width] !== 0 && map.passable(x, y - 1));
+        if (!edge) continue;
+        if (foundRing < 0) foundRing = r;
+        const d = Math.hypot(dx, dy);
+        // Ground behind the unit counts up to twice as far, so it keeps a heading.
+        const score = d * (1.5 - (0.5 * (dx * fx + dy * fy)) / d);
+        if (score < bestScore) {
+          bestScore = score;
+          best = { x, y };
+        }
+      }
+    }
+  }
+  return best;
 }
 
 /** Books a citizen's load into the owner's stock. */
@@ -562,7 +645,7 @@ function sendToRally(w: World, u: Unit, x: number, y: number): void {
       return;
     }
   }
-  w.issue({ type: 'move', player: u.owner, ids: [u.id], x, y, attackMove: u.role !== 'citizen' });
+  w.issue({ type: 'move', player: u.owner, ids: [u.id], x, y, attackMove: u.role !== 'citizen' && u.role !== 'scout' });
 }
 
 /** Light push-apart so groups don't collapse into a single point. */

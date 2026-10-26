@@ -304,6 +304,11 @@ export class Game {
     if (ids.length) this.world.issue({ type: 'stop', player: this.me, ids });
   }
 
+  explore(): void {
+    const ids = this.selectedOwnUnits().map((u) => u.id);
+    if (ids.length) this.world.issue({ type: 'explore', player: this.me, ids });
+  }
+
   /** Entf: demolishes own buildings and dismisses own units in the selection. */
   deleteSelection(): void {
     const ids = this.selectedEntities()

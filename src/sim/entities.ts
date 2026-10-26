@@ -23,7 +23,9 @@ export type Order =
   | GatherOrder
   | { kind: 'build'; targetId: number }
   /** Carry the load to a drop-off, then go back to `resume` (or idle). */
-  | { kind: 'deposit'; targetId: number; resume: GatherOrder | null };
+  | { kind: 'deposit'; targetId: number; resume: GatherOrder | null }
+  /** Head for the nearest unexplored ground until the whole map is known. */
+  | { kind: 'explore'; tx: number; ty: number; skip: number[] };
 
 interface BaseEntity {
   id: number;

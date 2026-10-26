@@ -240,6 +240,7 @@ export class Hud {
       if (e.order.kind === 'gather') activity = GATHER_LABEL[e.order.res];
       else if (e.order.kind === 'build') activity = 'baut';
       else if (e.order.kind === 'deposit') activity = 'lagert ein';
+      else if (e.order.kind === 'explore') activity = 'erkundet';
       else if (e.order.kind === 'attack') activity = 'kämpft';
       else if (e.order.kind === 'move') activity = 'unterwegs';
       else activity = 'untätig';
@@ -252,7 +253,13 @@ export class Hud {
           <div class="sel-sub">${esc(def.label)} · ${epochTag(s.epoch)} · ${activity}${carry}${morale}</div>
           ${hpBar(e.hp, e.maxHp)}
           <div class="stats"><span>Angriff ${s.dmg}</span><span>Rüstung ${s.armor}</span><span>Reichweite ${s.range.toFixed(1)}</span><span>Tempo ${s.speed.toFixed(1)}</span></div>
-          ${e.role !== 'citizen' ? `<div class="counter"><b>Stark gegen:</b> ${esc(def.strongVs)} · <b>Schwach gegen:</b> ${esc(def.weakVs)}</div>` : ''}
+          ${
+            e.role === 'scout'
+              ? '<div class="counter">Schnell und weitsichtig, kämpft kaum. <b>E</b>: Erkunden</div>'
+              : e.role !== 'citizen'
+                ? `<div class="counter"><b>Stark gegen:</b> ${esc(def.strongVs)} · <b>Schwach gegen:</b> ${esc(def.weakVs)}</div>`
+                : ''
+          }
         </div></div>`;
     }
 
@@ -364,6 +371,14 @@ export class Hud {
     }
     if (units.length) {
       cmds.push({
+        key: 'E',
+        text: 'Erkunden',
+        enabled: true,
+        title: 'Erkunden',
+        tooltip: '<b>Erkunden</b> <kbd>E</kbd><p>Die Einheiten ziehen selbstständig zum nächsten unerkundeten Gebiet, bis die Karte bekannt ist. Sie kämpfen dabei nicht.</p>',
+        action: () => game.explore(),
+      });
+      cmds.push({
         key: 'X',
         text: 'Halt',
         enabled: true,
@@ -462,7 +477,11 @@ export class Hud {
       tooltip:
         `<b>${esc(s.name)}</b> <kbd>${key}</kbd> <span class="dim">${esc(def.label)}</span><div>${costHtml(s.cost, player.stock)}</div>` +
         `<div class="stats"><span>LP ${s.hp}</span><span>Angriff ${s.dmg}</span><span>Rüstung ${s.armor}</span><span>Reichweite ${s.range.toFixed(1)}</span></div>` +
-        (role !== 'citizen' ? `<p><b>Stark gegen:</b> ${esc(def.strongVs)}<br><b>Schwach gegen:</b> ${esc(def.weakVs)}</p>` : '<p>Sammelt Rohstoffe und errichtet Gebäude.</p>') +
+        (role === 'citizen'
+          ? '<p>Sammelt Rohstoffe und errichtet Gebäude.</p>'
+          : role === 'scout'
+            ? '<p>Schnell, große Sichtweite, kämpft kaum. Ideal zum Erkunden (Taste E).</p>'
+            : `<p><b>Stark gegen:</b> ${esc(def.strongVs)}<br><b>Schwach gegen:</b> ${esc(def.weakVs)}</p>`) +
         (nextTier ? `<p class="dim">Nächste Stufe: ${esc(nextTier.name)} (${epochTag(nextTier.epoch)})</p>` : '') +
         `<p class="dim">Umschalt+Klick: 5 Stück</p>`,
       action: (shift) => this.game.train(b.id, role, shift ? 5 : 1),

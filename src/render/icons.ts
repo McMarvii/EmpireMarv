@@ -2,7 +2,7 @@ import { BUILDING_DEFS, type BuildingType } from '../data/buildings';
 import { epochNumeral, epochStyle, type EraStyle } from '../data/epochs';
 import { bestTier, ROLE_DEFS, type Role } from '../data/units';
 import type { Project } from './camera';
-import { drawBuilding, drawUnit, LINK_E, LINK_W } from './sprites';
+import { drawBuilding, drawUnit, LINK_E, LINK_W, VEHICLE_LOOKS } from './sprites';
 
 const cache = new Map<string, string>();
 
@@ -25,8 +25,8 @@ export function unitIcon(role: Role, epoch: number, color: string, size = 44): s
   const tier = Math.max(0, bestTier(role, epoch));
   const t = ROLE_DEFS[role].tiers[tier] ?? ROLE_DEFS[role].tiers[0];
   return render(`u:${role}:${tier}:${color}:${size}`, size, (ctx) => {
-    const vehicle = ['tank', 'mech', 'armoredcar', 'ram', 'catapult', 'trebuchet', 'cannon', 'rocket', 'beam'].includes(t.look);
-    const scale = vehicle ? 0.9 : t.look === 'horse' || t.look === 'chariot' ? 1.15 : 1.5;
+    const vehicle = VEHICLE_LOOKS.has(t.look);
+    const scale = vehicle ? 0.9 : t.look === 'horse' || t.look === 'chariot' || t.look === 'scouthorse' ? 1.15 : 1.5;
     const cx = size / 2;
     const cy = size * (vehicle ? 0.68 : 0.88);
     const project: Project = (wx, wy, z = 0) => [cx + (wx - wy) * 32 * scale, cy + (wx + wy) * 16 * scale - z * scale];

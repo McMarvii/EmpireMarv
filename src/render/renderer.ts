@@ -52,6 +52,11 @@ export interface RenderState {
 
 export const UNIT_SCALE = 1.8;
 
+/** Riders and vehicles get wider selection rings and hit boxes. */
+function wide(u: Unit): boolean {
+  return u.role === 'mounted' || u.role === 'siege' || u.stats.look === 'scouthorse' || u.stats.look === 'jeep' || u.stats.look === 'drone';
+}
+
 /** Draws the world isometrically onto a canvas, honouring the local player's fog of war. */
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -233,7 +238,7 @@ export class Renderer {
       if (!this.onScreen(sx, sy, 60 * zoom)) continue;
       if (state.selection.has(u.id) || state.hoverId === u.id) {
         ctx.beginPath();
-        ctx.ellipse(sx, sy, 9 * unitScale * (u.role === 'mounted' || u.role === 'siege' ? 1.4 : 1), 4.5 * unitScale, 0, 0, Math.PI * 2);
+        ctx.ellipse(sx, sy, 9 * unitScale * (wide(u) ? 1.4 : 1), 4.5 * unitScale, 0, 0, Math.PI * 2);
         ctx.strokeStyle = this.ringColor(u.owner);
         ctx.lineWidth = state.selection.has(u.id) ? 2 : 1;
         ctx.stroke();
@@ -436,7 +441,7 @@ export class Renderer {
       if (!selected && !damaged) continue;
       if (u.owner !== this.me && !world.inSight(this.me, u)) continue;
       const [x, y] = this.unitPos(u, state.alpha);
-      const tall = u.role === 'mounted' || u.role === 'siege' ? 34 : 30;
+      const tall = wide(u) ? 34 : 30;
       const [sx, sy] = camera.project(x, y, tall * UNIT_SCALE);
       bar(sx, sy, 22 * zoom, u.hp / u.maxHp, hpColor(u.hp / u.maxHp));
     }
@@ -516,7 +521,7 @@ export class Renderer {
       if (u.dead || (u.owner !== this.me && !world.inSight(this.me, u))) continue;
       const [x, y] = this.unitPos(u, alpha);
       const [px, py] = camera.project(x, y);
-      const w = (u.role === 'mounted' || u.role === 'siege' ? 14 : 9) * UNIT_SCALE * zoom;
+      const w = (wide(u) ? 14 : 9) * UNIT_SCALE * zoom;
       const h = (u.role === 'siege' ? 22 : 28) * UNIT_SCALE * zoom;
       if (sx >= px - w && sx <= px + w && sy >= py - h && sy <= py + 4 * zoom && x + y > bestDepth) {
         best = u;
