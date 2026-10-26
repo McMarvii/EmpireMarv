@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.1).** Wirtschaft, Kampf, 18 Epochen, KI-Gegner und Fog of War funktionieren. Helden, Propheten, Wunder, See- und Luftkrieg, Sound und Mehrspieler fehlen noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.2).** Wirtschaft, Kampf, 18 Epochen, Mauern und Tore, Späher, KI-Gegner und Fog of War funktionieren. Technologiebaum, Sound, Befehlsketten, Formationen und Mehrspieler fehlen noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -26,13 +26,17 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 
 ## Was schon drin ist
 
-- **18 Epochen** mit eigenem Namen, Zeitraum, Baustil und eigenen Einheiten. Start- und Endepoche sind pro Partie wählbar – wie früher.
-- **5 Rohstoffe**: Nahrung, Holz, Stein, Gold, Eisen. Bürger sammeln, bauen und reparieren; Felder liefern unbegrenzt Nahrung.
+- **18 Epochen** mit eigenem Namen, Zeitraum, Baustil, eigenen Einheiten und einem Emblem mit römischer Ziffer (I–XVIII). Start- und Endepoche sind pro Partie wählbar – wie früher.
+- **Aufstieg braucht Gebäude**: Jede Epoche verlangt Gebäude der bisherigen Epochen, z. B. für die Bronzezeit ein Kriegerlager, eine Werkstatt und zwei Hütten. Der Tooltip zeigt die Checkliste.
+- **5 Rohstoffe**: Nahrung, Holz, Stein, Gold, Eisen. Bürger sammeln, bauen und reparieren; Felder liefern unbegrenzt Nahrung. Rechtsklick auf Dorfzentrum oder Lager lagert die Ladung sofort ein.
 - **Kampfdreieck**, das über alle Epochen gleich bleibt: Sturminfanterie › Abwehrinfanterie › Kavallerie & Fahrzeuge › Fernkampf › Sturminfanterie. Belagerung und Artillerie zerstören Gebäude.
-- **8 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
-- **Moral**: Häuser stärken Einheiten in ihrer Nähe.
-- **KI-Gegner** in drei Stufen: baut Wirtschaft auf, steigt in Epochen auf, erkundet, verteidigt, greift in Wellen an und kontert deine Armee.
-- **Fog of War**, Minimap, Sammelpunkte, Kontrollgruppen, Angriffsbewegung, Anzeige untätiger Bürger.
+- **10 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
+- **Mauern und Tore**, als Linie gezogen: Palisade, Lehmziegel, Zinnenmauer, Bastion, Beton, Energiebarriere. Tore lassen nur das eigene Team durch.
+- **Späher** mit großer Sichtweite und **Erkundenmodus** für jede Einheit.
+- **Moral**: Häuser stärken Einheiten in ihrer Nähe – sichtbar als Punkte am Lebensbalken und als Kreis um das Haus.
+- **Lesbarkeit**: Einheiten, Minen und Büsche hinter Gebäuden scheinen durch.
+- **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee.
+- **Fog of War**, Minimap, Sammelpunkte, Kontrollgruppen mit Gruppenleiste, Angriffsbewegung, Anzeige untätiger Bürger.
 - **Deterministische Simulation**: Gleicher Seed und gleiche Befehle ergeben dieselbe Partie. Das ist die Grundlage für Replays und Mehrspieler.
 
 ![Architektur der Epochen](docs/screenshots/epochen-architektur.jpg)
@@ -43,12 +47,16 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 | ------------------------------- | --------------------------------------------------- |
 | Linksklick / Ziehen             | Auswählen / Rahmenauswahl                           |
 | Doppelklick                     | Alle sichtbaren Einheiten dieses Typs               |
-| Rechtsklick                     | Bewegen, Angreifen, Sammeln, Bauen – je nach Ziel   |
+| Rechtsklick                     | Bewegen, Angreifen, Sammeln, Bauen, Einlagern – je nach Ziel |
+| Rechts oder Mitte gedrückt ziehen | Karte verschieben                                 |
 | Rechtsklick mit Gebäude         | Sammelpunkt setzen                                  |
 | `A`, dann Klick                 | Angriffsbewegung                                    |
+| `E`                             | Erkunden (mit Einheiten ausgewählt)                 |
+| `M` / `G`, dann ziehen          | Mauer / Tor als Linie bauen                         |
+| `Entf`                          | Auswahl abreißen bzw. entlassen                     |
 | Buchstaben                      | Befehle (stehen auf den Knöpfen, z. B. `H` = Haus)  |
 | Umschalt + Bauen / Ausbilden    | Mehrfach platzieren / 5 Einheiten                   |
-| `Strg`+`1–9`, dann `1–9`        | Gruppe speichern / wählen (zweimal: hinspringen)    |
+| `Strg`+`1–9`, dann `1–9`        | Gruppe speichern / wählen (zweimal: hinspringen); auch über die Gruppenleiste |
 | `.`                             | Nächster untätiger Bürger                           |
 | `Pos1`                          | Dorfzentrum                                         |
 | Leertaste                       | Zum letzten Angriff springen                        |

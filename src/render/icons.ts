@@ -45,10 +45,10 @@ export function unitIcon(role: Role, epoch: number, color: string, size = 44): s
 export function buildingIcon(type: BuildingType, epoch: number, color: string, size = 44): string {
   return render(`b:${type}:${epoch}:${color}:${size}`, size, (ctx) => {
     const tiles = BUILDING_DEFS[type].size;
-    const scale = (size / (tiles * 64)) * 0.95;
-    const cx = size / 2;
     const line = BUILDING_DEFS[type].line;
-    const cy = size * (type === 'farm' ? 0.2 : line ? 0.3 : 0.42);
+    const scale = (size / (tiles * 64)) * (line ? 0.78 : 0.95);
+    const cx = size / 2;
+    const cy = size * (type === 'farm' ? 0.2 : 0.42);
     const project: Project = (wx, wy, z = 0) => [cx + (wx - wy) * 32 * scale, cy + (wx + wy) * 16 * scale - z * scale];
     const links = line ? LINK_E | LINK_W : 0;
     drawBuilding(ctx, project, scale, { type, epoch, color, tx: 0, ty: 0, size: tiles, progress: 1, built: true, hpRatio: 1, seed: 3, links }, 0.5);
@@ -143,7 +143,7 @@ export function epochIcon(index: number, size = 32): string {
       ctx.stroke();
     }
     const text = epochNumeral(index);
-    const maxW = size * 0.74;
+    const maxW = size * (style === 'medieval' ? 0.58 : 0.64);
     let font = size * 0.42;
     ctx.font = `700 ${font}px Georgia, 'Times New Roman', serif`;
     const w = ctx.measureText(text).width;
