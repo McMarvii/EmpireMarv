@@ -135,7 +135,9 @@ export class Input {
     if (e.button !== 0) return;
     if (game.mode === 'place') {
       game.updatePlacement(e.clientX, e.clientY);
-      game.confirmPlacement(e.shiftKey);
+      // Walls are dragged out as a line and placed on release.
+      if (game.placement && BUILDING_DEFS[game.placement.type].line) game.startLine();
+      else game.confirmPlacement(e.shiftKey);
       return;
     }
     if (game.mode === 'attackMove') {
@@ -188,6 +190,10 @@ export class Input {
       if (!rd || rd.panning || this.game.hud.overlayOpen()) return;
       if (this.game.mode !== 'normal') this.game.cancelMode();
       else this.game.rightClick(e.clientX, e.clientY);
+      return;
+    }
+    if (e.button === 0 && this.game.mode === 'place' && this.game.placement?.anchor) {
+      this.game.confirmPlacement(e.shiftKey);
       return;
     }
     if (e.button !== 0 || !this.dragStart) return;

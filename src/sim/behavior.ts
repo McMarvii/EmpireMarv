@@ -13,7 +13,7 @@ const SNUG_REACH = 0.2;
 const SCAN_INTERVAL = 8;
 
 export function setPathTo(w: World, u: Unit, goal: PathGoal): void {
-  u.path = w.pathfinder.find(u.x, u.y, goal);
+  u.path = w.pathfinder.find(u.x, u.y, goal, undefined, w.teamOf(u.owner));
   u.repathTick = w.tick;
 }
 
@@ -21,6 +21,17 @@ export function setPathTo(w: World, u: Unit, goal: PathGoal): void {
 export function distTo(u: { x: number; y: number }, e: Entity): number {
   if (e.kind === 'unit') return Math.max(0, Math.hypot(e.x - u.x, e.y - u.y) - UNIT_RADIUS);
   return distToRect(u.x, u.y, rectOf(e));
+}
+
+/** Whether a unit can walk straight to a point without crossing a blocked tile. */
+function straightClear(w: World, u: Unit, tx: number, ty: number): boolean {
+  const team = w.teamOf(u.owner);
+  const steps = Math.max(1, Math.ceil(Math.hypot(tx - u.x, ty - u.y) / 0.25));
+  for (let s = 1; s <= steps; s++) {
+    const t = s / steps;
+    if (!w.map.passableFor(Math.floor(u.x + (tx - u.x) * t), Math.floor(u.y + (ty - u.y) * t), team)) return false;
+  }
+  return true;
 }
 
 /**
@@ -43,7 +54,7 @@ function approach(w: World, u: Unit, rect: Rect, reach: number): boolean {
   const k = d > 1e-6 ? Math.min(reach, 0.5) / d : 0;
   const tx = px + (u.x - px) * k;
   const ty = py + (u.y - py) * k;
-  if (!w.map.passable(Math.floor(tx), Math.floor(ty))) return false;
+  if (!straightClear(w, u, tx, ty)) return false;
   u.path = [{ x: tx, y: ty }];
   return true;
 }
@@ -55,7 +66,7 @@ function followPath(w: World, u: Unit): void {
   }
   const next = u.path[0];
   // A building placed on the route: drop the path so the order logic re-plans.
-  if (!w.map.passable(Math.floor(next.x), Math.floor(next.y)) && u.path.length > 1) {
+  if (!w.map.passableFor(Math.floor(next.x), Math.floor(next.y), w.teamOf(u.owner)) && u.path.length > 1) {
     u.path = [];
     u.repathTick = -1000;
     u.moving = false;
@@ -216,7 +227,7 @@ function updateAttack(w: World, u: Unit): void {
       const k = (d - u.stats.range * 0.8) / Math.max(d, 1e-6);
       const nx = u.x + (t.x - u.x) * k;
       const ny = u.y + (t.y - u.y) * k;
-      if (d <= u.stats.range + 1.5 && w.map.passable(Math.floor(nx), Math.floor(ny))) {
+      if (d <= u.stats.range + 1.5 && straightClear(w, u, nx, ny)) {
         u.path = [{ x: nx, y: ny }];
       } else {
         // Unreachable (e.g. across water) – give up instead of re-planning every tick.
@@ -369,10 +380,7 @@ function snugUp(w: World, u: Unit, node: Building | ResourceNode): boolean {
   else if (sideY && !sideX) ex = Math.max(r.x + 0.15, Math.min(r.x + r.w - 0.15, px + slot));
   const tx = ex + nx * SNUG_REACH;
   const ty = ey + ny * SNUG_REACH;
-  for (let s = 1; s <= 4; s++) {
-    const t = s / 4;
-    if (!w.map.passable(Math.floor(u.x + (tx - u.x) * t), Math.floor(u.y + (ty - u.y) * t))) return false;
-  }
+  if (!straightClear(w, u, tx, ty)) return false;
   u.path = [{ x: tx, y: ty }];
   return true;
 }
@@ -435,6 +443,7 @@ function updateBuild(w: World, u: Unit): void {
 function completeBuilding(w: World, b: Building): void {
   b.built = true;
   b.progress = 1;
+  w.openGate(b);
   const p = w.players[b.owner];
   p.stats.buildingsBuilt++;
   w.emit({ type: 'built', player: b.owner, text: `${buildingName(b.type, b.epoch)} fertiggestellt.`, x: b.x, y: b.y });
@@ -447,13 +456,21 @@ function afterBuild(w: World, u: Unit, b: Building): void {
     u.path = [];
     return;
   }
+  // The nearest site first, so builders walk a wall line segment by segment.
+  let site: Building | null = null;
+  let siteD = 8;
   for (const other of w.buildings) {
     if (other.dead || other.built || other.owner !== u.owner) continue;
-    if (Math.hypot(other.x - u.x, other.y - u.y) < 8) {
-      u.order = { kind: 'build', targetId: other.id };
-      u.path = [];
-      return;
+    const d = Math.hypot(other.x - u.x, other.y - u.y);
+    if (d < siteD) {
+      siteD = d;
+      site = other;
     }
+  }
+  if (site) {
+    u.order = { kind: 'build', targetId: site.id };
+    u.path = [];
+    return;
   }
   if (BUILDING_DEFS[b.type].dropoff) {
     const n = w.nearestAnyResource(b.x, b.y, 10, u.owner);
@@ -575,7 +592,7 @@ export function separateUnits(w: World): void {
     if (pushX === 0 && pushY === 0) continue;
     const nx = u.x + pushX;
     const ny = u.y + pushY;
-    if (w.map.passable(Math.floor(nx), Math.floor(ny))) {
+    if (w.map.passableFor(Math.floor(nx), Math.floor(ny), w.teamOf(u.owner))) {
       u.x = nx;
       u.y = ny;
     }

@@ -516,7 +516,16 @@ export interface BuildingLook {
   built: boolean;
   hpRatio: number;
   seed: number;
+  /** Walls: bitmask of connected neighbours (LINK_N | LINK_E | LINK_S | LINK_W). */
+  links?: number;
+  /** Gates: drawn open while friendly units pass. */
+  open?: boolean;
 }
+
+export const LINK_N = 1;
+export const LINK_E = 2;
+export const LINK_S = 4;
+export const LINK_W = 8;
 
 function roofPyramid(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
   const cx = (x0 + x1) / 2;
@@ -589,7 +598,163 @@ const GEOMETRY: Record<BuildingType, Geometry> = {
   storehouse: { inset: 0.3, wall: 26 },
   farm: { inset: 0.1, wall: 0 },
   tower: { inset: 0.55, wall: 84 },
+  wall: { inset: 0, wall: 20 },
+  gate: { inset: 0, wall: 20 },
 };
+
+interface WallLook {
+  h: number;
+  /** Half thickness in tiles. */
+  thick: number;
+  body: string;
+  top: string;
+}
+
+/** Palisade → mud brick → stone → bastion → concrete → energy barrier. */
+const WALL_LOOK: Record<EraStyle, WallLook> = {
+  stone: { h: 17, thick: 0.1, body: '#7a5634', top: '#a07a4c' },
+  ancient: { h: 19, thick: 0.2, body: '#c4a26c', top: '#dcc092' },
+  medieval: { h: 26, thick: 0.22, body: '#9c978a', top: '#c2bdb0' },
+  imperial: { h: 23, thick: 0.3, body: '#aea691', top: '#d2cab5' },
+  modern: { h: 19, thick: 0.2, body: '#8c9196', top: '#b0b5b9' },
+  future: { h: 21, thick: 0.07, body: '#4e626e', top: '#38d6f5' },
+};
+
+const LINK_DIRS: Array<[number, number, number]> = [
+  [LINK_N, 0, -1],
+  [LINK_W, -1, 0],
+  [LINK_E, 1, 0],
+  [LINK_S, 0, 1],
+];
+
+/** One wall arm from the tile center towards a neighbour (dx, dy). */
+function wallArm(ctx: Ctx, project: Project, cx: number, cy: number, dx: number, dy: number, style: EraStyle, h: number, scale: number, time: number): void {
+  const L = WALL_LOOK[style];
+  const facing = dx !== 0 ? 0 : Math.PI / 2;
+  const mx = cx + dx * 0.25;
+  const my = cy + dy * 0.25;
+  switch (style) {
+    case 'stone': {
+      // Sharpened stakes.
+      for (let t = 0.08; t <= 0.5; t += 0.105) {
+        const px = cx + dx * t;
+        const py = cy + dy * t;
+        const [ax, ay] = project(px, py, 0);
+        const [bx, by] = project(px, py, h);
+        line(ctx, ax, ay, bx, by, L.body, 3.4 * scale);
+        poly(ctx, [[bx - 1.7 * scale, by], [bx + 1.7 * scale, by], [bx, by - 4 * scale]], L.top);
+      }
+      break;
+    }
+    case 'future': {
+      const [ax, ay] = project(cx, cy, 2);
+      const [bx, by] = project(cx + dx * 0.5, cy + dy * 0.5, 2);
+      const [cx2, cy2] = project(cx + dx * 0.5, cy + dy * 0.5, h);
+      const [dx2, dy2] = project(cx, cy, h);
+      const glow = 0.3 + 0.12 * Math.sin(time * 3 + cx + cy);
+      poly(ctx, [[ax, ay], [bx, by], [cx2, cy2], [dx2, dy2]], `rgba(56,214,245,${glow})`);
+      line(ctx, dx2, dy2, cx2, cy2, '#bff4ff', 1.2 * scale);
+      break;
+    }
+    default: {
+      box3d(ctx, project, mx, my, facing, 0.25 + L.thick * 0.5, L.thick, 0, h, L.top, L.body);
+      if (style === 'imperial') {
+        // Sloped glacis at the foot of the bastion wall.
+        box3d(ctx, project, mx, my, facing, 0.25 + L.thick * 0.5, L.thick * 1.45, 0, h * 0.35, shade(L.body, -0.05), L.body);
+      }
+      if (style === 'medieval') {
+        // Merlons.
+        for (const t of [0.12, 0.38]) {
+          box3d(ctx, project, cx + dx * t, cy + dy * t, facing, 0.06, L.thick, h, h + 5, L.top, L.body);
+        }
+      }
+      if (style === 'modern') {
+        // Barbed wire on top.
+        const pts: Pt[] = [];
+        for (let i = 0; i <= 6; i++) {
+          const t = i / 12;
+          pts.push(project(cx + dx * t, cy + dy * t, h + 2 + (i % 2) * 3));
+        }
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (const [x, y] of pts.slice(1)) ctx.lineTo(x, y);
+        ctx.strokeStyle = '#3a3f44';
+        ctx.lineWidth = 0.9 * scale;
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+/** Wall segment or gate: arms towards connected neighbours around a post in player colour. */
+function drawWall(ctx: Ctx, project: Project, scale: number, b: BuildingLook, time: number): void {
+  const style = epochStyle(b.epoch);
+  const L = WALL_LOOK[style];
+  const cx = b.tx + 0.5;
+  const cy = b.ty + 0.5;
+  poly(ctx, [project(b.tx + 0.08, b.ty + 0.08), project(b.tx + 0.92, b.ty + 0.08), project(b.tx + 0.92, b.ty + 0.92), project(b.tx + 0.08, b.ty + 0.92)], 'rgba(60,45,25,0.18)');
+  const links = b.links ?? 0;
+  if (!b.built && b.progress < 0.08) {
+    poly(ctx, [project(b.tx + 0.2, b.ty + 0.2), project(b.tx + 0.8, b.ty + 0.2), project(b.tx + 0.8, b.ty + 0.8), project(b.tx + 0.2, b.ty + 0.8)], 'rgba(120,100,70,0.6)', '#e9d9a6', 1);
+    return;
+  }
+  const h = b.built ? L.h : L.h * Math.min(1, b.progress * 1.2);
+  if (!b.built) ctx.globalAlpha = 0.85;
+
+  if (b.type === 'gate') {
+    drawGate(ctx, project, scale, b, style, h, links, time);
+  } else {
+    // Arms behind the post first, then the post, then the arms in front.
+    for (const [bit, dx, dy] of LINK_DIRS.slice(0, 2)) if (links & bit) wallArm(ctx, project, cx, cy, dx, dy, style, h, scale, time);
+    const post = style === 'future' ? 0.09 : L.thick + 0.05;
+    box3d(ctx, project, cx, cy, 0, post, post, 0, h + 3, b.color, style === 'future' ? '#5d707c' : L.body);
+    for (const [bit, dx, dy] of LINK_DIRS.slice(2)) if (links & bit) wallArm(ctx, project, cx, cy, dx, dy, style, h, scale, time);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawGate(ctx: Ctx, project: Project, scale: number, b: BuildingLook, style: EraStyle, h: number, links: number, time: number): void {
+  const L = WALL_LOOK[style];
+  // The gate runs along the wall: east-west unless only north/south neighbours exist.
+  const alongX = (links & (LINK_E | LINK_W)) !== 0 || (links & (LINK_N | LINK_S)) === 0;
+  const cx = b.tx + 0.5;
+  const cy = b.ty + 0.5;
+  const ax = alongX ? 1 : 0;
+  const ay = alongX ? 0 : 1;
+  const facing = alongX ? 0 : Math.PI / 2;
+  const tall = h + 9;
+  const post = Math.max(0.12, L.thick + 0.06);
+  const pillar = (t: number) =>
+    box3d(ctx, project, cx + ax * t, cy + ay * t, 0, post, post, 0, tall, b.color, style === 'future' ? '#5d707c' : L.body);
+  pillar(-0.38);
+  if (b.built && !b.open) {
+    if (style === 'future') {
+      const p0 = project(cx - ax * 0.32, cy - ay * 0.32, 2);
+      const p1 = project(cx + ax * 0.32, cy + ay * 0.32, 2);
+      const p2 = project(cx + ax * 0.32, cy + ay * 0.32, h);
+      const p3 = project(cx - ax * 0.32, cy - ay * 0.32, h);
+      poly(ctx, [p0, p1, p2, p3], `rgba(255,190,60,${0.35 + 0.1 * Math.sin(time * 4)})`);
+    } else {
+      const door = style === 'modern' ? '#c9b23a' : style === 'imperial' ? '#3f3a33' : '#6b4a2b';
+      box3d(ctx, project, cx, cy, facing, 0.3, 0.05, 0, h * 0.85, shade(door, 0.15), door);
+    }
+  } else if (b.built && style !== 'future') {
+    // Swung-open leaves along the passage.
+    const door = '#6b4a2b';
+    box3d(ctx, project, cx - ax * 0.3 + ay * 0.18, cy - ay * 0.3 + ax * 0.18, facing + Math.PI / 2, 0.16, 0.04, 0, h * 0.8, shade(door, 0.15), door);
+    box3d(ctx, project, cx + ax * 0.3 + ay * 0.18, cy + ay * 0.3 + ax * 0.18, facing + Math.PI / 2, 0.16, 0.04, 0, h * 0.8, shade(door, 0.15), door);
+  }
+  // Lintel joining the pillars (a barrier arm for modern gates).
+  if (style === 'modern') {
+    const [x0, y0] = project(cx - ax * 0.38, cy - ay * 0.38, h * 0.7);
+    const angle = b.open ? 0.9 : 0;
+    const [x1, y1] = project(cx + ax * (0.38 - angle * 0.25), cy + ay * (0.38 - angle * 0.25), h * 0.7 + angle * 18);
+    line(ctx, x0, y0, x1, y1, '#d23b2f', 2.2 * scale);
+  } else if (style !== 'future' && style !== 'stone') {
+    box3d(ctx, project, cx, cy, facing, 0.38 + post, post * 0.8, h, h + 5, L.top, L.body);
+  }
+  pillar(0.38);
+}
 
 type RoofKind = 'pyramid' | 'gable' | 'temple' | 'dome' | 'flat' | 'glass';
 
@@ -619,6 +784,7 @@ function wallHeight(type: BuildingType, style: EraStyle): number {
 export function buildingTopZ(type: BuildingType, epoch: number, size: number): number {
   if (type === 'farm') return 12;
   const style = epochStyle(epoch);
+  if (type === 'wall' || type === 'gate') return WALL_LOOK[style].h + (type === 'gate' ? 16 : 8);
   const roof = roofOf(style, type, size);
   return wallHeight(type, style) + (roof.kind === 'dome' || roof.kind === 'glass' ? roof.h * 0.9 : roof.h) + 14;
 }
@@ -644,6 +810,10 @@ export function drawBuilding(ctx: Ctx, project: Project, scale: number, b: Build
   const pal = ERA_PALETTE[style];
   if (b.type === 'farm') {
     drawFarm(ctx, project, b, style);
+    return;
+  }
+  if (b.type === 'wall' || b.type === 'gate') {
+    drawWall(ctx, project, scale, b, time);
     return;
   }
   const geo = GEOMETRY[b.type];

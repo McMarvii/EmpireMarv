@@ -4,13 +4,32 @@ import { Terrain } from '../sim/map';
 import type { World } from '../sim/world';
 import { Camera, TILE_W } from './camera';
 import { TERRAIN_COLORS } from './colors';
-import { buildingTopZ, drawBuilding, drawNode, drawUnit } from './sprites';
+import { buildingTopZ, drawBuilding, drawNode, drawUnit, LINK_E, LINK_N, LINK_S, LINK_W } from './sprites';
+
+export interface LineSegment {
+  tx: number;
+  ty: number;
+  valid: boolean;
+}
 
 export interface Placement {
   type: BuildingType;
   tx: number;
   ty: number;
   valid: boolean;
+  /** Walls and gates: where the drag started, and the segments planned so far. */
+  anchor?: { tx: number; ty: number } | null;
+  line?: LineSegment[] | null;
+}
+
+/** Neighbour bitmask of a wall tile, from a tile → owner lookup. */
+function linkMask(at: (x: number, y: number) => boolean, tx: number, ty: number): number {
+  let m = 0;
+  if (at(tx, ty - 1)) m |= LINK_N;
+  if (at(tx + 1, ty)) m |= LINK_E;
+  if (at(tx, ty + 1)) m |= LINK_S;
+  if (at(tx - 1, ty)) m |= LINK_W;
+  return m;
 }
 
 /** Short-lived click feedback ring at a world position. */
@@ -143,10 +162,17 @@ export class Renderer {
     // --- ground layer: farms, selection rings, rally points ---------------
     const drawables: Array<{ depth: number; draw: () => void }> = [];
     const time = state.time;
+    // Tiles of visible walls, gates and towers, so wall segments can join up.
+    const joins = new Map<number, number>();
+    for (const b of world.buildings) {
+      if (b.dead || !(BUILDING_DEFS[b.type].line || b.type === 'tower') || !world.isVisibleTo(this.me, b)) continue;
+      for (let y = b.ty; y < b.ty + b.size; y++) for (let x = b.tx; x < b.tx + b.size; x++) joins.set(y * map.width + x, b.owner);
+    }
     for (const b of world.buildings) {
       if (!world.isVisibleTo(this.me, b)) continue;
       const [sx, sy] = project(b.x, b.y);
       if (!this.onScreen(sx, sy, b.size * TILE_W * zoom)) continue;
+      const line = BUILDING_DEFS[b.type].line;
       const look = {
         type: b.type,
         epoch: b.epoch,
@@ -158,6 +184,8 @@ export class Renderer {
         built: b.built,
         hpRatio: b.hp / b.maxHp,
         seed: b.id,
+        links: line ? linkMask((x, y) => map.inBounds(x, y) && joins.get(y * map.width + x) === b.owner, b.tx, b.ty) : 0,
+        open: BUILDING_DEFS[b.type].gate ? this.gateOpen(b) : false,
       };
       const selected = state.selection.has(b.id) || state.hoverId === b.id;
       if (selected) this.footprint(b.tx, b.ty, b.size, this.ringColor(b.owner), state.selection.has(b.id) ? 2 : 1);
@@ -247,6 +275,16 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.stroke();
     }
+  }
+
+  /** Gates swing open while a unit of the owner's team is close. */
+  private gateOpen(b: Building): boolean {
+    const team = this.world.teamOf(b.owner);
+    let open = false;
+    this.world.forUnitsNear(b.x, b.y, 1.5, (u) => {
+      if (!open && this.world.teamOf(u.owner) === team && Math.hypot(u.x - b.x, u.y - b.y) < 1.4) open = true;
+    });
+    return open;
   }
 
   private tileVisible(x: number, y: number): boolean {
@@ -415,6 +453,19 @@ export class Renderer {
   }
 
   private drawPlacement(p: Placement, time: number): void {
+    if (p.line && p.line.length) {
+      const planned = new Set(p.line.map((s) => `${s.tx},${s.ty}`));
+      for (const seg of p.line) {
+        const links = linkMask((x, y) => planned.has(`${x},${y}`), seg.tx, seg.ty);
+        this.drawGhost(p.type, seg.tx, seg.ty, seg.valid, time, links);
+      }
+      return;
+    }
+    this.drawGhost(p.type, p.tx, p.ty, p.valid, time, BUILDING_DEFS[p.type].line ? LINK_E | LINK_W : 0);
+  }
+
+  private drawGhost(type: BuildingType, tx: number, ty: number, valid: boolean, time: number, links: number): void {
+    const p = { type, tx, ty, valid };
     const size = BUILDING_DEFS[p.type].size;
     const ctx = this.ctx;
     const project = this.camera.project;
@@ -435,6 +486,7 @@ export class Renderer {
         built: true,
         hpRatio: 1,
         seed: 0,
+        links,
       },
       time,
     );

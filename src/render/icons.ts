@@ -1,7 +1,7 @@
 import { BUILDING_DEFS, type BuildingType } from '../data/buildings';
 import { bestTier, ROLE_DEFS, type Role } from '../data/units';
 import type { Project } from './camera';
-import { drawBuilding, drawUnit } from './sprites';
+import { drawBuilding, drawUnit, LINK_E, LINK_W } from './sprites';
 
 const cache = new Map<string, string>();
 
@@ -46,8 +46,10 @@ export function buildingIcon(type: BuildingType, epoch: number, color: string, s
     const tiles = BUILDING_DEFS[type].size;
     const scale = (size / (tiles * 64)) * 0.95;
     const cx = size / 2;
-    const cy = size * (type === 'farm' ? 0.2 : 0.42);
+    const line = BUILDING_DEFS[type].line;
+    const cy = size * (type === 'farm' ? 0.2 : line ? 0.3 : 0.42);
     const project: Project = (wx, wy, z = 0) => [cx + (wx - wy) * 32 * scale, cy + (wx + wy) * 16 * scale - z * scale];
-    drawBuilding(ctx, project, scale, { type, epoch, color, tx: 0, ty: 0, size: tiles, progress: 1, built: true, hpRatio: 1, seed: 3 }, 0.5);
+    const links = line ? LINK_E | LINK_W : 0;
+    drawBuilding(ctx, project, scale, { type, epoch, color, tx: 0, ty: 0, size: tiles, progress: 1, built: true, hpRatio: 1, seed: 3, links }, 0.5);
   });
 }

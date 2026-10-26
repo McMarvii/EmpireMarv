@@ -1,11 +1,12 @@
 import { BUILDING_DEFS, type BuildingType } from './data/buildings';
+import { canAfford, type Stock } from './data/resources';
 import type { Role } from './data/units';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
 import { Renderer, type Marker, type Placement } from './render/renderer';
 import { AIController } from './sim/ai';
 import type { Building, Entity, Unit } from './sim/entities';
-import { DT, World, type GameSettings } from './sim/world';
+import { DT, MAX_LINE, World, type GameSettings } from './sim/world';
 import { Hud } from './ui/hud';
 import { Input } from './ui/input';
 
@@ -96,7 +97,7 @@ export class Game {
     this.input.update(dt);
     this.camera.clamp(this.world.map.width);
     for (const id of [...this.selection]) if (!this.world.get(id)) this.selection.delete(id);
-    if (this.placement) this.placement.valid = this.world.canPlace(this.me, this.placement.type, this.placement.tx, this.placement.ty);
+    if (this.placement) this.refreshPlacement();
 
     this.renderer.render({
       selection: this.selection,
@@ -223,6 +224,34 @@ export class Game {
     const size = BUILDING_DEFS[this.placement.type].size;
     this.placement.tx = Math.round(pos.x - size / 2);
     this.placement.ty = Math.round(pos.y - size / 2);
+    this.refreshPlacement();
+  }
+
+  /** Walls and gates: the mouse button went down, start a line there. */
+  startLine(): void {
+    const p = this.placement;
+    if (!p || !BUILDING_DEFS[p.type].line) return;
+    p.anchor = { tx: p.tx, ty: p.ty };
+    this.refreshPlacement();
+  }
+
+  /** Re-checks the ghost (and every planned wall segment) against the world. */
+  private refreshPlacement(): void {
+    const p = this.placement;
+    if (!p) return;
+    p.valid = this.world.canPlace(this.me, p.type, p.tx, p.ty);
+    if (!p.anchor) {
+      p.line = null;
+      return;
+    }
+    const cost = BUILDING_DEFS[p.type].cost;
+    const stock: Stock = { ...this.world.players[this.me].stock };
+    p.line = lineTiles(p.anchor.tx, p.anchor.ty, p.tx, p.ty).map(([tx, ty]) => {
+      // Mirrors World.commandPlaceLine: blocked tiles are skipped, the rest is paid in order.
+      const valid = this.world.canPlace(this.me, p.type, tx, ty) && canAfford(stock, cost);
+      if (valid) for (const [r, v] of Object.entries(cost)) stock[r as keyof Stock] -= v ?? 0;
+      return { tx, ty, valid };
+    });
   }
 
   confirmPlacement(keepMode: boolean): void {
@@ -231,6 +260,18 @@ export class Game {
     const citizens = this.selectedOwnUnits().filter((u) => u.role === 'citizen');
     if (!citizens.length) {
       this.cancelMode();
+      return;
+    }
+    if (BUILDING_DEFS[p.type].line) {
+      const tiles = (p.line ?? [{ tx: p.tx, ty: p.ty }]).map((t) => ({ x: t.tx, y: t.ty }));
+      p.anchor = null;
+      p.line = null;
+      if (tiles.length === 1 && !this.world.canPlace(this.me, p.type, tiles[0].x, tiles[0].y)) {
+        this.hud.message('warn', 'Hier kann nicht gebaut werden.');
+        return;
+      }
+      this.world.issue({ type: 'placeLine', player: this.me, ids: citizens.map((u) => u.id), building: p.type, tiles });
+      if (!keepMode) this.cancelMode();
       return;
     }
     if (!this.world.canPlace(this.me, p.type, p.tx, p.ty)) {
@@ -306,4 +347,30 @@ export class Game {
     this.destroy();
     this.onExit();
   }
+}
+
+/** Tiles on a straight line between two tiles (Bresenham), at most MAX_LINE long. */
+export function lineTiles(x0: number, y0: number, x1: number, y1: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  const dx = Math.abs(x1 - x0);
+  const dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  let x = x0;
+  let y = y0;
+  for (;;) {
+    out.push([x, y]);
+    if ((x === x1 && y === y1) || out.length >= MAX_LINE) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y += sy;
+    }
+  }
+  return out;
 }

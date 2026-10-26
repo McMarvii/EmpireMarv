@@ -18,6 +18,8 @@ export class GameMap {
   readonly occupied: Uint16Array;
   /** Per-tile shade variation 0..3 for rendering. */
   readonly shade: Uint8Array;
+  /** Team whose units may pass a finished gate on this tile, or -1. */
+  readonly gateTeam: Int16Array;
   /** Bumped whenever passability changes, so caches can invalidate. */
   version = 0;
 
@@ -29,6 +31,7 @@ export class GameMap {
     this.blocked = new Uint16Array(width * height);
     this.occupied = new Uint16Array(width * height);
     this.shade = new Uint8Array(width * height);
+    this.gateTeam = new Int16Array(width * height).fill(-1);
   }
 
   inBounds(x: number, y: number): boolean {
@@ -47,6 +50,20 @@ export class GameMap {
     if (!this.inBounds(x, y)) return false;
     const i = this.idx(x, y);
     return this.terrain[i] !== Terrain.Water && this.blocked[i] === 0;
+  }
+
+  /** Like `passable`, but a team's own gates are open to its units. */
+  passableFor(x: number, y: number, team: number): boolean {
+    if (!this.inBounds(x, y)) return false;
+    const i = this.idx(x, y);
+    if (this.terrain[i] === Terrain.Water) return false;
+    return this.blocked[i] === 0 || (team >= 0 && this.blocked[i] === 1 && this.gateTeam[i] === team);
+  }
+
+  setGate(x: number, y: number, team: number): void {
+    if (!this.inBounds(x, y)) return;
+    this.gateTeam[this.idx(x, y)] = team;
+    this.version++;
   }
 
   /** Passable or only blocked by a building (for placing units into ghosts). */

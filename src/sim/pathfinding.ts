@@ -70,8 +70,9 @@ export class Pathfinder {
    * goals) or a partial path towards the closest reachable tile when the goal
    * cannot be reached within the node budget.
    */
-  find(sx: number, sy: number, goal: PathGoal, maxNodes = 8000): Point[] {
+  find(sx: number, sy: number, goal: PathGoal, maxNodes = 8000, team = -1): Point[] {
     const map = this.map;
+    const pass = (x: number, y: number) => map.passableFor(x, y, team);
     const W = map.width;
     const startX = Math.max(0, Math.min(W - 1, Math.floor(sx)));
     const startY = Math.max(0, Math.min(map.height - 1, Math.floor(sy)));
@@ -134,8 +135,8 @@ export class Pathfinder {
       for (const [dx, dy, cost] of DIRS) {
         const nx = cx + dx;
         const ny = cy + dy;
-        if (!map.passable(nx, ny)) continue;
-        if (dx !== 0 && dy !== 0 && (!map.passable(cx + dx, cy) || !map.passable(cx, cy + dy))) continue;
+        if (!pass(nx, ny)) continue;
+        if (dx !== 0 && dy !== 0 && (!pass(cx + dx, cy) || !pass(cx, cy + dy))) continue;
         const ni = ny * W + nx;
         if (this.closed[ni] === gen) continue;
         const ng = this.g[cur] + cost;
@@ -156,21 +157,21 @@ export class Pathfinder {
       tiles.push({ x: x + 0.5, y: (i - x) / W + 0.5 });
     }
     tiles.reverse();
-    if (found >= 0 && goal.kind === 'point' && map.passable(Math.floor(goal.x), Math.floor(goal.y))) {
+    if (found >= 0 && goal.kind === 'point' && pass(Math.floor(goal.x), Math.floor(goal.y))) {
       tiles[tiles.length - 1] = { x: goal.x, y: goal.y };
     }
-    return this.smooth({ x: sx, y: sy }, tiles);
+    return this.smooth({ x: sx, y: sy }, tiles, team);
   }
 
   /** Drops waypoints that are visible from an earlier one (string pulling). */
-  private smooth(start: Point, pts: Point[]): Point[] {
+  private smooth(start: Point, pts: Point[], team: number): Point[] {
     if (pts.length <= 2) return pts;
     const out: Point[] = [];
     let anchor = start;
     let i = 0;
     while (i < pts.length) {
       let j = pts.length - 1;
-      while (j > i && !this.lineClear(anchor, pts[j])) j--;
+      while (j > i && !this.lineClear(anchor, pts[j], team)) j--;
       out.push(pts[j]);
       anchor = pts[j];
       i = j + 1;
@@ -178,7 +179,7 @@ export class Pathfinder {
     return out;
   }
 
-  lineClear(a: Point, b: Point): boolean {
+  lineClear(a: Point, b: Point, team = -1): boolean {
     const dist = Math.hypot(b.x - a.x, b.y - a.y);
     const steps = Math.ceil(dist / 0.2);
     // Sample the line and a slightly widened corridor so units don't clip corners.
@@ -187,7 +188,7 @@ export class Pathfinder {
       const x = a.x + (b.x - a.x) * t;
       const y = a.y + (b.y - a.y) * t;
       for (const [ox, oy] of PROBES) {
-        if (!this.map.passable(Math.floor(x + ox), Math.floor(y + oy))) return false;
+        if (!this.map.passableFor(Math.floor(x + ox), Math.floor(y + oy), team)) return false;
       }
     }
     return true;

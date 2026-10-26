@@ -95,6 +95,8 @@ export type Command =
   | { type: 'gather'; player: number; ids: number[]; targetId: number }
   | { type: 'construct'; player: number; ids: number[]; targetId: number }
   | { type: 'place'; player: number; ids: number[]; building: BuildingType; tx: number; ty: number }
+  /** A line of wall or gate segments, placed from the first tile on as far as resources allow. */
+  | { type: 'placeLine'; player: number; ids: number[]; building: BuildingType; tiles: Point[] }
   | { type: 'train'; player: number; buildingId: number; role: Role; count?: number }
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
@@ -110,6 +112,8 @@ const START_STOCK: Record<StartResources, Record<Res, number>> = {
 };
 
 const GRID_CELL = 4;
+/** Longest wall line one drag may place. */
+export const MAX_LINE = 30;
 
 /**
  * The complete, deterministic game state. Rendering and input only read
@@ -286,7 +290,17 @@ export class World {
     this.buildings.push(b);
     this.map.block(tx, ty, def.size, def.size, 1, def.walkable);
     this.displaceUnits(b);
+    if (built) this.openGate(b);
     return b;
+  }
+
+  /** A finished gate opens for its owner's team. */
+  openGate(b: Building): void {
+    if (BUILDING_DEFS[b.type].gate) this.map.setGate(b.tx, b.ty, this.teamOf(b.owner));
+  }
+
+  teamOf(owner: number): number {
+    return owner >= 0 ? this.players[owner].team : -1;
   }
 
   addResource(nodeType: NodeType, tx: number, ty: number, size: number, amount: number): ResourceNode {
@@ -321,6 +335,7 @@ export class World {
     e.dead = true;
     if (e.kind === 'building') {
       this.map.block(e.tx, e.ty, e.size, e.size, -1, BUILDING_DEFS[e.type].walkable);
+      if (BUILDING_DEFS[e.type].gate) this.map.setGate(e.tx, e.ty, -1);
     } else if (e.kind === 'resource') {
       this.map.block(e.tx, e.ty, e.size, e.size, -1);
     }
@@ -512,8 +527,12 @@ export class World {
       }
     }
     // Keep a one-tile gap to other buildings so units never get walled in.
+    // Walls are meant to connect: to each other and to towers.
+    const line = BUILDING_DEFS[type].line;
     for (const b of this.buildings) {
       if (b.dead || BUILDING_DEFS[b.type].walkable || type === 'farm') continue;
+      const otherLine = BUILDING_DEFS[b.type].line;
+      if ((line && (otherLine || b.type === 'tower')) || (type === 'tower' && otherLine)) continue;
       if (tx < b.tx + b.size + 1 && tx + size + 1 > b.tx && ty < b.ty + b.size + 1 && ty + size + 1 > b.ty) return false;
     }
     return true;
@@ -593,6 +612,9 @@ export class World {
       }
       case 'place':
         this.commandPlace(cmd.player, cmd.ids, cmd.building, cmd.tx, cmd.ty);
+        break;
+      case 'placeLine':
+        this.commandPlaceLine(cmd.player, cmd.ids, cmd.building, cmd.tiles);
         break;
       case 'train':
         for (let i = 0; i < (cmd.count ?? 1); i++) if (!this.commandTrain(cmd.player, cmd.buildingId, cmd.role)) break;
@@ -682,7 +704,7 @@ export class World {
     slots.sort((a, b) => Math.cos(dir) * (a.x - b.x) + Math.sin(dir) * (a.y - b.y));
     units.forEach((u, i) => {
       let slot = slots[i];
-      if (!this.map.passable(Math.floor(slot.x), Math.floor(slot.y))) {
+      if (!this.map.passableFor(Math.floor(slot.x), Math.floor(slot.y), this.teamOf(player))) {
         const near = this.map.nearestPassable(slot.x, slot.y, 6);
         slot = near ? { x: near.x + 0.5, y: near.y + 0.5 } : { x, y };
       }
@@ -706,6 +728,34 @@ export class World {
     pay(p.stock, def.cost);
     const b = this.addBuilding(player, type, tx, ty, false);
     this.issue({ type: 'construct', player, ids, targetId: b.id });
+  }
+
+  private commandPlaceLine(player: number, ids: number[], type: BuildingType, tiles: Point[]): void {
+    const p = this.players[player];
+    const def = BUILDING_DEFS[type];
+    if (!def.line || !this.buildingUnlocked(player, type)) return;
+    const placed: Building[] = [];
+    let short = false;
+    for (const t of tiles.slice(0, MAX_LINE)) {
+      if (!this.canPlace(player, type, t.x, t.y)) continue;
+      if (!canAfford(p.stock, def.cost)) {
+        short = true;
+        break;
+      }
+      pay(p.stock, def.cost);
+      placed.push(this.addBuilding(player, type, t.x, t.y, false));
+    }
+    if (short) this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, def.cost)}` });
+    else if (placed.length === 0) this.emit({ type: 'warn', player, text: 'Hier kann nicht gebaut werden.' });
+    if (placed.length === 0) return;
+    // Spread the builders along the line; each walks on to the nearest open segment.
+    const builders = this.ownUnits(player, ids).filter((u) => u.role === 'citizen');
+    builders.forEach((u, i) => {
+      const seg = placed[Math.floor((i * placed.length) / builders.length)];
+      u.order = { kind: 'build', targetId: seg.id };
+      u.path = [];
+      u.repathTick = -1000;
+    });
   }
 
   private commandTrain(player: number, buildingId: number, role: Role): boolean {
@@ -807,7 +857,8 @@ export class World {
   private checkVictory(): void {
     for (const p of this.players) {
       if (!p.alive) continue;
-      const hasBuilding = this.buildings.some((b) => !b.dead && b.owner === p.id);
+      // Walls alone do not keep an empire alive.
+      const hasBuilding = this.buildings.some((b) => !b.dead && b.owner === p.id && !BUILDING_DEFS[b.type].line);
       const hasCitizen = this.units.some((u) => !u.dead && u.owner === p.id && u.role === 'citizen');
       if (!hasBuilding && !hasCitizen) {
         p.alive = false;
