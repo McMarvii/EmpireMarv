@@ -1,8 +1,9 @@
 name: Deploy to GitHub Pages
 
+# Deploys the built game (dist/), not the sources. Pages must be set to
+# "GitHub Actions" as source; "Deploy from a branch" serves raw .ts files.
 on:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +17,8 @@ concurrency:
 
 jobs:
   build:
+    # Only the default branch is published, whatever it is called.
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

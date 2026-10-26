@@ -76,7 +76,9 @@ Das Design, die Epochen-Tabelle und die Roadmap stehen in [docs/GAME_DESIGN.md](
 
 ## Veröffentlichen (GitHub Pages)
 
-Der Workflow `.github/workflows/pages.yml` baut das Spiel bei jedem Push auf `main` und veröffentlicht es. Einmalig nötig: unter *Settings → Pages → Build and deployment* als Quelle **GitHub Actions** auswählen.
+Der Workflow `.github/workflows/pages.yml` baut das Spiel bei jedem Push auf den Standard-Branch und veröffentlicht den Ordner `dist/`.
+
+Einmalig nötig: unter *Settings → Pages → Build and deployment → Source* **GitHub Actions** auswählen. Mit „Deploy from a branch“ liefert GitHub den Quellcode aus, die `.ts`-Dateien laufen im Browser nicht, und die Seite bleibt leer.
 
 ## Rechtliches
 

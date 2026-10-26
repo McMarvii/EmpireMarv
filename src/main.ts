@@ -3,6 +3,7 @@ import { Game } from './game';
 import { showMenu } from './ui/menu';
 
 const root = document.querySelector<HTMLElement>('#app')!;
+document.querySelector('#boot-hint')?.remove();
 
 function startMenu(): void {
   showMenu(root, (settings) => {
