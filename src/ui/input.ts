@@ -16,6 +16,8 @@ export class Input {
   private panDrag: { x: number; y: number; camX: number; camY: number } | null = null;
   /** Right button held: a drag pans the camera, a click without drag issues a command. */
   private rightDrag: { x: number; y: number; camX: number; camY: number; panning: boolean } | null = null;
+  /** Right button held with own units selected: a drag sets target and facing instead of panning. */
+  private orderDrag: { x: number; y: number; dragging: boolean } | null = null;
   private keys = new Set<string>();
   private lastClick = { time: 0, id: 0 };
   private selbox: HTMLElement;
@@ -32,11 +34,18 @@ export class Input {
     this.listen(canvas, 'contextmenu', (e) => e.preventDefault());
     this.listen(canvas, 'wheel', (e) => this.onWheel(e as WheelEvent), { passive: false });
     this.listen(window, 'keydown', (e) => this.onKeyDown(e as KeyboardEvent));
-    this.listen(window, 'keyup', (e) => this.keys.delete((e as KeyboardEvent).key));
+    this.listen(window, 'keyup', (e) => {
+      const key = (e as KeyboardEvent).key;
+      this.keys.delete(key);
+      // Shift released after queuing patrol or attack-move points: done.
+      if (key === 'Shift' && game.stickyMode) game.cancelMode();
+    });
     this.listen(window, 'blur', () => {
       this.keys.clear();
       this.rightDrag = null;
       this.panDrag = null;
+      this.orderDrag = null;
+      game.preview = null;
     });
     this.listen(window, 'resize', () => game.resize());
     this.listen(document, 'mouseleave', () => (this.inWindow = false));
@@ -49,7 +58,7 @@ export class Input {
       if (me.button === 2 || (me.type === 'contextmenu' && me.button !== 0)) {
         e.preventDefault();
         const ids = game.selectedOwnUnits().map((u) => u.id);
-        if (ids.length) game.world.issue({ type: 'move', player: game.me, ids, x: pos.x, y: pos.y });
+        if (ids.length) game.world.issue({ type: 'move', player: game.me, ids, x: pos.x, y: pos.y, queue: me.shiftKey });
         return;
       }
       if (me.buttons & 1 || me.type === 'mousedown') game.centerOn(pos.x, pos.y);
@@ -62,6 +71,10 @@ export class Input {
   private listen(target: EventTarget, type: string, fn: (e: Event) => void, opts?: AddEventListenerOptions): void {
     target.addEventListener(type, fn, opts);
     this.cleanup.push(() => target.removeEventListener(type, fn, opts));
+  }
+
+  get shiftHeld(): boolean {
+    return this.keys.has('Shift');
   }
 
   destroy(): void {
@@ -104,7 +117,7 @@ export class Input {
 
   private cursorFor(hoverId: number): string {
     const game = this.game;
-    if (game.mode === 'attackMove') return 'crosshair';
+    if (game.mode === 'attackMove' || game.mode === 'patrol') return 'crosshair';
     if (game.mode === 'place') return 'copy';
     if (!hoverId || game.selectedOwnUnits().length === 0) return 'default';
     const e = game.world.get(hoverId);
@@ -127,7 +140,11 @@ export class Input {
       return;
     }
     if (e.button === 2) {
-      this.rightDrag = { x: e.clientX, y: e.clientY, camX: game.camera.x, camY: game.camera.y, panning: false };
+      if (game.mode === 'normal' && game.selectedOwnUnits().length > 0) {
+        this.orderDrag = { x: e.clientX, y: e.clientY, dragging: false };
+      } else {
+        this.rightDrag = { x: e.clientX, y: e.clientY, camX: game.camera.x, camY: game.camera.y, panning: false };
+      }
       return;
     }
     if (e.button !== 0) return;
@@ -139,7 +156,11 @@ export class Input {
       return;
     }
     if (game.mode === 'attackMove') {
-      game.attackMoveTo(e.clientX, e.clientY);
+      game.attackMoveTo(e.clientX, e.clientY, e.shiftKey);
+      return;
+    }
+    if (game.mode === 'patrol') {
+      game.patrolTo(e.clientX, e.clientY, e.shiftKey);
       return;
     }
     this.dragStart = { x: e.clientX, y: e.clientY };
@@ -153,6 +174,12 @@ export class Input {
     if (this.panDrag) {
       game.camera.x = this.panDrag.camX - (e.clientX - this.panDrag.x) / game.camera.zoom;
       game.camera.y = this.panDrag.camY - (e.clientY - this.panDrag.y) / game.camera.zoom;
+      return;
+    }
+    const od = this.orderDrag;
+    if (od) {
+      if (!od.dragging && Math.hypot(e.clientX - od.x, e.clientY - od.y) > DRAG_THRESHOLD * 3) od.dragging = true;
+      if (od.dragging) game.updateOrderPreview(od.x, od.y, e.clientX, e.clientY);
       return;
     }
     const rd = this.rightDrag;
@@ -182,13 +209,22 @@ export class Input {
       this.panDrag = null;
       return;
     }
+    if (e.button === 2 && this.orderDrag) {
+      const od = this.orderDrag;
+      this.orderDrag = null;
+      this.game.preview = null;
+      if (this.game.hud.overlayOpen()) return;
+      if (od.dragging) this.game.dragMove(od.x, od.y, e.clientX, e.clientY, e.shiftKey);
+      else if (document.elementFromPoint(e.clientX, e.clientY) === this.canvas) this.game.rightClick(e.clientX, e.clientY, e.shiftKey);
+      return;
+    }
     if (e.button === 2) {
       const rd = this.rightDrag;
       this.rightDrag = null;
       // Released over the HUD: no command for the ground hidden behind it.
       if (!rd || rd.panning || this.game.hud.overlayOpen() || document.elementFromPoint(e.clientX, e.clientY) !== this.canvas) return;
       if (this.game.mode !== 'normal') this.game.cancelMode();
-      else this.game.rightClick(e.clientX, e.clientY);
+      else this.game.rightClick(e.clientX, e.clientY, e.shiftKey);
       return;
     }
     if (e.button === 0 && this.game.mode === 'place' && this.game.placement?.anchor) {
@@ -263,6 +299,7 @@ export class Input {
 
   private onKeyDown(e: KeyboardEvent): void {
     const game = this.game;
+    if (e.key === 'Shift') this.keys.add('Shift');
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) {
       // A focused slider or checkbox (sound dialog) still lets Esc close and Ctrl+M mute.

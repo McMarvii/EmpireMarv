@@ -3,8 +3,8 @@ import { epochLabel, EPOCHS } from '../data/epochs';
 import { TECH_BY_ID } from '../data/techs';
 import { BUILD_RATE, gatherRate, ROLE_DEFS } from '../data/units';
 import { fire } from './combat';
-import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type ResourceNode, type Unit } from './entities';
-import { distToRect, type PathGoal, type Rect } from './pathfinding';
+import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type Order, type PatrolOrder, type Plan, type ResourceNode, type Unit } from './entities';
+import { distToRect, type PathGoal, type Point, type Rect } from './pathfinding';
 import { DT, TICK_RATE, type World } from './world';
 
 const WORK_REACH = 1.0;
@@ -76,7 +76,9 @@ function followPath(w: World, u: Unit): void {
   const dx = next.x - u.x;
   const dy = next.y - u.y;
   const dist = Math.hypot(dx, dy);
-  const step = u.stats.speed * DT;
+  const o = u.order;
+  const speed = o.kind === 'move' && o.pace ? Math.min(u.stats.speed, o.pace) : u.stats.speed;
+  const step = speed * DT;
   u.moving = true;
   if (dist > 1e-6) u.facing = Math.atan2(dy, dx);
   if (dist <= step) {
@@ -131,6 +133,7 @@ export function updateUnit(w: World, u: Unit): void {
   const regen = w.players[u.owner].mods.regen;
   if (regen > 0 && u.hp < u.maxHp && w.tick - u.lastHitTick > 5 * TICK_RATE) u.hp = Math.min(u.maxHp, u.hp + regen * DT);
   if (u.attackAnim > 0) u.attackAnim = Math.max(0, u.attackAnim - DT);
+  if (u.order.kind === 'idle' && u.queue.length > 0) startPlan(w, u, u.queue.shift()!);
   switch (u.order.kind) {
     case 'idle':
       updateIdle(w, u);
@@ -153,8 +156,98 @@ export function updateUnit(w: World, u: Unit): void {
     case 'explore':
       updateExplore(w, u);
       break;
+    case 'patrol':
+      updatePatrol(w, u);
+      break;
   }
   followPath(w, u);
+}
+
+/** Turns a queued command into the unit's current order. */
+export function startPlan(w: World, u: Unit, plan: Plan): void {
+  u.path = [];
+  u.repathTick = -1000;
+  switch (plan.kind) {
+    case 'move':
+      u.order = { kind: 'move', x: plan.x, y: plan.y, attackMove: plan.attackMove, pace: plan.pace };
+      setPathTo(w, u, { kind: 'point', x: plan.x, y: plan.y });
+      break;
+    case 'attack': {
+      const t = w.get(plan.targetId);
+      if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner)) return goIdle(u);
+      u.order = { kind: 'attack', targetId: t.id, resume: null, leash: null };
+      break;
+    }
+    case 'gather':
+      if (u.role !== 'citizen') return startPlan(w, u, { kind: 'move', x: plan.lx, y: plan.ly, attackMove: false });
+      u.order = { kind: 'gather', targetId: plan.targetId, res: plan.res, phase: 'toNode', dropId: 0, lx: plan.lx, ly: plan.ly };
+      break;
+    case 'build':
+      u.order = u.role === 'citizen' ? { kind: 'build', targetId: plan.targetId } : { kind: 'idle' };
+      break;
+    case 'deposit':
+      u.order = u.carryAmount > 0 ? { kind: 'deposit', targetId: plan.targetId, resume: plan.resume } : { kind: 'idle' };
+      break;
+    case 'explore':
+      u.order = { kind: 'explore', tx: -1, ty: -1, skip: [] };
+      break;
+    case 'patrol':
+      u.order = { kind: 'patrol', points: plan.points.map((p) => ({ ...p })), index: Math.min(1, plan.points.length - 1) };
+      routeTo(w, u);
+      break;
+  }
+}
+
+/** Orders that never finish on their own; a queued command replaces them. */
+export function isEndless(o: Order): boolean {
+  return o.kind === 'idle' || o.kind === 'gather' || o.kind === 'explore' || o.kind === 'patrol';
+}
+
+/** Where an order is heading, for waypoint display and queue planning. */
+export function orderTarget(w: World, o: Order | Plan): Point | null {
+  switch (o.kind) {
+    case 'move':
+      return { x: o.x, y: o.y };
+    case 'patrol':
+      return 'index' in o ? o.points[o.index] : o.points[o.points.length - 1];
+    case 'explore':
+      return 'tx' in o && o.tx >= 0 ? { x: o.tx + 0.5, y: o.ty + 0.5 } : null;
+    case 'idle':
+      return null;
+    default: {
+      const t = w.get(o.targetId);
+      return t ? { x: t.x, y: t.y } : null;
+    }
+  }
+}
+
+/** Plans the path towards the point a walking order (move or patrol) heads for. */
+function routeTo(w: World, u: Unit): void {
+  const target = orderTarget(w, u.order);
+  if (target) setPathTo(w, u, { kind: 'point', x: target.x, y: target.y });
+}
+
+/**
+ * Patrol: walk the points in a loop. Soldiers attack what they meet and
+ * pick the round up again afterwards; scouts and citizens just walk.
+ */
+function updatePatrol(w: World, u: Unit): void {
+  const o = u.order as PatrolOrder;
+  if (u.role !== 'citizen' && u.role !== 'scout' && scanDue(w, u)) {
+    const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
+    if (target) {
+      u.order = { kind: 'attack', targetId: target.id, resume: o, leash: null };
+      u.path = [];
+      return;
+    }
+  }
+  if (u.path.length > 0) return;
+  const p = o.points[o.index];
+  // Arrived (or the point can't be reached): on to the next one.
+  if (Math.hypot(p.x - u.x, p.y - u.y) <= 0.8 || w.tick - u.repathTick < TICK_RATE) {
+    o.index = (o.index + 1) % o.points.length;
+  }
+  if (w.tick - u.repathTick >= TICK_RATE / 2) routeTo(w, u);
 }
 
 function scanDue(w: World, u: Unit): boolean {
@@ -177,7 +270,7 @@ function updateMove(w: World, u: Unit): void {
   if (o.attackMove && u.role !== 'citizen' && scanDue(w, u)) {
     const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
     if (target) {
-      u.order = { kind: 'attack', targetId: target.id, resume: { x: o.x, y: o.y }, leash: null };
+      u.order = { kind: 'attack', targetId: target.id, resume: { kind: 'move', x: o.x, y: o.y, attackMove: true }, leash: null };
       u.path = [];
       return;
     }
@@ -194,8 +287,8 @@ function updateMove(w: World, u: Unit): void {
 function endAttack(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind === 'attack' && o.resume) {
-    u.order = { kind: 'move', x: o.resume.x, y: o.resume.y, attackMove: true };
-    setPathTo(w, u, { kind: 'point', x: o.resume.x, y: o.resume.y });
+    u.order = o.resume;
+    routeTo(w, u);
   } else {
     goIdle(u);
   }
@@ -546,6 +639,8 @@ function completeBuilding(w: World, b: Building): void {
 
 /** Builders look for useful follow-up work, like the classic games did. */
 function afterBuild(w: World, u: Unit, b: Building): void {
+  // Queued orders come first (the next tick picks them up).
+  if (u.queue.length > 0) return goIdle(u);
   if (b.type === 'farm' && w.farmWorkers(b, u) < FARM_CAPACITY) {
     u.order = { kind: 'gather', targetId: b.id, res: 'food', phase: 'toNode', dropId: 0, lx: b.x, ly: b.y };
     u.path = [];
@@ -648,25 +743,29 @@ export function updateBuilding(w: World, b: Building): void {
   b.popBlocked = false;
   item.progress += DT * player.mods.train;
   if (item.progress < ROLE_DEFS[item.role].trainTime) return;
-  const towards = b.rally ?? { x: b.x + b.size, y: b.y + b.size };
+  const towards = b.rally[0] ?? { x: b.x + b.size, y: b.y + b.size };
   const spot = w.findSpawnPoint(b, towards);
   if (!spot) return;
   b.queue.shift();
   const u = w.spawnUnit(b.owner, item.role, spot.x, spot.y);
   player.stats.unitsTrained++;
   w.emit({ type: 'trained', player: b.owner, text: `${u.stats.name} bereit.` });
-  if (b.rally) sendToRally(w, u, b.rally.x, b.rally.y);
+  sendToRally(w, u, b.rally);
 }
 
-function sendToRally(w: World, u: Unit, x: number, y: number): void {
-  if (u.role === 'citizen') {
-    const node = w.resources.find((n) => !n.dead && x >= n.tx && x < n.tx + n.size && y >= n.ty && y < n.ty + n.size);
-    if (node) {
-      w.issue({ type: 'gather', player: u.owner, ids: [u.id], targetId: node.id });
-      return;
+/** New units walk the rally waypoints; citizens start gathering at a resource at the end. */
+function sendToRally(w: World, u: Unit, points: Point[]): void {
+  points.forEach(({ x, y }, i) => {
+    const queue = i > 0;
+    if (u.role === 'citizen' && i === points.length - 1) {
+      const node = w.resources.find((n) => !n.dead && x >= n.tx && x < n.tx + n.size && y >= n.ty && y < n.ty + n.size);
+      if (node) {
+        w.issue({ type: 'gather', player: u.owner, ids: [u.id], targetId: node.id, queue });
+        return;
+      }
     }
-  }
-  w.issue({ type: 'move', player: u.owner, ids: [u.id], x, y, attackMove: u.role !== 'citizen' && u.role !== 'scout' });
+    w.issue({ type: 'move', player: u.owner, ids: [u.id], x, y, attackMove: u.role !== 'citizen' && u.role !== 'scout', queue });
+  });
 }
 
 /** Light push-apart so groups don't collapse into a single point. */

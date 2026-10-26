@@ -12,9 +12,10 @@ import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/r
 import { bestTier, GATHER_LABEL, ROLE_DEFS, type Role } from '../data/units';
 import { audio } from '../audio/engine';
 import type { Game } from '../game';
-import { buildingIcon, epochIcon, techIcon, unitIcon } from '../render/icons';
+import { buildingIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
 import type { Building, Entity, Unit } from '../sim/entities';
+import { FORMATION_LABEL, FORMATIONS, type Formation } from '../sim/formation';
 import type { GameEvent } from '../sim/world';
 
 export interface CommandButton {
@@ -23,6 +24,8 @@ export interface CommandButton {
   text?: string;
   enabled: boolean;
   locked?: boolean;
+  /** Highlighted as the current choice (formations). */
+  active?: boolean;
   badge?: string;
   title: string;
   tooltip: string;
@@ -30,6 +33,12 @@ export interface CommandButton {
 }
 
 const SLOT_KEYS = ['Q', 'W', 'E', 'R'];
+const FORMATION_KEYS: Record<Formation, string> = { line: 'N', block: 'O', wedge: 'V' };
+const FORMATION_HELP: Record<Formation, string> = {
+  line: 'Breite Front, wenige Reihen: alle Schützen kommen zum Zug.',
+  block: 'Kompaktes Quadrat: passt durch Engstellen, hält zusammen.',
+  wedge: 'Spitze voran: bricht in die feindliche Linie ein.',
+};
 /** Research buttons of a selected building; letters free while a building is selected. */
 const TECH_KEYS = ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'];
 
@@ -244,7 +253,7 @@ export class Hud {
     const sigParts = [
       ents.map((e) => `${e.id}:${Math.ceil(e.hp)}`).join(','),
       this.game.world.players[this.game.me].epoch,
-      commands.map((c) => `${c.key}${c.title}${c.enabled ? 1 : 0}${c.locked ? 1 : 0}${c.badge ?? ''}${c.text ?? ''}`).join(''),
+      commands.map((c) => `${c.key}${c.title}${c.enabled ? 1 : 0}${c.locked ? 1 : 0}${c.active ? 1 : 0}${c.badge ?? ''}${c.text ?? ''}`).join(''),
       this.dynamicSig(ents),
       ents.reduce((s, e) => s + (e.kind === 'unit' ? e.morale : 0), 0),
     ];
@@ -266,7 +275,7 @@ export class Hud {
           const tech = e.tech ? `${e.tech.id}${Math.floor(e.tech.progress)}` : '';
           return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${e.popBlocked}`;
         }
-        if (e.kind === 'unit') return `${e.order.kind}${Math.floor(e.carryAmount)}${e.morale}`;
+        if (e.kind === 'unit') return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}`;
         return `${Math.floor(e.amount)}`;
       })
       .join('');
@@ -314,7 +323,9 @@ export class Hud {
       else if (e.order.kind === 'explore') activity = 'erkundet';
       else if (e.order.kind === 'attack') activity = 'kämpft';
       else if (e.order.kind === 'move') activity = 'unterwegs';
+      else if (e.order.kind === 'patrol') activity = 'patrouilliert';
       else activity = 'untätig';
+      if (e.queue.length) activity += `, dann ${e.queue.length} ${e.queue.length === 1 ? 'weiterer Befehl' : 'weitere Befehle'}`;
       const carry = e.carry && e.carryAmount > 0 ? ` · trägt ${Math.floor(e.carryAmount)} ${RES_LABEL[e.carry]}` : '';
       const pct = Math.round(e.morale * MORALE_PER_HOUSE * 100);
       const moraleLine =
@@ -455,6 +466,32 @@ export class Hud {
           game.mode = 'attackMove';
         },
       });
+      cmds.push({
+        key: 'R',
+        text: 'Patrouille',
+        enabled: true,
+        title: 'Patrouille',
+        tooltip:
+          '<b>Patrouille</b> <kbd>R</kbd><p>Dann Linksklick: Die Einheiten pendeln zwischen ihrem Standort und dem Ziel und greifen alles an, was ihnen begegnet. Umschalt+Klick fügt weitere Punkte zur Runde hinzu.</p>',
+        action: () => {
+          game.mode = 'patrol';
+        },
+      });
+      // Formations only for armies; with citizens the building buttons need the room.
+      if (!units.some((u) => u.role === 'citizen')) {
+        const current = game.selectionFormation(units);
+        for (const f of FORMATIONS) {
+          cmds.push({
+            key: FORMATION_KEYS[f],
+            icon: formationIcon(f),
+            enabled: true,
+            active: f === current,
+            title: `Formation: ${FORMATION_LABEL[f]}`,
+            tooltip: `<b>Formation: ${FORMATION_LABEL[f]}</b> <kbd>${FORMATION_KEYS[f]}</kbd><p>${FORMATION_HELP[f]}</p><p class="dim">Fernkampf und Belagerung stehen immer hinten. Alle kommen gleichzeitig an. Rechts ziehen legt die Blickrichtung fest.</p>`,
+            action: () => game.setFormation(f),
+          });
+        }
+      }
     }
     if (units.length) {
       cmds.push({
@@ -633,7 +670,7 @@ export class Hud {
     el.innerHTML = this.commands
       .map(
         (c, i) =>
-          `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
+          `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}${c.active ? ' active' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
           (c.icon ? `<img src="${c.icon}" alt="">` : `<span class="cmd-text">${esc(c.text ?? '')}</span>`) +
           `<span class="hk">${c.key}</span>${c.badge ? `<span class="badge">${c.badge}</span>` : ''}</button>`,
       )
@@ -769,13 +806,17 @@ export class Hud {
         <tr><td>Linksklick / Ziehen</td><td>Auswählen / Rahmenauswahl</td></tr>
         <tr><td>Doppelklick</td><td>Alle sichtbaren Einheiten dieses Typs</td></tr>
         <tr><td>Rechtsklick</td><td>Bewegen, Angreifen, Sammeln, Bauen, Einlagern – je nach Ziel</td></tr>
-        <tr><td>Rechts ziehen / Mitte ziehen</td><td>Karte verschieben</td></tr>
-        <tr><td>Rechtsklick mit Gebäude</td><td>Sammelpunkt setzen</td></tr>
+        <tr><td>Rechts ziehen (nichts gewählt) / Mitte ziehen</td><td>Karte verschieben</td></tr>
+        <tr><td>Rechtsklick mit Gebäude</td><td>Sammelpunkt setzen (Umschalt: Wegpunkte anhängen)</td></tr>
         <tr><td>A, dann Klick</td><td>Angriffsbewegung</td></tr>
+        <tr><td>R, dann Klick</td><td>Patrouille (Umschalt+Klick: weitere Punkte)</td></tr>
+        <tr><td>Umschalt + Rechtsklick</td><td>Befehl anhängen (Wegpunkte, Ziele, Bauaufträge); gehaltene Umschalttaste zeigt die Pläne</td></tr>
+        <tr><td>Rechts ziehen (Einheiten gewählt)</td><td>Ziel und Blickrichtung der Formation (Pfeil)</td></tr>
+        <tr><td>N / O / V</td><td>Formation Linie / Block / Keil</td></tr>
         <tr><td>E</td><td>Erkunden (Einheiten ausgewählt)</td></tr>
         <tr><td>M / G, dann ziehen</td><td>Mauer / Tor als Linie bauen</td></tr>
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>
-        <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren / 5 Einheiten</td></tr>
+        <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren, Bauaufträge nacheinander / 5 Einheiten</td></tr>
         <tr><td>Strg + 1–9, dann 1–9</td><td>Gruppe speichern / wählen (2× = hinspringen)</td></tr>
         <tr><td>Punkt (.)</td><td>Nächster untätiger Bürger</td></tr>
         <tr><td>Entf</td><td>Auswahl abreißen / entlassen</td></tr>

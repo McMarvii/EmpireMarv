@@ -1,6 +1,8 @@
 import { BUILDING_DEFS, MORALE_RADIUS, type BuildingType } from '../data/buildings';
-import { rectOf, type Building, type Entity, type ResourceNode, type Unit } from '../sim/entities';
+import { orderTarget } from '../sim/behavior';
+import { rectOf, type Building, type Entity, type Order, type Plan, type ResourceNode, type Unit } from '../sim/entities';
 import { Terrain } from '../sim/map';
+import type { Point } from '../sim/pathfinding';
 import type { World } from '../sim/world';
 import { Camera, TILE_W } from './camera';
 import { TERRAIN_COLORS } from './colors';
@@ -54,6 +56,13 @@ export interface Marker {
   color: string;
 }
 
+/** Right-drag with units: target, direction arrow and the planned slots. */
+export interface OrderPreview {
+  from: Point;
+  to: Point;
+  slots: Point[];
+}
+
 export interface RenderState {
   selection: Set<number>;
   hoverId: number;
@@ -62,6 +71,27 @@ export interface RenderState {
   alpha: number;
   time: number;
   marker: Marker | null;
+  /** Shift held: show every selected unit's plans, not only queues and patrols. */
+  showPlans: boolean;
+  preview: OrderPreview | null;
+}
+
+/** Waypoint colours by what happens there. */
+function planColor(o: Order | Plan): string {
+  switch (o.kind) {
+    case 'move':
+      return o.attackMove ? '#ff7a5a' : '#8dff5a';
+    case 'attack':
+    case 'patrol':
+      return '#ff5a4d';
+    case 'gather':
+    case 'deposit':
+      return '#ffd24d';
+    case 'build':
+      return '#5ab4ff';
+    default:
+      return '#c9a6ff';
+  }
 }
 
 export const UNIT_SCALE = 1.8;
@@ -233,16 +263,25 @@ export class Renderer {
           ],
         });
       }
-      if (state.selection.has(b.id) && b.owner === this.me && b.rally) {
-        const [rx, ry] = project(b.rally.x, b.rally.y);
+      if (state.selection.has(b.id) && b.owner === this.me && b.rally.length) {
+        // Rally chain: dashed line through the waypoints, flag at the end.
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(sx, sy);
-        ctx.lineTo(rx, ry);
+        for (const p of b.rally) ctx.lineTo(...project(p.x, p.y));
         ctx.strokeStyle = 'rgba(255,255,255,0.6)';
         ctx.lineWidth = 1;
         ctx.stroke();
         ctx.setLineDash([]);
+        for (const p of b.rally.slice(0, -1)) {
+          const [wx, wy] = project(p.x, p.y);
+          ctx.beginPath();
+          ctx.ellipse(wx, wy, 3 * zoom, 1.5 * zoom, 0, 0, Math.PI * 2);
+          ctx.fillStyle = '#eee';
+          ctx.fill();
+        }
+        const last = b.rally[b.rally.length - 1];
+        const [rx, ry] = project(last.x, last.y);
         ctx.beginPath();
         ctx.moveTo(rx, ry);
         ctx.lineTo(rx, ry - 16 * zoom);
@@ -323,8 +362,10 @@ export class Renderer {
     ctx.fillStyle = 'rgba(5,8,12,0.5)';
     ctx.fill(fogPath);
 
+    this.drawPlans(state);
     this.drawBars(state);
     if (state.placement) this.drawPlacement(state.placement, time);
+    if (state.preview) this.drawPreview(state.preview);
     if (state.marker) {
       const m = state.marker;
       const [sx, sy] = project(m.x, m.y);
@@ -493,6 +534,123 @@ export class Renderer {
         }
       }
     }
+  }
+
+  /**
+   * Waypoints of selected own units: the current target and every queued
+   * order, joined by dashed lines in the colour of what happens there.
+   * Patrols are drawn as a closed loop. Larger groups get one line through
+   * the middle of their slots and a dot per unit, instead of a web.
+   */
+  private drawPlans(state: RenderState): void {
+    const { ctx, world, camera } = this;
+    const zoom = camera.zoom;
+    const routes: Array<{ start: Point; steps: Array<{ p: Point; color: string }>; loop: Point[] }> = [];
+    for (const id of state.selection) {
+      const u = world.get(id);
+      if (!u || u.kind !== 'unit' || u.owner !== this.me) continue;
+      const patrol = u.order.kind === 'patrol' ? u.order : u.order.kind === 'attack' && u.order.resume?.kind === 'patrol' ? u.order.resume : null;
+      if (!state.showPlans && u.queue.length === 0 && !patrol) continue;
+      const steps: Array<{ p: Point; color: string }> = [];
+      const current = orderTarget(world, u.order);
+      if (current) steps.push({ p: current, color: planColor(u.order) });
+      for (const plan of u.queue) {
+        const t = orderTarget(world, plan);
+        if (t) steps.push({ p: t, color: planColor(plan) });
+      }
+      routes.push({ start: { x: u.x, y: u.y }, steps, loop: patrol && patrol.points.length > 1 ? patrol.points : [] });
+    }
+    if (!routes.length) return;
+    const line = (pts: Point[], color: string, alpha: number, width: number, close = false) => {
+      ctx.beginPath();
+      pts.forEach((p, i) => {
+        const [x, y] = camera.project(p.x, p.y);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      if (close) ctx.closePath();
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.lineWidth = width;
+      ctx.stroke();
+    };
+    const dot = (p: Point, color: string, r: number) => {
+      const [x, y] = camera.project(p.x, p.y);
+      ctx.beginPath();
+      ctx.ellipse(x, y, r * zoom, (r / 2) * zoom, 0, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.9;
+      ctx.fill();
+    };
+    const mid = (pts: Point[]) => ({ x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length });
+    ctx.setLineDash([5, 4]);
+    if (routes.length <= 4) {
+      for (const r of routes) {
+        let from = r.start;
+        for (const s of r.steps) {
+          line([from, s.p], s.color, 0.7, 1.5);
+          from = s.p;
+        }
+        if (r.loop.length) line(r.loop, '#ff5a4d', 0.45, 1.5, true);
+      }
+    } else {
+      // One route through the middle of the group's slots.
+      let from = mid(routes.map((r) => r.start));
+      const longest = Math.max(...routes.map((r) => r.steps.length));
+      for (let i = 0; i < longest; i++) {
+        const at = routes.filter((r) => r.steps.length > i);
+        const to = mid(at.map((r) => r.steps[i].p));
+        line([from, to], at[0].steps[i].color, 0.8, 2.5);
+        from = to;
+      }
+      const loops = routes.filter((r) => r.loop.length);
+      const n = loops[0]?.loop.length ?? 0;
+      if (n && loops.every((r) => r.loop.length === n)) {
+        line(
+          Array.from({ length: n }, (_, j) => mid(loops.map((r) => r.loop[j]))),
+          '#ff5a4d',
+          0.5,
+          2,
+          true,
+        );
+      }
+    }
+    ctx.setLineDash([]);
+    for (const r of routes) for (const s of r.steps) dot(s.p, s.color, routes.length <= 4 ? 4 : 2.5);
+    ctx.globalAlpha = 1;
+  }
+
+  /** Right-drag preview: an arrow along the front direction and the slots each unit will take. */
+  private drawPreview(pv: OrderPreview): void {
+    const { ctx, camera } = this;
+    const zoom = camera.zoom;
+    for (const s of pv.slots) {
+      const [x, y] = camera.project(s.x, s.y);
+      ctx.beginPath();
+      ctx.ellipse(x, y, 6 * zoom, 3 * zoom, 0, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(141,255,90,0.18)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(141,255,90,0.85)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    const [ax, ay] = camera.project(pv.from.x, pv.from.y);
+    const [bx, by] = camera.project(pv.to.x, pv.to.y);
+    const ang = Math.atan2(by - ay, bx - ax);
+    const head = 14 * Math.max(0.7, zoom);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx - head * Math.cos(ang - 0.45), by - head * Math.sin(ang - 0.45));
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx - head * Math.cos(ang + 0.45), by - head * Math.sin(ang + 0.45));
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 5;
+    ctx.stroke();
+    ctx.strokeStyle = '#8dff5a';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
   }
 
   private drawBars(state: RenderState): void {

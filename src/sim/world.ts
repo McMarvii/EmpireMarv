@@ -3,9 +3,10 @@ import { EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
 import { modsFor, TECH_BY_ID, TECHS, TECHS_FOR_ADVANCE, type Tech } from '../data/techs';
 import { bestTier, CARRY_CAPACITY, ROLE_DEFS, unitStats, type Look, type Projectile, type Role, type UnitStats } from '../data/units';
-import { updateBuilding, updateUnit, separateUnits, setPathTo } from './behavior';
+import { isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { updateProjectiles } from './combat';
-import { rectOf, type Building, type Entity, type NodeType, type Player, type ResourceNode, type Unit } from './entities';
+import { rectOf, type Building, type Entity, type NodeType, type Plan, type Player, type ResourceNode, type Unit } from './entities';
+import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
 import { GameMap } from './map';
 import { generateMap } from './mapgen';
 import { distToRect, Pathfinder, type Point } from './pathfinding';
@@ -115,22 +116,30 @@ export interface Controller {
   update(world: World): void;
 }
 
+/**
+ * Everything players and the AI can do. `queue` (Shift) appends a command
+ * to the units' order queue instead of replacing what they are doing.
+ */
 export type Command =
-  | { type: 'move'; player: number; ids: number[]; x: number; y: number; attackMove?: boolean }
-  | { type: 'attack'; player: number; ids: number[]; targetId: number }
-  | { type: 'gather'; player: number; ids: number[]; targetId: number }
-  | { type: 'construct'; player: number; ids: number[]; targetId: number }
-  | { type: 'place'; player: number; ids: number[]; building: BuildingType; tx: number; ty: number }
+  /** `facing`: direction the formation's front points to (radians); default is the walking direction. */
+  | { type: 'move'; player: number; ids: number[]; x: number; y: number; attackMove?: boolean; queue?: boolean; facing?: number }
+  | { type: 'attack'; player: number; ids: number[]; targetId: number; queue?: boolean }
+  | { type: 'gather'; player: number; ids: number[]; targetId: number; queue?: boolean }
+  | { type: 'construct'; player: number; ids: number[]; targetId: number; queue?: boolean }
+  | { type: 'place'; player: number; ids: number[]; building: BuildingType; tx: number; ty: number; queue?: boolean }
   /** A line of wall or gate segments, placed from the first tile on as far as resources allow. */
-  | { type: 'placeLine'; player: number; ids: number[]; building: BuildingType; tiles: Point[] }
+  | { type: 'placeLine'; player: number; ids: number[]; building: BuildingType; tiles: Point[]; queue?: boolean }
+  /** Walk between where the units are (or will be) and this point, fighting what comes along. */
+  | { type: 'patrol'; player: number; ids: number[]; x: number; y: number; queue?: boolean }
+  | { type: 'formation'; player: number; ids: number[]; formation: Formation }
   | { type: 'train'; player: number; buildingId: number; role: Role; count?: number }
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
   | { type: 'research'; player: number; buildingId: number; tech: string }
   | { type: 'cancelTech'; player: number; buildingId: number }
-  | { type: 'rally'; player: number; buildingId: number; x: number; y: number }
-  | { type: 'deposit'; player: number; ids: number[]; targetId: number }
-  | { type: 'explore'; player: number; ids: number[] }
+  | { type: 'rally'; player: number; buildingId: number; x: number; y: number; queue?: boolean }
+  | { type: 'deposit'; player: number; ids: number[]; targetId: number; queue?: boolean }
+  | { type: 'explore'; player: number; ids: number[]; queue?: boolean }
   | { type: 'stop'; player: number; ids: number[] }
   | { type: 'destroy'; player: number; ids: number[] };
 
@@ -143,6 +152,10 @@ const START_STOCK: Record<StartResources, Record<Res, number>> = {
 const GRID_CELL = 4;
 /** Longest wall line one drag may place. */
 export const MAX_LINE = 30;
+/** Queued orders per unit (enough for a full wall line). */
+export const MAX_QUEUE = 40;
+/** Rally waypoints per building. */
+export const MAX_RALLY = 8;
 
 /**
  * The complete, deterministic game state. Rendering and input only read
@@ -277,6 +290,8 @@ export class World {
       stats,
       facing: Math.PI / 4,
       order: { kind: 'idle' },
+      queue: [],
+      formation: DEFAULT_FORMATION,
       path: [],
       repathTick: -1000,
       scanTick: 0,
@@ -317,7 +332,7 @@ export class World {
       queue: [],
       research: null,
       tech: null,
-      rally: null,
+      rally: [],
       cooldown: 0,
       scanTick: 0,
       targetId: 0,
@@ -702,37 +717,36 @@ export class World {
     if (!player || !player.alive) return;
     switch (cmd.type) {
       case 'move':
-        this.commandMove(cmd.player, cmd.ids, cmd.x, cmd.y, cmd.attackMove ?? false);
+        this.commandMove(cmd.player, cmd.ids, cmd.x, cmd.y, cmd.attackMove ?? false, cmd.queue ?? false, cmd.facing);
         break;
       case 'attack': {
         const target = this.get(cmd.targetId);
         if (!target || target.kind === 'resource' || !this.areEnemies(cmd.player, target.owner)) return;
-        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
-          u.order = { kind: 'attack', targetId: target.id, resume: null, leash: null };
-          u.path = [];
-          u.repathTick = -1000;
-        }
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) this.assign(u, { kind: 'attack', targetId: target.id }, cmd.queue ?? false);
         break;
       }
+      case 'patrol':
+        this.commandPatrol(cmd.player, cmd.ids, cmd.x, cmd.y, cmd.queue ?? false);
+        break;
+      case 'formation':
+        this.commandFormation(cmd.player, cmd.ids, cmd.formation);
+        break;
       case 'gather': {
         const target = this.get(cmd.targetId);
         if (!target) return;
         const isFarm = target.kind === 'building' && target.type === 'farm' && target.owner === cmd.player;
         if (target.kind !== 'resource' && !isFarm) return;
         if (isFarm && !(target as Building).built) {
-          this.issue({ type: 'construct', player: cmd.player, ids: cmd.ids, targetId: target.id });
+          this.issue({ type: 'construct', player: cmd.player, ids: cmd.ids, targetId: target.id, queue: cmd.queue });
           return;
         }
         const res: Res = target.kind === 'resource' ? target.res : 'food';
         const units = this.ownUnits(cmd.player, cmd.ids);
         for (const u of units) {
-          if (u.role !== 'citizen') continue;
-          u.order = { kind: 'gather', targetId: target.id, res, phase: 'toNode', dropId: 0, lx: target.x, ly: target.y };
-          u.path = [];
-          u.repathTick = -1000;
+          if (u.role === 'citizen') this.assign(u, { kind: 'gather', targetId: target.id, res, lx: target.x, ly: target.y }, cmd.queue ?? false);
         }
         const others = units.filter((u) => u.role !== 'citizen').map((u) => u.id);
-        if (others.length) this.commandMove(cmd.player, others, target.x, target.y, false);
+        if (others.length) this.commandMove(cmd.player, others, target.x, target.y, false, cmd.queue ?? false);
         break;
       }
       case 'construct': {
@@ -740,18 +754,15 @@ export class World {
         if (!target || target.kind !== 'building' || target.owner !== cmd.player) return;
         if (target.built && target.hp >= target.maxHp) return;
         for (const u of this.ownUnits(cmd.player, cmd.ids)) {
-          if (u.role !== 'citizen') continue;
-          u.order = { kind: 'build', targetId: target.id };
-          u.path = [];
-          u.repathTick = -1000;
+          if (u.role === 'citizen') this.assign(u, { kind: 'build', targetId: target.id }, cmd.queue ?? false);
         }
         break;
       }
       case 'place':
-        this.commandPlace(cmd.player, cmd.ids, cmd.building, cmd.tx, cmd.ty);
+        this.commandPlace(cmd.player, cmd.ids, cmd.building, cmd.tx, cmd.ty, cmd.queue ?? false);
         break;
       case 'placeLine':
-        this.commandPlaceLine(cmd.player, cmd.ids, cmd.building, cmd.tiles);
+        this.commandPlaceLine(cmd.player, cmd.ids, cmd.building, cmd.tiles, cmd.queue ?? false);
         break;
       case 'train':
         for (let i = 0; i < (cmd.count ?? 1); i++) if (!this.commandTrain(cmd.player, cmd.buildingId, cmd.role)) break;
@@ -787,7 +798,9 @@ export class World {
       }
       case 'rally': {
         const b = this.get(cmd.buildingId);
-        if (b && b.kind === 'building' && b.owner === cmd.player) b.rally = { x: cmd.x, y: cmd.y };
+        if (!b || b.kind !== 'building' || b.owner !== cmd.player) return;
+        if (!cmd.queue) b.rally = [];
+        if (b.rally.length < MAX_RALLY) b.rally.push({ x: cmd.x, y: cmd.y });
         break;
       }
       case 'deposit': {
@@ -799,22 +812,17 @@ export class World {
           // Gatherers go back to their node afterwards.
           const o = u.order;
           const resume = o.kind === 'gather' ? { ...o } : o.kind === 'deposit' ? o.resume : null;
-          u.order = { kind: 'deposit', targetId: target.id, resume };
-          u.path = [];
-          u.repathTick = -1000;
+          this.assign(u, { kind: 'deposit', targetId: target.id, resume }, cmd.queue ?? false);
         }
         break;
       }
       case 'explore':
-        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
-          u.order = { kind: 'explore', tx: -1, ty: -1, skip: [] };
-          u.path = [];
-          u.repathTick = -1000;
-        }
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) this.assign(u, { kind: 'explore' }, cmd.queue ?? false);
         break;
       case 'stop':
         for (const u of this.ownUnits(cmd.player, cmd.ids)) {
           u.order = { kind: 'idle' };
+          u.queue = [];
           u.path = [];
         }
         break;
@@ -839,35 +847,102 @@ export class World {
     return out;
   }
 
-  private commandMove(player: number, ids: number[], x: number, y: number, attackMove: boolean): void {
-    const units = this.ownUnits(player, ids);
-    if (units.length === 0) return;
-    // Square formation around the target, closest slots go to the closest units.
-    const cols = Math.ceil(Math.sqrt(units.length));
-    const spacing = 0.85;
-    const slots: Point[] = [];
-    for (let i = 0; i < units.length; i++) {
-      const cx = (i % cols) - (cols - 1) / 2;
-      const cy = Math.floor(i / cols) - (Math.ceil(units.length / cols) - 1) / 2;
-      slots.push({ x: x + cx * spacing, y: y + cy * spacing });
+  /**
+   * Starts a command now, or queues it behind the current order (Shift).
+   * Orders that never end on their own (idle, gathering, exploring,
+   * patrolling) give way at once, so a queued build doesn't wait forever.
+   */
+  private assign(u: Unit, plan: Plan, queue: boolean): void {
+    if (queue && !isEndless(u.order)) {
+      if (u.queue.length < MAX_QUEUE) u.queue.push(plan);
+      return;
     }
-    const cx = units.reduce((s, u) => s + u.x, 0) / units.length;
-    const cy = units.reduce((s, u) => s + u.y, 0) / units.length;
-    const dir = Math.atan2(y - cy, x - cx);
-    units.sort((a, b) => Math.cos(dir) * (a.x - b.x) + Math.sin(dir) * (a.y - b.y));
-    slots.sort((a, b) => Math.cos(dir) * (a.x - b.x) + Math.sin(dir) * (a.y - b.y));
-    units.forEach((u, i) => {
-      let slot = slots[i];
-      if (!this.map.passableFor(Math.floor(slot.x), Math.floor(slot.y), this.teamOf(player))) {
-        const near = this.map.nearestPassable(slot.x, slot.y, 6);
-        slot = near ? { x: near.x + 0.5, y: near.y + 0.5 } : { x, y };
-      }
-      u.order = { kind: 'move', x: slot.x, y: slot.y, attackMove };
-      setPathTo(this, u, { kind: 'point', x: slot.x, y: slot.y });
+    if (!queue) u.queue = [];
+    startPlan(this, u, plan);
+  }
+
+  /** Where a unit will be once its current and queued orders are done. */
+  private plannedEnd(u: Unit): Point {
+    for (let i = u.queue.length - 1; i >= 0; i--) {
+      const t = orderTarget(this, u.queue[i]);
+      if (t) return t;
+    }
+    const t = isEndless(u.order) ? null : orderTarget(this, u.order);
+    return t ?? { x: u.x, y: u.y };
+  }
+
+  /**
+   * Slots for a group in the formation most of its units use, around (x, y).
+   * Slots on blocked ground move to the nearest free tile.
+   */
+  private formationTargets(player: number, units: Unit[], starts: Point[], x: number, y: number, facing?: number): Point[] {
+    const members = units.map((u, i) => ({ id: u.id, role: u.role, x: starts[i].x, y: starts[i].y, facing: u.facing }));
+    const votes = new Map<Formation, number>();
+    for (const u of units) votes.set(u.formation, (votes.get(u.formation) ?? 0) + 1);
+    let kind = units[0].formation;
+    for (const [f, n] of votes) if (n > (votes.get(kind) ?? 0)) kind = f;
+    const slots = new Map(formationSlots(members, kind, x, y, facing ?? headingTo(members, x, y)).map((s) => [s.id, s]));
+    const team = this.teamOf(player);
+    return units.map((u) => {
+      const slot = slots.get(u.id)!;
+      if (this.map.passableFor(Math.floor(slot.x), Math.floor(slot.y), team)) return { x: slot.x, y: slot.y };
+      const near = this.map.nearestPassable(slot.x, slot.y, 6);
+      return near ? { x: near.x + 0.5, y: near.y + 0.5 } : { x, y };
     });
   }
 
-  private commandPlace(player: number, ids: number[], type: BuildingType, tx: number, ty: number): void {
+  private commandMove(player: number, ids: number[], x: number, y: number, attackMove: boolean, queue = false, facing?: number): void {
+    const units = this.ownUnits(player, ids);
+    if (units.length === 0) return;
+    const starts = units.map((u) => (queue ? this.plannedEnd(u) : { x: u.x, y: u.y }));
+    const targets = this.formationTargets(player, units, starts, x, y, facing);
+    // Everybody arrives together: the fast ones slow down to the group's pace.
+    const pace = units.length > 1 ? arrivalPace(units.map((u, i) => ({ id: u.id, x: starts[i].x, y: starts[i].y, speed: u.stats.speed })), targets) : null;
+    units.forEach((u, i) => {
+      this.assign(u, { kind: 'move', x: targets[i].x, y: targets[i].y, attackMove, pace: pace?.get(u.id) }, queue);
+    });
+  }
+
+  private commandPatrol(player: number, ids: number[], x: number, y: number, queue: boolean): void {
+    const units = this.ownUnits(player, ids);
+    if (units.length === 0) return;
+    const starts = units.map((u) => (queue ? this.plannedEnd(u) : { x: u.x, y: u.y }));
+    const targets = this.formationTargets(player, units, starts, x, y);
+    units.forEach((u, i) => {
+      const p = targets[i];
+      // Shift on a patrol adds a point to the round.
+      const last = u.queue[u.queue.length - 1];
+      if (queue && last?.kind === 'patrol') {
+        if (last.points.length < MAX_RALLY) last.points.push(p);
+      } else if (queue && u.queue.length === 0 && u.order.kind === 'patrol') {
+        if (u.order.points.length < MAX_RALLY) u.order.points.push(p);
+      } else {
+        this.assign(u, { kind: 'patrol', points: [{ ...starts[i] }, p] }, queue);
+      }
+    });
+  }
+
+  /** Sets the formation and lets idle or walking groups take it up right away. */
+  private commandFormation(player: number, ids: number[], formation: Formation): void {
+    const units = this.ownUnits(player, ids);
+    for (const u of units) u.formation = formation;
+    const idle = units.filter((u) => u.order.kind === 'idle' && u.queue.length === 0);
+    if (idle.length > 1) {
+      const cx = idle.reduce((s, u) => s + u.x, 0) / idle.length;
+      const cy = idle.reduce((s, u) => s + u.y, 0) / idle.length;
+      this.commandMove(player, idle.map((u) => u.id), cx, cy, false);
+    }
+    const walking = units.filter((u) => u.order.kind === 'move' && u.queue.length === 0);
+    if (walking.length > 1) {
+      const goals = walking.map((u) => orderTarget(this, u.order)!);
+      const gx = goals.reduce((s, p) => s + p.x, 0) / goals.length;
+      const gy = goals.reduce((s, p) => s + p.y, 0) / goals.length;
+      const attackMove = walking.some((u) => u.order.kind === 'move' && u.order.attackMove);
+      this.commandMove(player, walking.map((u) => u.id), gx, gy, attackMove);
+    }
+  }
+
+  private commandPlace(player: number, ids: number[], type: BuildingType, tx: number, ty: number, queue: boolean): void {
     const p = this.players[player];
     const def = BUILDING_DEFS[type];
     if (!this.buildingUnlocked(player, type)) return;
@@ -881,10 +956,10 @@ export class World {
     }
     pay(p.stock, def.cost);
     const b = this.addBuilding(player, type, tx, ty, false);
-    this.issue({ type: 'construct', player, ids, targetId: b.id });
+    this.issue({ type: 'construct', player, ids, targetId: b.id, queue });
   }
 
-  private commandPlaceLine(player: number, ids: number[], type: BuildingType, tiles: Point[]): void {
+  private commandPlaceLine(player: number, ids: number[], type: BuildingType, tiles: Point[], queue: boolean): void {
     const p = this.players[player];
     const def = BUILDING_DEFS[type];
     if (!def.line || !this.buildingUnlocked(player, type)) return;
@@ -902,13 +977,16 @@ export class World {
     if (short) this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, def.cost)}` });
     else if (placed.length === 0) this.emit({ type: 'warn', player, text: 'Hier kann nicht gebaut werden.' });
     if (placed.length === 0) return;
-    // Spread the builders along the line; each walks on to the nearest open segment.
     const builders = this.ownUnits(player, ids).filter((u) => u.role === 'citizen');
+    if (queue) {
+      // Queued: the whole crew works the line segment by segment after its other jobs.
+      for (const u of builders) for (const seg of placed) this.assign(u, { kind: 'build', targetId: seg.id }, true);
+      return;
+    }
+    // Spread the builders along the line; each walks on to the nearest open segment.
     builders.forEach((u, i) => {
       const seg = placed[Math.floor((i * placed.length) / builders.length)];
-      u.order = { kind: 'build', targetId: seg.id };
-      u.path = [];
-      u.repathTick = -1000;
+      this.assign(u, { kind: 'build', targetId: seg.id }, false);
     });
   }
 

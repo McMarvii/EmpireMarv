@@ -152,7 +152,7 @@ export class AIController implements Controller {
     const queued = tc ? tc.queue.length : 0;
     if (tc && !tc.research && citizens.length + queued < target && queued < 2) {
       if (canAfford(player.stock, { food: 50 })) w.issue({ type: 'train', player: this.playerId, buildingId: tc.id, role: 'citizen' });
-      if (!tc.rally) tc.rally = { x: tc.x + 3, y: tc.y + 3 };
+      if (!tc.rally.length) tc.rally = [{ x: tc.x + 3, y: tc.y + 3 }];
     }
 
     const shares = this.desiredShares(player.epoch);
@@ -579,7 +579,7 @@ export class AIController implements Controller {
     const military = buildings.filter((b) => b.built && b.type !== 'towncenter' && BUILDING_DEFS[b.type].trains.length > 0);
     for (const b of military) {
       if (b.queue.length >= 2) continue;
-      if (!b.rally && s.tc) b.rally = { x: s.tc.x - 4 + (b.id % 3), y: s.tc.y + 4 };
+      if (!b.rally.length && s.tc) b.rally = [{ x: s.tc.x - 4 + (b.id % 3), y: s.tc.y + 4 }];
       const roles = BUILDING_DEFS[b.type].trains.filter((r): r is CombatRole => r !== 'citizen' && bestTier(r, player.epoch) >= 0);
       if (roles.length === 0) continue;
       const counts: Record<string, number> = {};

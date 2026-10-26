@@ -4,14 +4,15 @@ import { canAfford, type Stock } from './data/resources';
 import type { Role } from './data/units';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
-import { Renderer, type Marker, type Placement } from './render/renderer';
+import { Renderer, type Marker, type OrderPreview, type Placement } from './render/renderer';
 import { AIController } from './sim/ai';
 import type { Building, Entity, Unit } from './sim/entities';
+import { formationSlots, type Formation } from './sim/formation';
 import { DT, MAX_LINE, World, type GameSettings } from './sim/world';
 import { Hud } from './ui/hud';
 import { Input } from './ui/input';
 
-export type Mode = 'normal' | 'place' | 'attackMove';
+export type Mode = 'normal' | 'place' | 'attackMove' | 'patrol';
 
 /**
  * Glue between the deterministic world and the browser: owns the main loop,
@@ -32,10 +33,14 @@ export class Game {
   activeGroup = '';
   private lastGroupTap = { key: '', time: 0 };
   mode: Mode = 'normal';
+  /** Attack-move or patrol kept open by Shift for more points; ends when Shift is released. */
+  stickyMode = false;
   placement: Placement | null = null;
   paused = false;
   speed = 1;
   marker: Marker | null = null;
+  /** Right-drag with units: where they will stand and which way they will face. */
+  preview: OrderPreview | null = null;
   lastAlert: { x: number; y: number; time: number } | null = null;
   animTime = 0;
   private acc = 0;
@@ -114,6 +119,8 @@ export class Game {
       alpha: this.paused ? 1 : Math.min(1, this.acc / DT),
       time: this.animTime,
       marker: this.marker,
+      showPlans: this.input.shiftHeld,
+      preview: this.preview,
     });
     if (this.marker && (this.marker.t += dt) > 0.6) this.marker = null;
     this.minimap.render();
@@ -191,8 +198,8 @@ export class Game {
 
   // -------------------------------------------------------------- commands
 
-  /** Context-sensitive right click, the heart of classic RTS controls. */
-  rightClick(sx: number, sy: number): void {
+  /** Context-sensitive right click, the heart of classic RTS controls. Shift (`queue`) appends to the orders. */
+  rightClick(sx: number, sy: number, queue = false): void {
     const world = this.world;
     const pos = this.camera.screenToWorld(sx, sy);
     const target = this.renderer.pick(sx, sy, 1);
@@ -201,7 +208,7 @@ export class Game {
       const b = this.selectedOwnBuilding();
       if (b && BUILDING_DEFS[b.type].trains.length > 0) {
         const at = target && target.kind === 'resource' ? { x: target.x, y: target.y } : pos;
-        world.issue({ type: 'rally', player: this.me, buildingId: b.id, x: at.x, y: at.y });
+        world.issue({ type: 'rally', player: this.me, buildingId: b.id, x: at.x, y: at.y, queue });
         this.setMarker(at.x, at.y, '#ffffff');
         this.audio.ack('move', [b]);
       }
@@ -211,50 +218,109 @@ export class Game {
     const citizens = units.filter((u) => u.role === 'citizen').map((u) => u.id);
     const others = units.filter((u) => u.role !== 'citizen').map((u) => u.id);
     if (target && target.kind !== 'resource' && world.areEnemies(this.me, target.owner)) {
-      world.issue({ type: 'attack', player: this.me, ids, targetId: target.id });
+      world.issue({ type: 'attack', player: this.me, ids, targetId: target.id, queue });
       this.setMarker(target.x, target.y, '#ff5a4d');
       this.audio.ack('attack', units);
       return;
     }
     if (target && target.kind === 'resource' && citizens.length) {
-      world.issue({ type: 'gather', player: this.me, ids: citizens, targetId: target.id });
-      if (others.length) world.issue({ type: 'move', player: this.me, ids: others, x: pos.x, y: pos.y });
+      world.issue({ type: 'gather', player: this.me, ids: citizens, targetId: target.id, queue });
+      if (others.length) world.issue({ type: 'move', player: this.me, ids: others, x: pos.x, y: pos.y, queue });
       this.setMarker(target.x, target.y, '#ffd24d');
       this.audio.ack('work', units);
       return;
     }
     if (target && target.kind === 'building' && target.owner === this.me && citizens.length) {
       if (!target.built || target.hp < target.maxHp) {
-        world.issue({ type: 'construct', player: this.me, ids: citizens, targetId: target.id });
+        world.issue({ type: 'construct', player: this.me, ids: citizens, targetId: target.id, queue });
       } else if (target.type === 'farm') {
-        world.issue({ type: 'gather', player: this.me, ids: citizens, targetId: target.id });
+        world.issue({ type: 'gather', player: this.me, ids: citizens, targetId: target.id, queue });
       } else if (BUILDING_DEFS[target.type].dropoff) {
         // Citizens with a load store it, the others just walk over.
         const carriers = units.filter((u) => u.role === 'citizen' && u.carryAmount > 0).map((u) => u.id);
-        if (carriers.length) world.issue({ type: 'deposit', player: this.me, ids: carriers, targetId: target.id });
+        if (carriers.length) world.issue({ type: 'deposit', player: this.me, ids: carriers, targetId: target.id, queue });
         const rest = citizens.filter((id) => !carriers.includes(id));
-        if (rest.length) world.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y });
+        if (rest.length) world.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
       } else {
-        world.issue({ type: 'move', player: this.me, ids: citizens, x: pos.x, y: pos.y });
+        world.issue({ type: 'move', player: this.me, ids: citizens, x: pos.x, y: pos.y, queue });
       }
-      if (others.length) world.issue({ type: 'move', player: this.me, ids: others, x: pos.x, y: pos.y });
+      if (others.length) world.issue({ type: 'move', player: this.me, ids: others, x: pos.x, y: pos.y, queue });
       this.setMarker(target.x, target.y, '#8dff5a');
       this.audio.ack('work', units);
       return;
     }
-    world.issue({ type: 'move', player: this.me, ids, x: pos.x, y: pos.y });
+    world.issue({ type: 'move', player: this.me, ids, x: pos.x, y: pos.y, queue });
     this.setMarker(pos.x, pos.y, '#8dff5a');
     this.audio.ack('move', units);
   }
 
-  attackMoveTo(sx: number, sy: number): void {
+  /** Front direction from a right-drag between two screen points (world radians). */
+  private dragFacing(sx0: number, sy0: number, sx1: number, sy1: number): { from: { x: number; y: number }; to: { x: number; y: number }; facing: number } {
+    const from = this.camera.screenToWorld(sx0, sy0);
+    const to = this.camera.screenToWorld(sx1, sy1);
+    return { from, to, facing: Math.atan2(to.y - from.y, to.x - from.x) };
+  }
+
+  /** Slots the selected units would take for a right-drag, for the preview. */
+  updateOrderPreview(sx0: number, sy0: number, sx1: number, sy1: number): void {
+    const units = this.selectedOwnUnits();
+    if (!units.length) {
+      this.preview = null;
+      return;
+    }
+    const { from, to, facing } = this.dragFacing(sx0, sy0, sx1, sy1);
+    const slots = formationSlots(units, this.selectionFormation(units), from.x, from.y, facing);
+    this.preview = { from, to, slots };
+  }
+
+  /** Right-drag released: walk to where the drag started, front towards where it ended. */
+  dragMove(sx0: number, sy0: number, sx1: number, sy1: number, queue: boolean): void {
+    this.preview = null;
+    const units = this.selectedOwnUnits();
+    if (!units.length) return;
+    const { from, facing } = this.dragFacing(sx0, sy0, sx1, sy1);
+    this.world.issue({ type: 'move', player: this.me, ids: units.map((u) => u.id), x: from.x, y: from.y, queue, facing });
+    this.setMarker(from.x, from.y, '#8dff5a');
+    this.audio.ack('move', units);
+  }
+
+  attackMoveTo(sx: number, sy: number, queue = false): void {
     const pos = this.camera.screenToWorld(sx, sy);
     const units = this.selectedOwnUnits();
     const ids = units.map((u) => u.id);
-    if (ids.length) this.world.issue({ type: 'move', player: this.me, ids, x: pos.x, y: pos.y, attackMove: true });
+    if (ids.length) this.world.issue({ type: 'move', player: this.me, ids, x: pos.x, y: pos.y, attackMove: true, queue });
     this.setMarker(pos.x, pos.y, '#ff5a4d');
     this.audio.ack('attack', units);
-    this.mode = 'normal';
+    // With Shift held the mode stays, so more waypoints can follow.
+    if (!queue) this.mode = 'normal';
+    this.stickyMode = queue;
+  }
+
+  /** Patrol mode click: walk between here and there; Shift adds more points to the round. */
+  patrolTo(sx: number, sy: number, queue = false): void {
+    const pos = this.camera.screenToWorld(sx, sy);
+    const units = this.selectedOwnUnits();
+    if (units.length) this.world.issue({ type: 'patrol', player: this.me, ids: units.map((u) => u.id), x: pos.x, y: pos.y, queue });
+    this.setMarker(pos.x, pos.y, '#ff5a4d');
+    this.audio.ack('attack', units);
+    if (!queue) this.mode = 'normal';
+    this.stickyMode = queue;
+  }
+
+  /** The formation most of the units use (what the buttons show as active). */
+  selectionFormation(units = this.selectedOwnUnits()): Formation {
+    const votes = new Map<Formation, number>();
+    for (const u of units) votes.set(u.formation, (votes.get(u.formation) ?? 0) + 1);
+    let best: Formation = units[0]?.formation ?? 'block';
+    for (const [f, n] of votes) if (n > (votes.get(best) ?? 0)) best = f;
+    return best;
+  }
+
+  setFormation(formation: Formation): void {
+    const units = this.selectedOwnUnits();
+    if (!units.length) return;
+    this.world.issue({ type: 'formation', player: this.me, ids: units.map((u) => u.id), formation });
+    this.audio.ack('move', units);
   }
 
   setMarker(x: number, y: number, color: string): void {
@@ -320,7 +386,8 @@ export class Game {
         this.hud.message('warn', 'Hier kann nicht gebaut werden.');
         return;
       }
-      this.world.issue({ type: 'placeLine', player: this.me, ids: citizens.map((u) => u.id), building: p.type, tiles });
+      // Shift keeps placing and queues the work, so builders take one job after the other.
+      this.world.issue({ type: 'placeLine', player: this.me, ids: citizens.map((u) => u.id), building: p.type, tiles, queue: keepMode });
       this.audio.ui('place');
       if (!keepMode) this.cancelMode();
       return;
@@ -329,14 +396,16 @@ export class Game {
       this.hud.message('warn', 'Hier kann nicht gebaut werden.');
       return;
     }
-    this.world.issue({ type: 'place', player: this.me, ids: citizens.map((u) => u.id), building: p.type, tx: p.tx, ty: p.ty });
+    this.world.issue({ type: 'place', player: this.me, ids: citizens.map((u) => u.id), building: p.type, tx: p.tx, ty: p.ty, queue: keepMode });
     this.audio.ui('place');
     if (!keepMode) this.cancelMode();
   }
 
   cancelMode(): void {
     this.mode = 'normal';
+    this.stickyMode = false;
     this.placement = null;
+    this.preview = null;
   }
 
   train(buildingId: number, role: Role, count: number): void {
