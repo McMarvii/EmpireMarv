@@ -54,6 +54,8 @@ export interface GameEvent {
   type: 'info' | 'warn' | 'epoch' | 'attack' | 'built' | 'trained' | 'gameover';
   player: number;
   text: string;
+  /** Epoch events: the epoch that was reached. */
+  epoch?: number;
   x?: number;
   y?: number;
 }
@@ -322,6 +324,7 @@ export class World {
       dead: false,
       lastHitTick: -1000,
       variant: this.rng.int(0, 4),
+      blockedUntil: 0,
     };
     this.entities.set(n.id, n);
     this.resources.push(n);
@@ -453,7 +456,7 @@ export class World {
     let best: ResourceNode | null = null;
     let bestD = maxDist;
     for (const n of this.resources) {
-      if (n.dead || n.res !== res || n.id === excludeId) continue;
+      if (n.dead || n.res !== res || n.id === excludeId || n.blockedUntil > this.tick) continue;
       if (player >= 0 && !this.isVisibleTo(player, n)) continue;
       const d = Math.hypot(n.x - x, n.y - y);
       if (d < bestD) {
@@ -469,7 +472,7 @@ export class World {
     let best: ResourceNode | null = null;
     let bestD = maxDist;
     for (const n of this.resources) {
-      if (n.dead || !this.isVisibleTo(player, n)) continue;
+      if (n.dead || n.blockedUntil > this.tick || !this.isVisibleTo(player, n)) continue;
       const d = distToRect(x, y, rectOf(n));
       if (d < bestD) {
         bestD = d;
@@ -541,6 +544,18 @@ export class World {
   /** Whether a player may currently build a type (epoch requirement). */
   buildingUnlocked(owner: number, type: BuildingType): boolean {
     return this.players[owner].epoch >= BUILDING_DEFS[type].minEpoch;
+  }
+
+  /** Buildings still missing for the next epoch's advance (finished ones count). */
+  missingRequirements(owner: number): Array<{ type: BuildingType; have: number; need: number }> {
+    const p = this.players[owner];
+    if (p.epoch >= LAST_EPOCH) return [];
+    const out: Array<{ type: BuildingType; have: number; need: number }> = [];
+    for (const [type, need] of Object.entries(EPOCHS[p.epoch + 1].requires) as Array<[BuildingType, number]>) {
+      const have = this.buildings.filter((b) => !b.dead && b.built && b.owner === owner && b.type === type).length;
+      if (have < need) out.push({ type, have, need });
+    }
+    return out;
   }
 
   isResearching(owner: number): boolean {
@@ -789,6 +804,12 @@ export class World {
     }
     if (this.isResearching(player)) return;
     const next = EPOCHS[p.epoch + 1];
+    const missing = this.missingRequirements(player);
+    if (missing.length) {
+      const list = missing.map((m) => `${m.need - m.have}× ${buildingName(m.type, p.epoch)}`).join(', ');
+      this.emit({ type: 'warn', player, text: `Für den Aufstieg fehlt: ${list}` });
+      return;
+    }
     if (!canAfford(p.stock, next.advanceCost)) {
       this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, next.advanceCost)}` });
       return;

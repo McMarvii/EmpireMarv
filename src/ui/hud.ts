@@ -1,9 +1,9 @@
-import { BUILDABLE, BUILDING_DEFS, buildingName, FARM_CAPACITY } from '../data/buildings';
-import { EPOCHS } from '../data/epochs';
+import { BUILDABLE, BUILDING_DEFS, buildingName, FARM_CAPACITY, type BuildingType } from '../data/buildings';
+import { epochLabel, epochNumeral, EPOCHS } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
 import { bestTier, GATHER_LABEL, ROLE_DEFS, unitStats, type Role } from '../data/units';
 import type { Game } from '../game';
-import { buildingIcon, unitIcon } from '../render/icons';
+import { buildingIcon, epochIcon, unitIcon } from '../render/icons';
 import type { Building, Entity, Unit } from '../sim/entities';
 import type { GameEvent } from '../sim/world';
 
@@ -32,6 +32,11 @@ function costHtml(cost: Cost, stock?: Record<string, number>): string {
       return `<span class="cost${short ? ' short' : ''}"><i style="background:${RES_COLOR[r]}"></i>${cost[r]}</span>`;
     })
     .join('');
+}
+
+/** Inline epoch emblem plus label, e.g. for tooltips. */
+function epochTag(index: number): string {
+  return `<span class="ep-tag"><img src="${epochIcon(index, 32)}" alt="">${esc(epochLabel(index))}</span>`;
 }
 
 function fmtTime(sec: number): string {
@@ -93,10 +98,16 @@ export class Hud {
     this.sig = '';
   }
 
-  message(type: GameEvent['type'], text: string, onClick?: () => void): void {
+  message(type: GameEvent['type'], text: string, onClick?: () => void, icon?: string): void {
     const el = document.createElement('div');
     el.className = `msg msg-${type}`;
-    el.textContent = text;
+    if (icon) {
+      const img = document.createElement('img');
+      img.src = icon;
+      img.alt = '';
+      el.append(img);
+    }
+    el.append(text);
     if (onClick) {
       el.classList.add('clickable');
       el.onclick = onClick;
@@ -123,10 +134,12 @@ export class Hud {
     if (this.els.pop.textContent !== pop) this.els.pop.textContent = pop;
     const epoch = EPOCHS[player.epoch];
     const research = world.buildings.find((b) => b.owner === me && b.research);
-    const epochText = research
-      ? `${epoch.name} → ${EPOCHS[research.research!.targetEpoch].name} ${Math.floor((research.research!.progress / research.research!.total) * 100)} %`
-      : `${epoch.name}`;
-    const epochHtml = `<span class="ep-num">${player.epoch + 1}/${EPOCHS.length}</span> ${esc(epochText)}`;
+    let epochHtml = `<img class="ep-icon" src="${epochIcon(player.epoch, 32)}" alt=""><span class="ep-num">${epochNumeral(player.epoch)}</span> ${esc(epoch.name)}`;
+    if (research) {
+      const target = research.research!.targetEpoch;
+      const pct = Math.floor((research.research!.progress / research.research!.total) * 100);
+      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> ${esc(EPOCHS[target].name)} ${pct} %`;
+    }
     if (this.els.epoch.innerHTML !== epochHtml) this.els.epoch.innerHTML = epochHtml;
     const idle = String(this.game.idleCitizens().length);
     if (this.els.idleCount.textContent !== idle) {
@@ -156,7 +169,7 @@ export class Hud {
       return;
     }
     if (ev.type === 'gameover') return;
-    this.message(ev.type, ev.text);
+    this.message(ev.type, ev.text, undefined, ev.epoch !== undefined ? epochIcon(ev.epoch, 32) : undefined);
   }
 
   // ------------------------------------------------------------- panels
@@ -236,7 +249,7 @@ export class Hud {
         <img class="portrait" src="${unitIcon(e.role, s.epoch, owner!.color, 64)}">
         <div class="sel-info">
           <div class="sel-name">${esc(s.name)} ${ownerLine}</div>
-          <div class="sel-sub">${esc(def.label)} · ${esc(EPOCHS[s.epoch].name)} · ${activity}${carry}${morale}</div>
+          <div class="sel-sub">${esc(def.label)} · ${epochTag(s.epoch)} · ${activity}${carry}${morale}</div>
           ${hpBar(e.hp, e.maxHp)}
           <div class="stats"><span>Angriff ${s.dmg}</span><span>Rüstung ${s.armor}</span><span>Reichweite ${s.range.toFixed(1)}</span><span>Tempo ${s.speed.toFixed(1)}</span></div>
           ${e.role !== 'citizen' ? `<div class="counter"><b>Stark gegen:</b> ${esc(def.strongVs)} · <b>Schwach gegen:</b> ${esc(def.weakVs)}</div>` : ''}
@@ -325,7 +338,7 @@ export class Hud {
           title: name,
           tooltip:
             `<b>${esc(name)}</b> <kbd>${def.hotkey}</kbd><div>${costHtml(def.cost, player.stock)}</div><p>${esc(def.description)}</p>` +
-            (unlocked ? '' : `<p class="warn">Verfügbar ab: ${esc(EPOCHS[def.minEpoch].name)}</p>`),
+            (unlocked ? '' : `<p class="warn">Verfügbar ab: ${epochTag(def.minEpoch)}</p>`),
           action: () => {
             if (!unlocked) return;
             if (!canAfford(player.stock, def.cost)) {
@@ -377,15 +390,27 @@ export class Hud {
         } else if (player.epoch < world.settings.maxEpoch) {
           const next = EPOCHS[player.epoch + 1];
           const busy = world.isResearching(me);
+          const missing = world.missingRequirements(me);
+          const reqs = (Object.entries(next.requires) as Array<[BuildingType, number]>)
+            .map(([type, need]) => {
+              const gap = missing.find((m) => m.type === type);
+              const have = gap ? gap.have : need;
+              return `<li class="${gap ? 'missing' : 'ok'}">${gap ? '✘' : '✔'} ${esc(buildingName(type, player.epoch))} <span class="dim">${have}/${need}</span></li>`;
+            })
+            .join('');
           cmds.push({
             key: 'E',
-            text: 'Epoche',
-            enabled: !busy && canAfford(player.stock, next.advanceCost),
-            title: `Aufstieg: ${next.name}`,
-            tooltip: `<b>Aufstieg in die ${esc(next.name)}</b> <kbd>E</kbd><div class="period">${esc(next.period)}</div><div>${costHtml(
-              next.advanceCost,
-              player.stock,
-            )}</div><p>${esc(next.description)}</p><p>Dauer: ${next.advanceTime} s</p>`,
+            icon: epochIcon(next.index, 44),
+            enabled: !busy && missing.length === 0 && canAfford(player.stock, next.advanceCost),
+            badge: missing.length ? '!' : undefined,
+            title: `Aufstieg: ${epochLabel(next.index)}`,
+            tooltip:
+              `<b>Aufstieg: ${epochTag(next.index)}</b> <kbd>E</kbd><div class="period">${esc(next.period)}</div><div>${costHtml(
+                next.advanceCost,
+                player.stock,
+              )}</div>` +
+              (reqs ? `<div class="reqs-title">Benötigt:</div><ul class="reqs">${reqs}</ul>` : '') +
+              `<p>${esc(next.description)}</p><p>Dauer: ${next.advanceTime} s</p>`,
             action: () => game.advance(b.id),
           });
         }
@@ -421,7 +446,7 @@ export class Hud {
         enabled: false,
         locked: true,
         title: def.label,
-        tooltip: `<b>${esc(first.name)}</b><p class="warn">Verfügbar ab: ${esc(EPOCHS[first.epoch].name)}</p>`,
+        tooltip: `<b>${esc(first.name)}</b><p class="warn">Verfügbar ab: ${epochTag(first.epoch)}</p>`,
         action: () => {},
       };
     }
@@ -438,7 +463,7 @@ export class Hud {
         `<b>${esc(s.name)}</b> <kbd>${key}</kbd> <span class="dim">${esc(def.label)}</span><div>${costHtml(s.cost, player.stock)}</div>` +
         `<div class="stats"><span>LP ${s.hp}</span><span>Angriff ${s.dmg}</span><span>Rüstung ${s.armor}</span><span>Reichweite ${s.range.toFixed(1)}</span></div>` +
         (role !== 'citizen' ? `<p><b>Stark gegen:</b> ${esc(def.strongVs)}<br><b>Schwach gegen:</b> ${esc(def.weakVs)}</p>` : '<p>Sammelt Rohstoffe und errichtet Gebäude.</p>') +
-        (nextTier ? `<p class="dim">Nächste Stufe: ${esc(nextTier.name)} (${esc(EPOCHS[nextTier.epoch].name)})</p>` : '') +
+        (nextTier ? `<p class="dim">Nächste Stufe: ${esc(nextTier.name)} (${epochTag(nextTier.epoch)})</p>` : '') +
         `<p class="dim">Umschalt+Klick: 5 Stück</p>`,
       action: (shift) => this.game.train(b.id, role, shift ? 5 : 1),
     };
@@ -559,7 +584,7 @@ export class Hud {
     const rows = world.players
       .map((p) => {
         const gathered = RESOURCES.reduce((s, r) => s + p.stats.gathered[r], 0);
-        return `<tr><td style="color:${p.color}">${esc(p.name)}</td><td>${esc(EPOCHS[p.epoch].name)}</td><td>${Math.round(gathered)}</td><td>${p.stats.unitsTrained}</td><td>${p.stats.kills}</td><td>${p.stats.unitsLost}</td><td>${p.stats.buildingsLost}</td></tr>`;
+        return `<tr><td style="color:${p.color}">${esc(p.name)}</td><td>${epochTag(p.epoch)}</td><td>${Math.round(gathered)}</td><td>${p.stats.unitsTrained}</td><td>${p.stats.kills}</td><td>${p.stats.unitsLost}</td><td>${p.stats.buildingsLost}</td></tr>`;
       })
       .join('');
     this.openOverlay(

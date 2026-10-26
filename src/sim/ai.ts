@@ -217,7 +217,7 @@ export class AIController implements Controller {
     let best: ResourceNode | null = null;
     let bestD = 80;
     for (const n of w.resources) {
-      if (n.dead || n.res !== res || !w.isVisibleTo(this.playerId, n)) continue;
+      if (n.dead || n.res !== res || n.blockedUntil > w.tick || !w.isVisibleTo(this.playerId, n)) continue;
       let d = Math.hypot(n.x - s.base.x, n.y - s.base.y);
       for (const b of drops) d = Math.min(d, Math.hypot(n.x - b.x, n.y - b.y));
       if (d < bestD) {
@@ -247,7 +247,13 @@ export class AIController implements Controller {
     }
     if (citizens.length < 6) return;
 
+    // Buildings the next epoch asks for come first (walls are handled by the wall plan).
+    const required: Array<[BuildingType, boolean]> =
+      player.epoch < w.settings.maxEpoch
+        ? w.missingRequirements(id).flatMap((m): Array<[BuildingType, boolean]> => (BUILDING_DEFS[m.type].line ? [] : [[m.type, true]]))
+        : [];
     const wants: Array<[BuildingType, boolean]> = [
+      ...required,
       ['barracks', count('barracks') === 0 && citizens.length >= 8],
       ['storehouse', count('storehouse') < Math.min(3, 1 + Math.floor(citizens.length / 12))],
       ['house', count('house') < Math.min(6, 1 + Math.floor(s.army.length / 6))],

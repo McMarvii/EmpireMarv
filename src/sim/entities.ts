@@ -97,6 +97,8 @@ export interface ResourceNode extends BaseEntity {
   ty: number;
   size: number;
   variant: number;
+  /** Tick until which gatherers skip this node because it could not be reached. */
+  blockedUntil: number;
 }
 
 export type Entity = Unit | Building | ResourceNode;

@@ -115,9 +115,32 @@ button {
 
 #epoch {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   color: var(--gold);
   font-family: var(--serif);
   font-size: 15px;
+}
+
+.ep-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.ep-arrow {
+  color: var(--dim);
+}
+
+.ep-tag {
+  white-space: nowrap;
+}
+
+.ep-tag img {
+  width: 16px;
+  height: 16px;
+  margin-right: 3px;
+  vertical-align: -3px;
 }
 
 .ep-num {
@@ -126,8 +149,10 @@ button {
   margin-right: 4px;
   border: 1px solid var(--gold-dark);
   border-radius: 3px;
-  font-family: var(--font);
+  font-family: var(--serif);
   font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
   color: var(--text);
 }
 
@@ -183,6 +208,13 @@ button.primary {
   border-radius: 2px;
   transition: opacity 1s;
   text-shadow: 0 1px 2px #000;
+}
+
+.msg img {
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -4px;
 }
 
 .msg.clickable {
@@ -687,6 +719,40 @@ table.help td:first-child {
   background: radial-gradient(#3b4a2c, #1e2617);
   border: 1px solid var(--border-soft);
   border-radius: 50%;
+}
+
+.tl-item {
+  position: relative;
+}
+
+.tl-item img.tl-emblem {
+  position: absolute;
+  top: -3px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: none;
+  border-radius: 0;
+}
+
+.reqs-title {
+  margin-top: 4px;
+  font-weight: 700;
+}
+
+.reqs {
+  list-style: none;
+  margin: 2px 0 4px;
+  padding: 0;
+}
+
+.reqs li.ok {
+  color: #8dff5a;
+}
+
+.reqs li.missing {
+  color: #ff7a6b;
 }
 
 #menu-form {

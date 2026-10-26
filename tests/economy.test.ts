@@ -142,11 +142,34 @@ describe('economy', () => {
 });
 
 describe('epochs', () => {
+  it('advancing needs the buildings the next epoch asks for', () => {
+    const w = emptyWorld();
+    const p = w.players[0];
+    for (const r of ['food', 'wood', 'stone', 'gold', 'iron'] as const) p.stock[r] = 5000;
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    expect(w.missingRequirements(0).map((m) => m.type).sort()).toEqual(['house', 'storehouse']);
+    w.issue({ type: 'advance', player: 0, buildingId: tc.id });
+    expect(tc.research).toBeNull();
+    expect(p.stock.food).toBe(5000);
+    // Construction sites do not count, finished buildings do.
+    w.addBuilding(0, 'house', tc.tx + 7, tc.ty, false);
+    w.addBuilding(0, 'house', tc.tx + 10, tc.ty, true);
+    w.addBuilding(0, 'storehouse', tc.tx + 7, tc.ty + 4, true);
+    expect(w.missingRequirements(0)).toEqual([{ type: 'house', have: 1, need: 2 }]);
+    w.addBuilding(0, 'house', tc.tx + 10, tc.ty + 4, true);
+    expect(w.missingRequirements(0)).toEqual([]);
+    w.issue({ type: 'advance', player: 0, buildingId: tc.id });
+    expect(tc.research).not.toBeNull();
+  });
+
   it('advancing costs resources, takes time and unlocks new tiers', () => {
     const w = emptyWorld();
     const p = w.players[0];
     for (const r of ['food', 'wood', 'stone', 'gold', 'iron'] as const) p.stock[r] = 5000;
     const tc = w.buildingsOf(0, 'towncenter')[0];
+    w.addBuilding(0, 'house', tc.tx + 7, tc.ty, true);
+    w.addBuilding(0, 'house', tc.tx + 10, tc.ty, true);
+    w.addBuilding(0, 'storehouse', tc.tx + 7, tc.ty + 4, true);
     expect(w.roleName(0, 'assault')).toBe('Keulenkrieger');
     w.issue({ type: 'advance', player: 0, buildingId: tc.id });
     expect(p.stock.food).toBe(5000 - (EPOCHS[1].advanceCost.food ?? 0));

@@ -1,5 +1,5 @@
 import { BUILDING_DEFS, buildingAttack, buildingMaxHp, buildingName, FARM_CAPACITY } from '../data/buildings';
-import { EPOCHS } from '../data/epochs';
+import { epochLabel, EPOCHS } from '../data/epochs';
 import { BUILD_RATE, CARRY_CAPACITY, gatherRate, ROLE_DEFS, unitStats } from '../data/units';
 import { fire } from './combat';
 import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type ResourceNode, type Unit } from './entities';
@@ -311,7 +311,8 @@ function updateGather(w: World, u: Unit): void {
       if (w.tick - u.repathTick < TICK_RATE) return;
       const reached = target.kind !== 'unit' && approach(w, u, rectOf(target), isFarm ? 0.3 : APPROACH_REACH);
       if (!reached) {
-        // Node is fenced in by other nodes or buildings: try another one.
+        // Node is fenced in by other nodes or buildings: skip it for a while and try another one.
+        if (target.kind === 'resource') target.blockedUntil = w.tick + 60 * TICK_RATE;
         const alt = isFarm ? null : w.nearestResource(o.res, u.x, u.y, 12, u.owner, target.id);
         if (alt) {
           o.targetId = alt.id;
@@ -522,9 +523,9 @@ export function updateBuilding(w: World, b: Building): void {
         other.hp = Math.max(1, ratio * other.maxHp);
       }
       for (const p of w.players) {
-        const text =
-          p.id === b.owner ? `Neue Epoche erreicht: ${epoch.name}!` : `${player.name} hat die Epoche „${epoch.name}“ erreicht.`;
-        w.emit({ type: 'epoch', player: p.id, text });
+        const label = epochLabel(epoch.index);
+        const text = p.id === b.owner ? `Neue Epoche erreicht: ${label}!` : `${player.name} hat die Epoche „${label}“ erreicht.`;
+        w.emit({ type: 'epoch', player: p.id, text, epoch: epoch.index });
       }
     }
     return;
