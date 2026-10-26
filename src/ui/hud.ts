@@ -642,6 +642,8 @@ export class Hud {
         <tr><td>Rechts ziehen / Mitte ziehen</td><td>Karte verschieben</td></tr>
         <tr><td>Rechtsklick mit Gebäude</td><td>Sammelpunkt setzen</td></tr>
         <tr><td>A, dann Klick</td><td>Angriffsbewegung</td></tr>
+        <tr><td>E</td><td>Erkunden (Einheiten ausgewählt)</td></tr>
+        <tr><td>M / G, dann ziehen</td><td>Mauer / Tor als Linie bauen</td></tr>
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>
         <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren / 5 Einheiten</td></tr>
         <tr><td>Strg + 1–9, dann 1–9</td><td>Gruppe speichern / wählen (2× = hinspringen)</td></tr>

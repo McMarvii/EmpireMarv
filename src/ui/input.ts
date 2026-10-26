@@ -185,7 +185,8 @@ export class Input {
     if (e.button === 2) {
       const rd = this.rightDrag;
       this.rightDrag = null;
-      if (!rd || rd.panning || this.game.hud.overlayOpen()) return;
+      // Released over the HUD: no command for the ground hidden behind it.
+      if (!rd || rd.panning || this.game.hud.overlayOpen() || document.elementFromPoint(e.clientX, e.clientY) !== this.canvas) return;
       if (this.game.mode !== 'normal') this.game.cancelMode();
       else this.game.rightClick(e.clientX, e.clientY);
       return;

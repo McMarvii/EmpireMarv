@@ -260,11 +260,19 @@ export class AIController implements Controller {
     if (pending.length > 0) {
       // Make sure someone is actually working on unfinished buildings.
       for (const b of pending) {
+        if (BUILDING_DEFS[b.type].line) continue;
         const builders = citizens.filter((c) => c.order.kind === 'build' && c.order.targetId === b.id);
         if (builders.length === 0) {
           const helper = this.pickWorker(s, b);
           if (helper) w.issue({ type: 'construct', player: id, ids: [helper.id], targetId: b.id });
         }
+      }
+      // A wall line only needs a small crew walking it, not one citizen per segment.
+      const segments = pending.filter((b) => BUILDING_DEFS[b.type].line);
+      const crew = citizens.filter((c) => c.order.kind === 'build' && segments.some((b) => b.id === (c.order as { targetId: number }).targetId));
+      if (segments.length && crew.length < 2) {
+        const helper = this.pickWorker(s, segments[0]);
+        if (helper) w.issue({ type: 'construct', player: id, ids: [helper.id], targetId: segments[0].id });
       }
       return;
     }
