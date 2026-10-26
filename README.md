@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.3).** Wirtschaft, Kampf, 18 Epochen, 165 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War sowie Ton und Musik funktionieren. Befehlsketten, Formationen und Mehrspieler fehlen noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.4).** Wirtschaft, Kampf, 18 Epochen, 165 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen funktionieren. Mehrspieler fehlt noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -38,6 +38,8 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 - **Lesbarkeit**: Einheiten, Minen und Büsche hinter Gebäuden scheinen durch.
 - **Ton und Musik**, komplett im Browser erzeugt, ohne Audiodateien: Waffen klingen nach ihrer Epoche (Schleuder, Bogen, Muskete, Gewehr, Kanone, Laser), Bürger hacken, schürfen und hämmern, Einheiten antworten auf Befehle. Ein Alarm passend zur Ära (Kriegshorn, Glocke, Signalhorn, Sirene) und eine Fanfare beim Aufstieg. Die Musik wird für jede Ära neu komponiert, von der Knochenflöte bis zum Synthesizer, und wird im Kampf treibender. Man hört nur, was man sieht.
 - **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee.
+- **Formationen** Linie, Block und Keil: Infanterie vorn, Fernkampf und Belagerung hinten. Gruppen marschieren im Gleichschritt und kommen gleichzeitig an. Rechts-Ziehen legt die Blickrichtung mit einem Pfeil fest.
+- **Befehlsketten** mit Umschalt: Wegpunkte, Angriffe, Sammeln und mehrere Bauaufträge nacheinander. Die Wegpunkte sind als Linien sichtbar. Dazu **Patrouille** und **Sammelpunkt-Ketten**.
 - **Fog of War**, Minimap, Sammelpunkte, Kontrollgruppen mit Gruppenleiste, Angriffsbewegung, Anzeige untätiger Bürger.
 - **Deterministische Simulation**: Gleicher Seed und gleiche Befehle ergeben dieselbe Partie. Das ist die Grundlage für Replays und Mehrspieler.
 
@@ -50,17 +52,22 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 | Linksklick / Ziehen             | Auswählen / Rahmenauswahl                           |
 | Doppelklick                     | Alle sichtbaren Einheiten dieses Typs               |
 | Rechtsklick                     | Bewegen, Angreifen, Sammeln, Bauen, Einlagern – je nach Ziel |
-| Rechts oder Mitte gedrückt ziehen | Karte verschieben                                 |
-| Rechtsklick mit Gebäude         | Sammelpunkt setzen                                  |
+| Rechts ziehen mit Einheiten     | Ziel und Blickrichtung der Formation (Pfeil)        |
+| Rechts ziehen ohne Einheiten, Mitte ziehen | Karte verschieben                        |
+| Umschalt + Rechtsklick          | Befehl anhängen (Wegpunkte, Ziele, Bauaufträge); Umschalt halten zeigt die Pläne |
+| Rechtsklick mit Gebäude         | Sammelpunkt setzen (Umschalt: weitere Wegpunkte)    |
 | `A`, dann Klick                 | Angriffsbewegung                                    |
+| `R`, dann Klick                 | Patrouille (Umschalt + Klick: weitere Punkte)       |
+| `N` / `O` / `V`                 | Formation Linie / Block / Keil                      |
 | `E`                             | Erkunden (mit Einheiten ausgewählt)                 |
 | `M` / `G`, dann ziehen          | Mauer / Tor als Linie bauen                         |
 | `Entf`                          | Auswahl abreißen bzw. entlassen                     |
 | `A`, `S`, `D` … (Gebäude gewählt) | Nächste Stufe eines Forschungszweigs              |
 | `F2` oder „Forschung“           | Technologiebaum                                     |
 | Buchstaben                      | Befehle (stehen auf den Knöpfen, z. B. `H` = Haus)  |
-| Umschalt + Bauen / Ausbilden    | Mehrfach platzieren / 5 Einheiten                   |
+| Umschalt + Bauen / Ausbilden    | Mehrfach platzieren, nacheinander bauen / 5 Einheiten |
 | `Strg`+`1–9`, dann `1–9`        | Gruppe speichern / wählen (zweimal: hinspringen); auch über die Gruppenleiste |
+| `X`                             | Halt (leert auch die Befehlskette)                  |
 | `.`                             | Nächster untätiger Bürger                           |
 | `Pos1`                          | Dorfzentrum                                         |
 | Leertaste                       | Zum letzten Angriff springen                        |
