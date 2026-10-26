@@ -150,7 +150,7 @@ export class AIController implements Controller {
     const { player, tc, citizens } = s;
     const target = Math.min(Math.floor(w.popLimit() * 0.45), 16 + 3 * player.epoch, 48);
     const queued = tc ? tc.queue.length : 0;
-    if (tc && !tc.research && citizens.length + queued < target && queued < 2) {
+    if (tc && !tc.research && !tc.pendingAdvance && citizens.length + queued < target && queued < 2) {
       if (canAfford(player.stock, { food: 50 })) w.issue({ type: 'train', player: this.playerId, buildingId: tc.id, role: 'citizen' });
       if (!tc.rally.length) tc.rally = [{ x: tc.x + 3, y: tc.y + 3 }];
     }

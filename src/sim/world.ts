@@ -136,7 +136,8 @@ export type Command =
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
   | { type: 'research'; player: number; buildingId: number; tech: string }
-  | { type: 'cancelTech'; player: number; buildingId: number }
+  /** Cancels the running tech (no index) or a waiting one (index into the tech queue). */
+  | { type: 'cancelTech'; player: number; buildingId: number; index?: number }
   | { type: 'rally'; player: number; buildingId: number; x: number; y: number; queue?: boolean }
   | { type: 'deposit'; player: number; ids: number[]; targetId: number; queue?: boolean }
   | { type: 'explore'; player: number; ids: number[]; queue?: boolean }
@@ -156,6 +157,8 @@ export const MAX_LINE = 30;
 export const MAX_QUEUE = 40;
 /** Rally waypoints per building. */
 export const MAX_RALLY = 8;
+/** Technologies that may wait in one building's research queue. */
+export const MAX_TECH_QUEUE = 5;
 
 /**
  * The complete, deterministic game state. Rendering and input only read
@@ -332,6 +335,8 @@ export class World {
       queue: [],
       research: null,
       tech: null,
+      techQueue: [],
+      pendingAdvance: null,
       rally: [],
       cooldown: 0,
       scanTick: 0,
@@ -390,12 +395,60 @@ export class World {
     return CARRY_CAPACITY + this.players[owner].mods.carry;
   }
 
-  /** Whether a tech can be started now (epoch, prerequisites, not done or running). */
+  /** Whether a tech can be started now (epoch, prerequisites, not done, running or queued). */
   techAvailable(owner: number, tech: Tech): boolean {
     const p = this.players[owner];
     if (p.techs.has(tech.id) || tech.epoch > p.epoch) return false;
     if (!tech.requires.every((r) => p.techs.has(r))) return false;
-    return !this.buildings.some((b) => !b.dead && b.owner === owner && b.tech?.id === tech.id);
+    return !this.plannedTechs(owner).has(tech.id);
+  }
+
+  /** Researched, running and queued techs of a player. */
+  plannedTechs(owner: number): Set<string> {
+    const out = new Set(this.players[owner].techs);
+    for (const b of this.buildings) {
+      if (b.dead || b.owner !== owner) continue;
+      if (b.tech) out.add(b.tech.id);
+      for (const q of b.techQueue) out.add(q.id);
+    }
+    return out;
+  }
+
+  /** Whether a tech may be queued: like available, but prerequisites may still be running or queued. */
+  techPlannable(owner: number, tech: Tech): boolean {
+    const planned = this.plannedTechs(owner);
+    return tech.epoch <= this.players[owner].epoch && !planned.has(tech.id) && tech.requires.every((r) => planned.has(r));
+  }
+
+  /** Starts the first waiting tech of a building once the building is free and its prerequisites are done. */
+  startQueuedTech(b: Building): void {
+    if (b.tech || b.research || !b.built || b.techQueue.length === 0) return;
+    const head = b.techQueue[0];
+    const tech = TECH_BY_ID.get(head.id)!;
+    if (!tech.requires.every((r) => this.players[b.owner].techs.has(r))) return;
+    b.techQueue.shift();
+    b.tech = { id: tech.id, progress: 0, total: tech.time, cost: head.cost };
+  }
+
+  /**
+   * Drops (and refunds) queued techs whose prerequisites can no longer come,
+   * e.g. after a cancel or when the building researching them was destroyed.
+   */
+  private pruneTechQueues(owner: number): void {
+    const p = this.players[owner];
+    for (let changed = true; changed; ) {
+      changed = false;
+      const planned = this.plannedTechs(owner);
+      for (const b of this.buildings) {
+        if (b.dead || b.owner !== owner) continue;
+        for (let i = b.techQueue.length - 1; i >= 0; i--) {
+          if (TECH_BY_ID.get(b.techQueue[i].id)!.requires.every((r) => planned.has(r))) continue;
+          refund(p.stock, b.techQueue[i].cost);
+          b.techQueue.splice(i, 1);
+          changed = true;
+        }
+      }
+    }
   }
 
   /** Techs of the current epoch still missing for the next advance. */
@@ -692,7 +745,7 @@ export class World {
   }
 
   isResearching(owner: number): boolean {
-    return this.buildings.some((b) => !b.dead && b.owner === owner && b.research !== null);
+    return this.buildings.some((b) => !b.dead && b.owner === owner && (b.research !== null || b.pendingAdvance !== null));
   }
 
   emit(ev: GameEvent): void {
@@ -771,16 +824,18 @@ export class World {
         const b = this.get(cmd.buildingId);
         if (!b || b.kind !== 'building' || b.owner !== cmd.player) return;
         if (cmd.index < 0) {
-          if (b.research) {
-            refund(player.stock, EPOCHS[b.research.targetEpoch].advanceCost);
-            b.research = null;
-          }
+          const target = b.research?.targetEpoch ?? b.pendingAdvance?.targetEpoch;
+          if (target !== undefined) refund(player.stock, EPOCHS[target].advanceCost);
+          b.research = null;
+          b.pendingAdvance = null;
           return;
         }
         const item = b.queue[cmd.index];
         if (!item) return;
         b.queue.splice(cmd.index, 1);
         refund(player.stock, item.cost);
+        // One unit fewer to wait for before the advance.
+        if (b.pendingAdvance && cmd.index < b.pendingAdvance.ahead) b.pendingAdvance.ahead--;
         break;
       }
       case 'advance':
@@ -791,9 +846,19 @@ export class World {
         break;
       case 'cancelTech': {
         const b = this.get(cmd.buildingId);
-        if (!b || b.kind !== 'building' || b.owner !== cmd.player || !b.tech) return;
-        refund(player.stock, b.tech.cost);
-        b.tech = null;
+        if (!b || b.kind !== 'building' || b.owner !== cmd.player) return;
+        if (cmd.index === undefined || cmd.index < 0) {
+          if (!b.tech) return;
+          refund(player.stock, b.tech.cost);
+          b.tech = null;
+        } else {
+          const job = b.techQueue[cmd.index];
+          if (!job) return;
+          refund(player.stock, job.cost);
+          b.techQueue.splice(cmd.index, 1);
+        }
+        this.pruneTechQueues(cmd.player);
+        this.startQueuedTech(b);
         break;
       }
       case 'rally': {
@@ -1016,13 +1081,19 @@ export class World {
     const b = this.get(buildingId);
     const tech = TECH_BY_ID.get(id);
     if (!tech || !b || b.kind !== 'building' || b.owner !== player || !b.built || b.type !== tech.building) return;
-    if (b.tech || b.research || !this.techAvailable(player, tech)) return;
+    if (!this.techPlannable(player, tech)) return;
+    if (b.techQueue.length >= MAX_TECH_QUEUE) {
+      this.emit({ type: 'warn', player, text: 'Die Forschungs-Warteschlange ist voll.' });
+      return;
+    }
     if (!canAfford(p.stock, tech.cost)) {
       this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, tech.cost)}` });
       return;
     }
     pay(p.stock, tech.cost);
-    b.tech = { id, progress: 0, total: tech.time, cost: tech.cost };
+    // Queued behind what runs here; starts right away when the building is free.
+    b.techQueue.push({ id, cost: tech.cost });
+    this.startQueuedTech(b);
   }
 
   private commandAdvance(player: number, buildingId: number): void {
@@ -1048,7 +1119,9 @@ export class World {
       return;
     }
     pay(p.stock, next.advanceCost);
-    b.research = { targetEpoch: next.index, progress: 0, total: next.advanceTime };
+    // Units already queued are finished first; later ones wait for the new epoch.
+    if (b.queue.length) b.pendingAdvance = { targetEpoch: next.index, ahead: b.queue.length };
+    else b.research = { targetEpoch: next.index, progress: 0, total: next.advanceTime };
   }
 
   // -------------------------------------------------------------- simulation
@@ -1103,6 +1176,8 @@ export class World {
     } else {
       owner.stats.buildingsLost++;
       this.cue({ kind: 'collapse', x: e.x, y: e.y, owner: e.owner, epoch: e.epoch, size: e.size });
+      // Research that depended on what ran here can no longer come.
+      if (e.tech || e.techQueue.length) this.pruneTechQueues(e.owner);
       this.effects.push({ kind: 'collapse', x: e.x, y: e.y, t: 0, dur: 1.6, size: e.size });
       if (e.type === 'towncenter') {
         this.emit({ type: 'warn', player: e.owner, text: `${buildingName(e.type, e.epoch)} wurde zerstört!`, x: e.x, y: e.y });
