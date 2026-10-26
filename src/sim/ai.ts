@@ -7,6 +7,16 @@ import type { Point } from './pathfinding';
 import { Rng } from './rng';
 import type { Controller, Difficulty, World } from './world';
 
+interface WallTile {
+  x: number;
+  y: number;
+  type: 'wall' | 'gate';
+  side: number;
+  d: number;
+}
+
+const RING_RADIUS = 12;
+
 interface Profile {
   think: number;
   gatherBonus: number;
@@ -45,6 +55,9 @@ export class AIController implements Controller {
   private rng: Rng;
   private nextScout = 0;
   private scoutId = 0;
+  /** Planned ring wall around the town center: gates first, then the walls. */
+  private wallPlan: WallTile[] | null = null;
+  private ringCenter: Point = { x: 0, y: 0 };
 
   constructor(
     readonly playerId: number,
@@ -246,6 +259,7 @@ export class AIController implements Controller {
       return;
     }
     if (citizens.length < 6) return;
+    if (this.walls(w, s)) return;
 
     // Buildings the next epoch asks for come first (walls are handled by the wall plan).
     const required: Array<[BuildingType, boolean]> =
@@ -274,6 +288,106 @@ export class AIController implements Controller {
       this.placeNear(w, s, type, where, [builder], minR, maxR);
       return;
     }
+  }
+
+  /**
+   * Builds a square ring wall around the town center in batches, with a gate
+   * in the middle of every side. Tiles that cannot take a wall (forest,
+   * water, buildings) are skipped – they block on their own or stay a gap.
+   */
+  private walls(w: World, s: ReturnType<AIController['snapshot']>): boolean {
+    const { player, tc, citizens } = s;
+    const id = this.playerId;
+    if (!tc || !w.buildingUnlocked(id, 'wall')) return false;
+    const needed = w.missingRequirements(id).some((m) => BUILDING_DEFS[m.type].line);
+    if (!needed && (player.epoch < 2 || citizens.length < 18)) return false;
+    if (!this.wallPlan) this.wallPlan = this.planRing(w, tc);
+    const batch: WallTile[] = [];
+    let type: 'wall' | 'gate' = 'wall';
+    const later: WallTile[] = [];
+    while (this.wallPlan.length && batch.length < 8) {
+      const next = this.wallPlan[0];
+      if (batch.length && next.type !== type) break;
+      this.wallPlan.shift();
+      // Unexplored tiles wait until someone has seen them; blocked ones are dropped.
+      if (player.vis[w.map.idx(next.x, next.y)] === 0) later.push(next);
+      else if (w.canPlace(id, next.type, next.x, next.y)) {
+        type = next.type;
+        batch.push(next);
+      } else if (next.type === 'gate') {
+        // A gate must exist on every side: slide it along the wall to a free tile.
+        const moved = this.shiftGate(w, next);
+        if (moved) this.wallPlan.unshift(moved);
+      }
+    }
+    this.wallPlan.push(...later);
+    if (batch.length === 0) return false;
+    const cost: Cost = {};
+    for (const r of RESOURCES) if (BUILDING_DEFS[type].cost[r]) cost[r] = (BUILDING_DEFS[type].cost[r] ?? 0) * batch.length;
+    if (!this.spendable(w, s, cost)) {
+      this.wallPlan.unshift(...batch);
+      return false;
+    }
+    const builders: Unit[] = [];
+    for (let i = 0; i < 2; i++) {
+      const b = this.pickWorker({ ...s, citizens: citizens.filter((c) => !builders.includes(c)) }, batch[0]);
+      if (b) builders.push(b);
+    }
+    if (!builders.length) return false;
+    w.issue({ type: 'placeLine', player: id, ids: builders.map((b) => b.id), building: type, tiles: batch.map((t) => ({ x: t.x, y: t.y })) });
+    return true;
+  }
+
+  /** Tile `d` steps along one side of the ring (sides go clockwise from the north). */
+  private ringTile(side: number, d: number): Point {
+    const { x: cx, y: cy } = this.ringCenter;
+    const R = RING_RADIUS;
+    switch (side) {
+      case 0:
+        return { x: cx + d, y: cy - R };
+      case 1:
+        return { x: cx + R, y: cy + d };
+      case 2:
+        return { x: cx - d, y: cy + R };
+      default:
+        return { x: cx - R, y: cy - d };
+    }
+  }
+
+  private shiftGate(w: World, gate: WallTile): WallTile | null {
+    for (let k = 2; k <= 8; k++) {
+      for (const d of [gate.d + k, gate.d - k]) {
+        if (Math.abs(d) >= RING_RADIUS) continue;
+        const t = this.ringTile(gate.side, d);
+        if (!w.map.inBounds(t.x, t.y) || !w.canPlace(this.playerId, 'gate', t.x, t.y)) continue;
+        // The tile becomes a gate instead of a wall.
+        this.wallPlan = this.wallPlan!.filter((p) => p.x !== t.x || p.y !== t.y);
+        return { ...t, type: 'gate', side: gate.side, d };
+      }
+    }
+    return null;
+  }
+
+  private planRing(w: World, tc: Building): WallTile[] {
+    const R = RING_RADIUS;
+    this.ringCenter = { x: Math.floor(tc.x), y: Math.floor(tc.y) };
+    const gates: WallTile[] = [];
+    const walls: WallTile[] = [];
+    for (let d = -R; d <= R; d++) {
+      // Walk the four sides; the gate sits in the middle of each one.
+      for (let side = 0; side < 4; side++) {
+        const { x, y } = this.ringTile(side, d);
+        if (!w.map.inBounds(x, y)) continue;
+        if (Math.abs(d) === R && walls.some((t) => t.x === x && t.y === y)) continue;
+        if (d === 0 || d === 1) gates.push({ x, y, type: 'gate', side, d });
+        else walls.push({ x, y, type: 'wall', side, d });
+      }
+    }
+    const cx = this.ringCenter.x;
+    const cy = this.ringCenter.y;
+    // Close the ring outwards from the gates, so early segments already protect the entrances.
+    walls.sort((a, b) => Math.min(Math.abs(a.x - cx), Math.abs(a.y - cy)) - Math.min(Math.abs(b.x - cx), Math.abs(b.y - cy)));
+    return [...gates, ...walls];
   }
 
   /** A deposit with several workers but far from any drop-off. */
@@ -436,7 +550,8 @@ export class AIController implements Controller {
     let bestD = Infinity;
     for (const b of w.buildings) {
       if (b.dead || !w.areEnemies(this.playerId, b.owner)) continue;
-      const d = Math.hypot(b.x - from.x, b.y - from.y) - (b.type === 'towncenter' ? 6 : 0);
+      // Walls are only attacked when they stand in the way, not marched to.
+      const d = Math.hypot(b.x - from.x, b.y - from.y) - (b.type === 'towncenter' ? 6 : 0) + (BUILDING_DEFS[b.type].line ? 40 : 0);
       if (d < bestD) {
         bestD = d;
         best = b;
