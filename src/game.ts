@@ -1,3 +1,4 @@
+import { GameAudio } from './audio/director';
 import { BUILDING_DEFS, type BuildingType } from './data/buildings';
 import { canAfford, type Stock } from './data/resources';
 import type { Role } from './data/units';
@@ -23,6 +24,7 @@ export class Game {
   readonly minimap: Minimap;
   readonly hud: Hud;
   readonly input: Input;
+  readonly audio: GameAudio;
   readonly me = 0;
   selection = new Set<number>();
   /** Control groups (Strg+1–9), shown in the group bar. */
@@ -51,6 +53,7 @@ export class Game {
     this.world.settings.players.forEach((p, id) => {
       if (p.isAI) this.world.controllers.push(new AIController(id, this.world.settings.aiDifficulty, this.world));
     });
+    this.audio = new GameAudio(this);
     const canvas = root.querySelector<HTMLCanvasElement>('#game')!;
     this.renderer = new Renderer(canvas, this.world, this.camera, this.me);
     this.hud = new Hud(this);
@@ -75,6 +78,7 @@ export class Game {
 
   destroy(): void {
     cancelAnimationFrame(this.raf);
+    this.audio.stop();
     this.input.destroy();
     this.hud.destroy();
   }
@@ -113,6 +117,7 @@ export class Game {
     });
     if (this.marker && (this.marker.t += dt) > 0.6) this.marker = null;
     this.minimap.render();
+    this.audio.update(dt);
     if (this.lastAlert && this.animTime - this.lastAlert.time < 4) {
       this.minimap.ping(this.lastAlert.x, this.lastAlert.y, this.animTime);
     }
@@ -129,6 +134,7 @@ export class Game {
     if (!add) this.selection.clear();
     for (const id of ids) this.selection.add(id);
     this.hud.selectionChanged();
+    if (ids.length) this.audio.ack('select', this.selectedEntities());
   }
 
   selectedEntities(): Entity[] {
@@ -197,6 +203,7 @@ export class Game {
         const at = target && target.kind === 'resource' ? { x: target.x, y: target.y } : pos;
         world.issue({ type: 'rally', player: this.me, buildingId: b.id, x: at.x, y: at.y });
         this.setMarker(at.x, at.y, '#ffffff');
+        this.audio.ack('move', [b]);
       }
       return;
     }
@@ -206,12 +213,14 @@ export class Game {
     if (target && target.kind !== 'resource' && world.areEnemies(this.me, target.owner)) {
       world.issue({ type: 'attack', player: this.me, ids, targetId: target.id });
       this.setMarker(target.x, target.y, '#ff5a4d');
+      this.audio.ack('attack', units);
       return;
     }
     if (target && target.kind === 'resource' && citizens.length) {
       world.issue({ type: 'gather', player: this.me, ids: citizens, targetId: target.id });
       if (others.length) world.issue({ type: 'move', player: this.me, ids: others, x: pos.x, y: pos.y });
       this.setMarker(target.x, target.y, '#ffd24d');
+      this.audio.ack('work', units);
       return;
     }
     if (target && target.kind === 'building' && target.owner === this.me && citizens.length) {
@@ -230,17 +239,21 @@ export class Game {
       }
       if (others.length) world.issue({ type: 'move', player: this.me, ids: others, x: pos.x, y: pos.y });
       this.setMarker(target.x, target.y, '#8dff5a');
+      this.audio.ack('work', units);
       return;
     }
     world.issue({ type: 'move', player: this.me, ids, x: pos.x, y: pos.y });
     this.setMarker(pos.x, pos.y, '#8dff5a');
+    this.audio.ack('move', units);
   }
 
   attackMoveTo(sx: number, sy: number): void {
     const pos = this.camera.screenToWorld(sx, sy);
-    const ids = this.selectedOwnUnits().map((u) => u.id);
+    const units = this.selectedOwnUnits();
+    const ids = units.map((u) => u.id);
     if (ids.length) this.world.issue({ type: 'move', player: this.me, ids, x: pos.x, y: pos.y, attackMove: true });
     this.setMarker(pos.x, pos.y, '#ff5a4d');
+    this.audio.ack('attack', units);
     this.mode = 'normal';
   }
 
@@ -308,6 +321,7 @@ export class Game {
         return;
       }
       this.world.issue({ type: 'placeLine', player: this.me, ids: citizens.map((u) => u.id), building: p.type, tiles });
+      this.audio.ui('place');
       if (!keepMode) this.cancelMode();
       return;
     }
@@ -316,6 +330,7 @@ export class Game {
       return;
     }
     this.world.issue({ type: 'place', player: this.me, ids: citizens.map((u) => u.id), building: p.type, tx: p.tx, ty: p.ty });
+    this.audio.ui('place');
     if (!keepMode) this.cancelMode();
   }
 
@@ -384,6 +399,7 @@ export class Game {
   togglePause(force?: boolean): void {
     this.paused = force ?? !this.paused;
     this.hud.setPaused(this.paused);
+    this.audio.setPaused(this.paused);
   }
 
   changeSpeed(delta: number): void {
