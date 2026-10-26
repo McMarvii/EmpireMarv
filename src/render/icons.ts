@@ -1,5 +1,6 @@
 import { BUILDING_DEFS, type BuildingType } from '../data/buildings';
-import { epochNumeral, epochStyle, type EraStyle } from '../data/epochs';
+import { epochNumeral, epochStyle, toRoman, type EraStyle } from '../data/epochs';
+import type { Tech, TechGlyph } from '../data/techs';
 import { bestTier, ROLE_DEFS, type Role } from '../data/units';
 import type { Project } from './camera';
 import { drawBuilding, drawUnit, LINK_E, LINK_W, VEHICLE_LOOKS } from './sprites';
@@ -159,5 +160,219 @@ export function epochIcon(index: number, size = 32): string {
     ctx.strokeText(text, c, ty);
     ctx.fillStyle = look.text;
     ctx.fillText(text, c, ty);
+  });
+}
+
+/** Simple white pictograms for tech branches, drawn around (c, c) with radius r. */
+function glyph(ctx: CanvasRenderingContext2D, kind: TechGlyph, c: number, r: number): void {
+  const L = (pts: Array<[number, number]>, close = false) => {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(c + x * r, c + y * r) : ctx.moveTo(c + x * r, c + y * r)));
+    if (close) ctx.closePath();
+  };
+  const stroke = () => ctx.stroke();
+  const fill = () => ctx.fill();
+  switch (kind) {
+    case 'sword':
+      L([[-0.7, 0.7], [0.6, -0.6]]);
+      stroke();
+      L([[-0.55, 0.15], [-0.15, 0.55]]);
+      stroke();
+      break;
+    case 'bow':
+      ctx.beginPath();
+      ctx.arc(c - 0.3 * r, c, 0.75 * r, -1.2, 1.2);
+      stroke();
+      L([[-0.18, -0.7], [-0.18, 0.7]]);
+      stroke();
+      L([[-0.5, 0], [0.75, 0]]);
+      stroke();
+      L([[0.55, -0.15], [0.75, 0], [0.55, 0.15]]);
+      stroke();
+      break;
+    case 'shield':
+      L([[-0.6, -0.65], [0.6, -0.65], [0.55, 0.15], [0, 0.75], [-0.55, 0.15]], true);
+      fill();
+      break;
+    case 'horse':
+      L([[-0.5, 0.75], [-0.35, 0.05], [-0.1, -0.5], [0.15, -0.75], [0.25, -0.5], [0.7, -0.2], [0.6, 0.0], [0.15, -0.05], [0.05, 0.75]], true);
+      fill();
+      break;
+    case 'horseshoe':
+      ctx.beginPath();
+      ctx.arc(c, c - 0.05 * r, 0.6 * r, Math.PI * 0.85, Math.PI * 2.15);
+      ctx.lineWidth = r * 0.3;
+      stroke();
+      break;
+    case 'hammer':
+      L([[-0.55, 0.7], [0.25, -0.1]]);
+      stroke();
+      L([[-0.05, -0.65], [0.65, 0.05], [0.4, 0.3], [-0.3, -0.4]], true);
+      fill();
+      break;
+    case 'wall':
+      for (const [x, y] of [
+        [-0.7, 0.1],
+        [0.05, 0.1],
+        [-0.35, -0.4],
+        [-0.35, 0.6],
+        [0.4, -0.4],
+        [0.4, 0.6],
+      ]) {
+        ctx.fillRect(c + x * r, c + (y - 0.2) * r, 0.65 * r, 0.4 * r);
+      }
+      break;
+    case 'angle':
+      L([[-0.7, 0.6], [0.7, 0.6], [-0.7, -0.7]], true);
+      stroke();
+      ctx.beginPath();
+      ctx.arc(c - 0.7 * r, c + 0.6 * r, 0.55 * r, -0.75, 0);
+      stroke();
+      break;
+    case 'cross':
+      ctx.fillRect(c - 0.22 * r, c - 0.7 * r, 0.44 * r, 1.4 * r);
+      ctx.fillRect(c - 0.7 * r, c - 0.22 * r, 1.4 * r, 0.44 * r);
+      break;
+    case 'book':
+      L([[0, -0.45], [-0.75, -0.6], [-0.75, 0.55], [0, 0.7], [0.75, 0.55], [0.75, -0.6]], true);
+      stroke();
+      L([[0, -0.45], [0, 0.7]]);
+      stroke();
+      break;
+    case 'eye':
+      ctx.beginPath();
+      ctx.ellipse(c, c, 0.8 * r, 0.45 * r, 0, 0, Math.PI * 2);
+      stroke();
+      ctx.beginPath();
+      ctx.arc(c, c, 0.25 * r, 0, Math.PI * 2);
+      fill();
+      break;
+    case 'crown':
+      L([[-0.7, 0.5], [-0.7, -0.4], [-0.35, 0.05], [0, -0.6], [0.35, 0.05], [0.7, -0.4], [0.7, 0.5]], true);
+      fill();
+      break;
+    case 'pick':
+      ctx.beginPath();
+      ctx.arc(c, c + 0.5 * r, 0.9 * r, -2.4, -0.75);
+      stroke();
+      L([[0, -0.35], [0, 0.75]]);
+      stroke();
+      break;
+    case 'basket':
+      L([[-0.7, -0.15], [0.7, -0.15], [0.5, 0.65], [-0.5, 0.65]], true);
+      fill();
+      ctx.beginPath();
+      ctx.arc(c, c - 0.15 * r, 0.5 * r, Math.PI, 0);
+      stroke();
+      break;
+    case 'people':
+      for (const x of [-0.4, 0.4]) {
+        ctx.beginPath();
+        ctx.arc(c + x * r, c - 0.35 * r, 0.22 * r, 0, Math.PI * 2);
+        fill();
+        ctx.beginPath();
+        ctx.arc(c + x * r, c + 0.55 * r, 0.38 * r, Math.PI, 0);
+        fill();
+      }
+      break;
+    case 'helmet':
+      ctx.beginPath();
+      ctx.arc(c, c + 0.15 * r, 0.65 * r, Math.PI, 0);
+      fill();
+      ctx.fillRect(c - 0.8 * r, c + 0.1 * r, 1.6 * r, 0.22 * r);
+      ctx.fillRect(c - 0.08 * r, c - 0.8 * r, 0.16 * r, 0.4 * r);
+      break;
+    case 'boot':
+      L([[-0.35, -0.7], [0.15, -0.7], [0.15, 0.2], [0.7, 0.35], [0.7, 0.7], [-0.35, 0.7]], true);
+      fill();
+      break;
+    case 'wheel':
+      ctx.beginPath();
+      ctx.arc(c, c, 0.68 * r, 0, Math.PI * 2);
+      stroke();
+      for (let i = 0; i < 4; i++) {
+        const a = (i * Math.PI) / 4;
+        L([[Math.cos(a) * 0.68, Math.sin(a) * 0.68], [-Math.cos(a) * 0.68, -Math.sin(a) * 0.68]]);
+        stroke();
+      }
+      break;
+    case 'cannon':
+      ctx.beginPath();
+      ctx.arc(c - 0.25 * r, c + 0.4 * r, 0.32 * r, 0, Math.PI * 2);
+      fill();
+      ctx.save();
+      ctx.translate(c, c);
+      ctx.rotate(-0.45);
+      ctx.fillRect(-0.55 * r, -0.2 * r, 1.35 * r, 0.4 * r);
+      ctx.restore();
+      break;
+    case 'crosshair':
+      ctx.beginPath();
+      ctx.arc(c, c, 0.5 * r, 0, Math.PI * 2);
+      stroke();
+      L([[-0.8, 0], [-0.25, 0]]);
+      stroke();
+      L([[0.25, 0], [0.8, 0]]);
+      stroke();
+      L([[0, -0.8], [0, -0.25]]);
+      stroke();
+      L([[0, 0.25], [0, 0.8]]);
+      stroke();
+      break;
+    case 'tower':
+      L([[-0.4, 0.75], [-0.3, -0.45], [0.3, -0.45], [0.4, 0.75]], true);
+      fill();
+      for (const x of [-0.42, -0.07, 0.28]) ctx.fillRect(c + x * r, c - 0.75 * r, 0.16 * r, 0.32 * r);
+      break;
+    case 'axe':
+      L([[-0.55, 0.7], [0.35, -0.55]]);
+      stroke();
+      L([[0.05, -0.75], [0.7, -0.35], [0.45, 0.05], [0.15, -0.3]], true);
+      fill();
+      break;
+    case 'ore':
+      L([[-0.7, 0.55], [-0.45, -0.2], [0, -0.6], [0.5, -0.3], [0.7, 0.55]], true);
+      fill();
+      break;
+    case 'wheat':
+      L([[0, 0.8], [0, -0.7]]);
+      stroke();
+      for (const y of [-0.5, -0.15, 0.2]) {
+        ctx.beginPath();
+        ctx.ellipse(c - 0.2 * r, c + y * r, 0.2 * r, 0.1 * r, -0.6, 0, Math.PI * 2);
+        ctx.ellipse(c + 0.2 * r, c + y * r, 0.2 * r, 0.1 * r, 0.6, 0, Math.PI * 2);
+        fill();
+      }
+      break;
+  }
+}
+
+/** Icon of one tech level: era-coloured tile, branch pictogram, level numeral. */
+export function techIcon(tech: Tech, size = 44): string {
+  return render(`t:${tech.id}:${size}`, size, (ctx) => {
+    const look = EMBLEM[epochStyle(tech.epoch)];
+    const pad = size * 0.06;
+    ctx.beginPath();
+    ctx.roundRect(pad, pad, size - pad * 2, size - pad * 2, size * 0.16);
+    ctx.fillStyle = look.fill;
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, size / 22);
+    ctx.strokeStyle = look.ring;
+    ctx.stroke();
+    ctx.fillStyle = '#f6f1e4';
+    ctx.strokeStyle = '#f6f1e4';
+    ctx.lineWidth = Math.max(1.5, size / 16);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    glyph(ctx, tech.branch.glyph, size / 2, size * 0.3);
+    const text = toRoman(tech.level + 1);
+    ctx.font = `700 ${Math.round(size * 0.26)}px Georgia, 'Times New Roman', serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineWidth = Math.max(1.5, size / 18);
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+    ctx.strokeText(text, size - pad * 2, size - pad * 2);
+    ctx.fillStyle = look.text;
+    ctx.fillText(text, size - pad * 2, size - pad * 2);
   });
 }

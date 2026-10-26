@@ -275,6 +275,12 @@ export class Input {
       game.hud.showHelp();
       return;
     }
+    if (e.key === 'F2') {
+      e.preventDefault();
+      if (game.hud.overlayOpen()) game.togglePause(false);
+      else game.hud.showTechTree();
+      return;
+    }
     if (e.key === 'Escape') {
       if (game.hud.overlayOpen()) {
         if (game.world.over) game.hud.closeOverlay();

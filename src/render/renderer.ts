@@ -535,6 +535,7 @@ export class Renderer {
       if (!b.built) bar(sx, sy - 7, w, b.progress, '#d7b46a');
       bar(sx, sy, w, b.hp / b.maxHp, hpColor(b.hp / b.maxHp));
       if (selected && b.research) bar(sx, sy + 6, w, b.research.progress / b.research.total, '#7fb6ff');
+      if (selected && b.tech) bar(sx, sy + 6, w, b.tech.progress / b.tech.total, '#b48cff');
     }
   }
 

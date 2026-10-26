@@ -332,6 +332,14 @@ export class Game {
     this.world.issue({ type: 'advance', player: this.me, buildingId });
   }
 
+  research(buildingId: number, tech: string): void {
+    this.world.issue({ type: 'research', player: this.me, buildingId, tech });
+  }
+
+  cancelTech(buildingId: number): void {
+    this.world.issue({ type: 'cancelTech', player: this.me, buildingId });
+  }
+
   cancelQueue(buildingId: number, index: number): void {
     this.world.issue({ type: 'cancel', player: this.me, buildingId, index });
   }
