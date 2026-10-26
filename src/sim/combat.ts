@@ -1,4 +1,4 @@
-import { buildingAttack, MORALE_PER_HOUSE } from '../data/buildings';
+import { MORALE_PER_HOUSE } from '../data/buildings';
 import { applyArmor, damageMultiplier } from '../data/combat';
 import type { Projectile, Role } from '../data/units';
 import { rectOf, type Building, type Entity, type Unit } from './entities';
@@ -44,7 +44,7 @@ export function fire(w: World, attacker: Unit | Building, target: Entity): void 
     attacker.attackAnim = 0.35;
   } else {
     role = 'tower';
-    dmg = buildingAttack(attacker.type, w.players[attacker.owner].epoch)!.dmg;
+    dmg = w.buildingAttackFor(attacker.owner, attacker.type)!.dmg;
     const epoch = w.players[attacker.owner].epoch;
     projectile = epoch >= 16 ? 'laser' : epoch >= 9 ? 'bullet' : 'arrow';
   }

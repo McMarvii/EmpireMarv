@@ -1,6 +1,7 @@
 import { BUILDING_DEFS, FARM_CAPACITY, type BuildingType } from '../data/buildings';
 import { EPOCHS } from '../data/epochs';
 import { canAfford, RESOURCES, type Cost, type Res } from '../data/resources';
+import { RESEARCH_BUILDINGS, TECHS, type Tech } from '../data/techs';
 import { bestTier, unitStats, type CombatRole, type Role } from '../data/units';
 import type { Building, ResourceNode, Unit } from './entities';
 import type { Point } from './pathfinding';
@@ -59,6 +60,8 @@ export class AIController implements Controller {
   /** Planned ring wall around the town center: gates first, then the walls. */
   private wallPlan: WallTile[] | null = null;
   private ringCenter: Point = { x: 0, y: 0 };
+  /** Last progress seen per construction site, to spot sites nobody can reach. */
+  private siteProgress = new Map<number, { progress: number; tick: number }>();
 
   constructor(
     readonly playerId: number,
@@ -80,6 +83,7 @@ export class AIController implements Controller {
     this.economy(w, s);
     this.construction(w, s);
     this.epoch(w, s);
+    this.research(w, s);
     this.military(w, s);
     this.scout(w, s);
   }
@@ -256,28 +260,30 @@ export class AIController implements Controller {
   private construction(w: World, s: ReturnType<AIController['snapshot']>): void {
     const { player, count, citizens, buildings } = s;
     const id = this.playerId;
-    const pending = buildings.filter((b) => !b.built && b.type !== 'farm');
+    const sites = buildings.filter((b) => !b.built);
+    this.clearStuckSites(w, sites);
+    // A wall line only needs a small crew walking it, not one citizen per segment,
+    // and it does not hold up other construction.
+    const segments = sites.filter((b) => BUILDING_DEFS[b.type].line);
+    const crew = citizens.filter((c) => c.order.kind === 'build' && segments.some((b) => b.id === (c.order as { targetId: number }).targetId));
+    if (segments.length && crew.length < 2) {
+      const helper = this.pickWorker(s, segments[0]);
+      if (helper) w.issue({ type: 'construct', player: id, ids: [helper.id], targetId: segments[0].id });
+    }
+    const pending = sites.filter((b) => b.type !== 'farm' && !BUILDING_DEFS[b.type].line);
     if (pending.length > 0) {
       // Make sure someone is actually working on unfinished buildings.
       for (const b of pending) {
-        if (BUILDING_DEFS[b.type].line) continue;
         const builders = citizens.filter((c) => c.order.kind === 'build' && c.order.targetId === b.id);
         if (builders.length === 0) {
           const helper = this.pickWorker(s, b);
           if (helper) w.issue({ type: 'construct', player: id, ids: [helper.id], targetId: b.id });
         }
       }
-      // A wall line only needs a small crew walking it, not one citizen per segment.
-      const segments = pending.filter((b) => BUILDING_DEFS[b.type].line);
-      const crew = citizens.filter((c) => c.order.kind === 'build' && segments.some((b) => b.id === (c.order as { targetId: number }).targetId));
-      if (segments.length && crew.length < 2) {
-        const helper = this.pickWorker(s, segments[0]);
-        if (helper) w.issue({ type: 'construct', player: id, ids: [helper.id], targetId: segments[0].id });
-      }
       return;
     }
     if (citizens.length < 6) return;
-    if (this.walls(w, s)) return;
+    if (segments.length === 0 && this.walls(w, s)) return;
 
     // Buildings the next epoch asks for come first (walls are handled by the wall plan).
     const required: Array<[BuildingType, boolean]> =
@@ -287,6 +293,8 @@ export class AIController implements Controller {
     const wants: Array<[BuildingType, boolean]> = [
       ...required,
       ['barracks', count('barracks') === 0 && citizens.length >= 8],
+      ['smithy', count('smithy') === 0 && citizens.length >= 12],
+      ['academy', count('academy') === 0 && citizens.length >= 15],
       ['storehouse', count('storehouse') < Math.min(3, 1 + Math.floor(citizens.length / 12))],
       ['house', count('house') < Math.min(6, 1 + Math.floor(s.army.length / 6))],
       ['workshop', count('workshop') === 0 && player.epoch >= 2 && citizens.length >= 14],
@@ -306,6 +314,24 @@ export class AIController implements Controller {
       this.placeNear(w, s, type, where, [builder], minR, maxR);
       return;
     }
+  }
+
+  /**
+   * A construction site without progress for 45 s cannot be reached (or has
+   * no one left to build it); tearing it down refunds the unbuilt share and
+   * frees the AI to build elsewhere.
+   */
+  private clearStuckSites(w: World, sites: Building[]): void {
+    for (const b of sites) {
+      const seen = this.siteProgress.get(b.id);
+      if (!seen || b.progress > seen.progress + 1e-6) {
+        this.siteProgress.set(b.id, { progress: b.progress, tick: w.tick });
+      } else if (w.tick - seen.tick > 45 * 20) {
+        w.issue({ type: 'destroy', player: this.playerId, ids: [b.id] });
+        this.siteProgress.delete(b.id);
+      }
+    }
+    for (const id of [...this.siteProgress.keys()]) if (!sites.some((b) => b.id === id)) this.siteProgress.delete(id);
   }
 
   /**
@@ -342,7 +368,8 @@ export class AIController implements Controller {
     if (batch.length === 0) return false;
     const cost: Cost = {};
     for (const r of RESOURCES) if (BUILDING_DEFS[type].cost[r]) cost[r] = (BUILDING_DEFS[type].cost[r] ?? 0) * batch.length;
-    if (!this.spendable(w, s, cost)) {
+    // Walls the next advance asks for are not optional: no saving up against them.
+    if (needed ? !canAfford(player.stock, cost) : !this.spendable(w, s, cost)) {
       this.wallPlan.unshift(...batch);
       return false;
     }
@@ -484,6 +511,45 @@ export class AIController implements Controller {
     if (citizens.length < Math.min(10 + player.epoch, 28)) return;
     const cost = EPOCHS[player.epoch + 1].advanceCost;
     if (canAfford(player.stock, cost)) w.issue({ type: 'advance', player: this.playerId, buildingId: tc.id });
+  }
+
+  /**
+   * Keeps every research building busy. Techs of the current epoch come first
+   * while the next advance still needs them; otherwise economy before
+   * military, and military only once there is an army to profit from it.
+   */
+  private research(w: World, s: ReturnType<AIController['snapshot']>): void {
+    const id = this.playerId;
+    const { player } = s;
+    const gap = w.missingTechs(id);
+    const urgent = player.epoch < w.settings.maxEpoch && gap.have < gap.need;
+    const total = (t: Tech) => RESOURCES.reduce((n, r) => n + (t.cost[r] ?? 0), 0);
+    // Needed for the advance: techs of this epoch and the earlier levels leading up to them.
+    const isNeeded = (t: Tech) => urgent && t.branch.levels.some(([e], i) => e === player.epoch && i >= t.level);
+    const score = (t: Tech) => {
+      let v = total(t) / 100;
+      if (isNeeded(t)) v -= t.epoch === player.epoch ? 1010 : 1000;
+      const kinds = t.branch.effects.map((e) => e.kind);
+      if (kinds.some((k) => k === 'gather' || k === 'farm' || k === 'carry' || k === 'build')) v -= 3;
+      else if (kinds.includes('unit')) v += s.army.length >= 6 ? -1 : 4;
+      return v;
+    };
+    for (const b of s.buildings) {
+      if (!b.built || b.tech || b.research || !RESEARCH_BUILDINGS.includes(b.type)) continue;
+      const military = (t: Tech) => t.branch.effects.some((e) => e.kind === 'unit' && !e.roles.includes('citizen'));
+      const options = TECHS.filter((t) => t.building === b.type && w.techAvailable(id, t) && (isNeeded(t) || !military(t) || s.army.length >= 6)).sort(
+        (a, c) => score(a) - score(c),
+      );
+      const pick = options[0];
+      if (!pick) continue;
+      const needed = isNeeded(pick);
+      // Optional research only from a surplus, so the army does not starve.
+      const double: Cost = {};
+      for (const r of RESOURCES) if (pick.cost[r]) double[r] = (pick.cost[r] ?? 0) * 2;
+      if (needed ? canAfford(player.stock, pick.cost) : this.spendable(w, s, pick.cost) && canAfford(player.stock, double)) {
+        w.issue({ type: 'research', player: id, buildingId: b.id, tech: pick.id });
+      }
+    }
   }
 
   /** While saving for the next epoch, only spend what exceeds its price. */

@@ -75,10 +75,42 @@ describe('simulation', () => {
     w.controllers.push(new AIController(0, 'normal', w));
     run(w, 420);
     const built = (t: 'wall' | 'gate') => w.buildingsOf(0, t).filter((b) => b.built).length;
-    expect(built('wall')).toBeGreaterThan(20);
+    // Walls compete with research and the epoch reserve for wood, so the ring grows over time.
+    expect(built('wall')).toBeGreaterThanOrEqual(8);
     expect(built('gate')).toBeGreaterThanOrEqual(2);
     const citizens = w.unitsOf(0).filter((u) => u.role === 'citizen');
     expect(citizens.filter((u) => u.order.kind === 'idle').length / citizens.length).toBeLessThan(0.3);
+  }, 60000);
+
+  it('does not let an unreachable construction site block the AI', () => {
+    const w = new World({
+      seed: 7,
+      mapSize: 80,
+      startResources: 'high',
+      players: [
+        { name: 'A', color: '#2f7de1', isAI: true, team: 0 },
+        { name: 'B', color: '#d9412b', isAI: false, team: 1 },
+      ],
+    });
+    w.controllers.push(new AIController(0, 'normal', w));
+    // A house site fenced in by trees on every side.
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    const hx = tc.tx + 9;
+    const hy = tc.ty + 9;
+    for (let y = hy - 1; y <= hy + 2; y++) {
+      for (let x = hx - 1; x <= hx + 2; x++) {
+        for (const n of w.resources) if (!n.dead && x >= n.tx && x < n.tx + n.size && y >= n.ty && y < n.ty + n.size) w.remove(n);
+      }
+    }
+    w.compact();
+    for (let y = hy - 1; y <= hy + 2; y++) {
+      for (let x = hx - 1; x <= hx + 2; x++) if (x === hx - 1 || x === hx + 2 || y === hy - 1 || y === hy + 2) w.addResource('tree', x, y, 1, 100);
+    }
+    const site = w.addBuilding(0, 'house', hx, hy, false);
+    run(w, 80);
+    expect(site.dead).toBe(true);
+    // And the AI went on building elsewhere.
+    expect(w.buildingsOf(0).filter((b) => b.built && b.type !== 'towncenter').length).toBeGreaterThan(0);
   }, 60000);
 
   it('lets two AIs build an economy, advance and fight', () => {

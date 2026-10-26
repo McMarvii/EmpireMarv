@@ -158,6 +158,12 @@ describe('epochs', () => {
     expect(w.missingRequirements(0)).toEqual([{ type: 'house', have: 1, need: 2 }]);
     w.addBuilding(0, 'house', tc.tx + 10, tc.ty + 4, true);
     expect(w.missingRequirements(0)).toEqual([]);
+    // Two technologies of the current epoch are needed as well.
+    expect(w.missingTechs(0)).toEqual({ have: 0, need: 2 });
+    w.issue({ type: 'advance', player: 0, buildingId: tc.id });
+    expect(tc.research).toBeNull();
+    w.completeTech(0, 'werkzeuge-0');
+    w.completeTech(0, 'tragen-0');
     w.issue({ type: 'advance', player: 0, buildingId: tc.id });
     expect(tc.research).not.toBeNull();
   });
@@ -170,6 +176,8 @@ describe('epochs', () => {
     w.addBuilding(0, 'house', tc.tx + 7, tc.ty, true);
     w.addBuilding(0, 'house', tc.tx + 10, tc.ty, true);
     w.addBuilding(0, 'storehouse', tc.tx + 7, tc.ty + 4, true);
+    w.completeTech(0, 'werkzeuge-0');
+    w.completeTech(0, 'tragen-0');
     expect(w.roleName(0, 'assault')).toBe('Keulenkrieger');
     w.issue({ type: 'advance', player: 0, buildingId: tc.id });
     expect(p.stock.food).toBe(5000 - (EPOCHS[1].advanceCost.food ?? 0));

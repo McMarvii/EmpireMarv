@@ -1,5 +1,6 @@
 import type { BuildingType } from '../data/buildings';
 import type { Cost, Res, Stock } from '../data/resources';
+import type { Mods } from '../data/techs';
 import type { Role, UnitStats } from '../data/units';
 import type { Point, Rect } from './pathfinding';
 
@@ -79,6 +80,8 @@ export interface Building extends BaseEntity {
   epoch: number;
   queue: QueueItem[];
   research: { targetEpoch: number; progress: number; total: number } | null;
+  /** Technology being researched here; runs alongside unit training. */
+  tech: { id: string; progress: number; total: number; cost: Cost } | null;
   rally: Point | null;
   cooldown: number;
   scanTick: number;
@@ -128,6 +131,9 @@ export interface Player {
   stats: PlayerStats;
   /** Resource multiplier, used for AI difficulty handicaps. */
   gatherBonus: number;
+  /** Finished technologies and the bonuses they add up to. */
+  techs: Set<string>;
+  mods: Mods;
 }
 
 export function rectOf(e: Building | ResourceNode): Rect {

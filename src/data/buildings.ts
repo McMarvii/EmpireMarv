@@ -11,7 +11,9 @@ export type BuildingType =
   | 'farm'
   | 'tower'
   | 'wall'
-  | 'gate';
+  | 'gate'
+  | 'smithy'
+  | 'academy';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -192,6 +194,49 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     hotkey: 'T',
     description: 'Verteidigungsturm. Wird mit jeder Epoche stärker.',
   },
+  smithy: {
+    type: 'smithy',
+    names: [
+      [0, 'Werkplatz'],
+      [2, 'Schmiede'],
+      [7, 'Waffenschmiede'],
+      [12, 'Rüstungswerk'],
+      [15, 'Waffenlabor'],
+    ],
+    size: 3,
+    hp: 1000,
+    cost: { wood: 150 },
+    buildTime: 40,
+    minEpoch: 0,
+    trains: [],
+    dropoff: false,
+    walkable: false,
+    sight: 5,
+    hotkey: 'B',
+    description: 'Erforscht Waffen und Rüstungen für Infanterie, Fernkampf und Kavallerie.',
+  },
+  academy: {
+    type: 'academy',
+    names: [
+      [0, 'Ahnenstätte'],
+      [3, 'Schreiberhaus'],
+      [5, 'Akademie'],
+      [9, 'Universität'],
+      [12, 'Institut'],
+      [15, 'Forschungszentrum'],
+    ],
+    size: 3,
+    hp: 900,
+    cost: { wood: 150, stone: 50 },
+    buildTime: 45,
+    minEpoch: 0,
+    trains: [],
+    dropoff: false,
+    walkable: false,
+    sight: 5,
+    hotkey: 'U',
+    description: 'Erforscht Baukunst, Mauerwerk, Mathematik, Medizin, Schrift, Kartografie und Staatskunst.',
+  },
   wall: {
     type: 'wall',
     names: [
@@ -251,6 +296,8 @@ export const BUILDABLE: BuildingType[] = [
   'gate',
   'workshop',
   'stable',
+  'smithy',
+  'academy',
   'towncenter',
 ];
 
