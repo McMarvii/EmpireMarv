@@ -697,6 +697,11 @@ export function updateBuilding(w: World, b: Building): void {
     }
   }
 
+  if (b.pendingAdvance && b.pendingAdvance.ahead <= 0) {
+    const target = b.pendingAdvance.targetEpoch;
+    b.pendingAdvance = null;
+    b.research = { targetEpoch: target, progress: 0, total: EPOCHS[target].advanceTime };
+  }
   if (b.research) {
     b.research.progress += DT * player.mods.research;
     if (b.research.progress >= b.research.total) {
@@ -729,6 +734,7 @@ export function updateBuilding(w: World, b: Building): void {
       w.emit({ type: 'tech', player: b.owner, text: `Erforscht: ${tech.name} – ${tech.branch.text}.`, tech: tech.id });
     }
   }
+  w.startQueuedTech(b);
 
   const item = b.queue[0];
   if (!item) {
@@ -747,6 +753,7 @@ export function updateBuilding(w: World, b: Building): void {
   const spot = w.findSpawnPoint(b, towards);
   if (!spot) return;
   b.queue.shift();
+  if (b.pendingAdvance) b.pendingAdvance.ahead--;
   const u = w.spawnUnit(b.owner, item.role, spot.x, spot.y);
   player.stats.unitsTrained++;
   w.emit({ type: 'trained', player: b.owner, text: `${u.stats.name} bereit.` });

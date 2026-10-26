@@ -813,9 +813,10 @@ export class Renderer {
     return best;
   }
 
-  /** Screen position of a unit, used for box selection. */
-  screenPosOf(u: Unit, alpha: number): [number, number] {
-    const [x, y] = this.unitPos(u, alpha);
+  /** Screen position of a unit (or a building's centre), used for box selection. */
+  screenPosOf(e: Unit | Building, alpha: number): [number, number] {
+    if (e.kind === 'building') return this.camera.project(e.x, e.y, 10);
+    const [x, y] = this.unitPos(e, alpha);
     return this.camera.project(x, y, 10);
   }
 }

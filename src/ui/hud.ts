@@ -11,12 +11,12 @@ import { epochLabel, epochNumeral, EPOCHS } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
 import { bestTier, GATHER_LABEL, ROLE_DEFS, type Role } from '../data/units';
 import { audio } from '../audio/engine';
-import type { Game } from '../game';
+import { isBusy, type Game } from '../game';
 import { buildingIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
 import type { Building, Entity, Unit } from '../sim/entities';
 import { FORMATION_LABEL, FORMATIONS, type Formation } from '../sim/formation';
-import type { GameEvent } from '../sim/world';
+import { MAX_TECH_QUEUE, type GameEvent } from '../sim/world';
 
 export interface CommandButton {
   key: string;
@@ -33,6 +33,8 @@ export interface CommandButton {
 }
 
 const SLOT_KEYS = ['Q', 'W', 'E', 'R'];
+/** Order of the production bar. */
+const PROD_ORDER: BuildingType[] = ['towncenter', 'barracks', 'stable', 'workshop', 'smithy', 'academy', 'tower', 'storehouse'];
 const FORMATION_KEYS: Record<Formation, string> = { line: 'N', block: 'O', wedge: 'V' };
 const FORMATION_HELP: Record<Formation, string> = {
   line: 'Breite Front, wenige Reihen: alle Schützen kommen zum Zug.',
@@ -74,6 +76,9 @@ export class Hud {
   private resEls: Record<string, HTMLElement> = {};
   private sig = '';
   private groupSig = '';
+  private prodSig = '';
+  /** Tab was pressed: the production bar shows which letter selects what. */
+  private prefix = false;
   private techTab: BuildingType = 'smithy';
   private lastPanel = 0;
   private hoverCmd: number = -1;
@@ -99,6 +104,7 @@ export class Hud {
       groups: q('groups'),
       techBtn: q('btn-tech'),
       soundBtn: q('btn-sound'),
+      prodbar: q('prodbar'),
     };
     this.els.hud.hidden = false;
     this.els.resources.innerHTML = RESOURCES.map(
@@ -119,6 +125,8 @@ export class Hud {
   destroy(): void {
     this.els.groups.hidden = true;
     this.els.groups.innerHTML = '';
+    this.els.prodbar.hidden = true;
+    this.els.prodbar.innerHTML = '';
     this.els.hud.hidden = true;
     this.els.overlay.hidden = true;
     this.els.overlay.innerHTML = '';
@@ -167,11 +175,15 @@ export class Hud {
     if (this.els.pop.textContent !== pop) this.els.pop.textContent = pop;
     const epoch = EPOCHS[player.epoch];
     const research = world.buildings.find((b) => b.owner === me && b.research);
+    const pending = research ? null : world.buildings.find((b) => b.owner === me && b.pendingAdvance);
     let epochHtml = `<img class="ep-icon" src="${epochIcon(player.epoch, 32)}" alt=""><span class="ep-num">${epochNumeral(player.epoch)}</span> ${esc(epoch.name)}`;
     if (research) {
       const target = research.research!.targetEpoch;
       const pct = Math.floor((research.research!.progress / research.research!.total) * 100);
       epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> ${esc(EPOCHS[target].name)} ${pct} %`;
+    } else if (pending) {
+      const target = pending.pendingAdvance!.targetEpoch;
+      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> ${esc(EPOCHS[target].name)} wartet`;
     }
     if (this.els.epoch.innerHTML !== epochHtml) this.els.epoch.innerHTML = epochHtml;
     const idle = String(this.game.idleCitizens().length);
@@ -190,7 +202,79 @@ export class Hud {
       this.lastPanel = now;
       this.updatePanels();
       this.updateGroups();
+      this.updateProdbar();
     }
+  }
+
+  setPrefix(active: boolean): void {
+    this.prefix = active;
+    this.prodSig = '';
+    this.updateProdbar();
+  }
+
+  /**
+   * Production bar: every own building that trains or researches, with what
+   * runs there (unit, research, advance) and how much waits behind it. Idle
+   * buildings are marked. Click selects, Shift+click adds, double click jumps.
+   */
+  private updateProdbar(): void {
+    const { world, me } = this.game;
+    const player = world.players[me];
+    const list = world
+      .buildingsOf(me)
+      // Towers and storehouses only while they research something, so they don't sit there as idle forever.
+      .filter((b) => b.built && (BUILDING_DEFS[b.type].trains.length > 0 || b.type === 'smithy' || b.type === 'academy' || (branchesAt(b.type).length > 0 && isBusy(b))))
+      .sort((a, b) => PROD_ORDER.indexOf(a.type) - PROD_ORDER.indexOf(b.type) || a.id - b.id);
+    const entries = list.map((b) => {
+      const unit = b.queue[0];
+      const bars: Array<{ cls: string; pct: number; label: string }> = [];
+      if (b.research) bars.push({ cls: 'adv', pct: b.research.progress / b.research.total, label: `Aufstieg: ${EPOCHS[b.research.targetEpoch].name}` });
+      if (unit) {
+        const tier = Math.max(0, bestTier(unit.role, player.epoch));
+        bars.push({ cls: 'unit', pct: unit.progress / ROLE_DEFS[unit.role].trainTime, label: ROLE_DEFS[unit.role].tiers[tier].name });
+      }
+      if (b.tech) bars.push({ cls: 'tech', pct: b.tech.progress / b.tech.total, label: `Forschung: ${TECH_BY_ID.get(b.tech.id)!.name}` });
+      const waiting = Math.max(0, b.queue.length - 1) + b.techQueue.length + (b.pendingAdvance ? 1 : 0);
+      return { b, bars, waiting, idle: !isBusy(b) };
+    });
+    const sig =
+      entries.map((e) => `${e.b.id}${e.idle ? 'i' : ''}${e.waiting}${e.bars.map((x) => `${x.cls}${Math.floor(x.pct * 20)}`).join('')}`).join(',') +
+      `|${this.prefix}|${player.epoch}|${[...this.game.selection].join(',')}`;
+    if (sig === this.prodSig) return;
+    this.prodSig = sig;
+    const el = this.els.prodbar;
+    el.hidden = entries.length === 0 && !this.prefix;
+    el.classList.toggle('prefix', this.prefix);
+    const hint = this.prefix ? '<div class="prod-hint">Tab: jetzt Gebäudetaste drücken</div>' : '';
+    el.innerHTML =
+      hint +
+      entries
+        .map(({ b, bars, waiting, idle }) => {
+          const name = buildingName(b.type, b.epoch);
+          const title = `${name}${idle ? ' – untätig' : ''}${bars.map((x) => ` · ${x.label} ${Math.floor(x.pct * 100)} %`).join('')}${waiting ? ` · danach ${waiting}` : ''} (Tab, ${BUILDING_DEFS[b.type].hotkey})`;
+          return (
+            `<button class="prod${idle ? ' idle' : ''}${this.game.selection.has(b.id) ? ' sel' : ''}" data-prod="${b.id}" title="${esc(title)}">` +
+            `<img src="${buildingIcon(b.type, b.epoch, player.color, 32)}" alt=""><span class="prod-key">${BUILDING_DEFS[b.type].hotkey}</span>` +
+            (waiting ? `<span class="prod-wait">+${waiting}</span>` : '') +
+            bars.map((x) => `<i class="prod-bar ${x.cls}" style="width:${Math.round(x.pct * 100)}%"></i>`).join('') +
+            `</button>`
+          );
+        })
+        .join('');
+    el.querySelectorAll<HTMLElement>('[data-prod]').forEach((btn) => {
+      const id = Number(btn.dataset.prod);
+      btn.onclick = (ev) => {
+        const b = world.get(id);
+        if (!b || b.kind !== 'building') return;
+        const same = this.game.selectedOwnBuildings();
+        const add = ev.shiftKey && same.length > 0 && same.length === this.game.selection.size && same[0].type === b.type;
+        this.game.select([id], add);
+      };
+      btn.ondblclick = () => {
+        const b = world.get(id);
+        if (b) this.game.centerOn(b.x, b.y);
+      };
+    });
   }
 
   /** Bar of control groups: number, portrait of the most common unit, head count. */
@@ -273,7 +357,8 @@ export class Hud {
         if (e.kind === 'building') {
           const q = e.queue.map((i) => `${i.role}${Math.floor(i.progress * 2)}`).join('');
           const tech = e.tech ? `${e.tech.id}${Math.floor(e.tech.progress)}` : '';
-          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${e.popBlocked}`;
+          const waiting = `${e.techQueue.map((j) => j.id).join('')}${e.pendingAdvance ? `a${e.pendingAdvance.ahead}` : ''}`;
+          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}`;
         }
         if (e.kind === 'unit') return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}`;
         return `${Math.floor(e.amount)}`;
@@ -285,6 +370,15 @@ export class Hud {
     const { world, me } = this.game;
     if (ents.length === 0) {
       return `<div class="sel-empty">Linksklick: auswählen · Rechtsklick: Befehl<br>Ziehen: Rahmenauswahl · F1: Hilfe</div>`;
+    }
+    if (ents.length > 1 && ents.every((e) => e.kind === 'building')) {
+      const blds = ents as Building[];
+      return `<div class="sel-multi">${blds
+        .map((b) => {
+          const waiting = b.queue.length + b.techQueue.length + (b.tech ? 1 : 0) + (b.research || b.pendingAdvance ? 1 : 0);
+          return `<button class="sel-group${isBusy(b) ? '' : ' idle'}" data-bld="${b.id}" title="${esc(buildingName(b.type, b.epoch))}: ${waiting ? `${waiting} in Arbeit` : 'untätig'}"><img src="${buildingIcon(b.type, b.epoch, world.players[b.owner].color, 40)}"><span>${waiting || ''}</span></button>`;
+        })
+        .join('')}</div><div class="dim sel-note">Ausbilden und Forschen gehen an das Gebäude mit der kürzesten Warteschlange.</div>`;
     }
     if (ents.length > 1) {
       const groups = new Map<string, { unit: Unit; count: number }>();
@@ -362,6 +456,10 @@ export class Hud {
           `<div class="progress research tech-progress" data-cancel-tech title="Klick: Forschung abbrechen (Rohstoffe zurück)"><div style="width:${(e.tech.progress / e.tech.total) * 100}%"></div><span>Forschung: ${esc(t.name)}</span></div>`,
         );
       }
+      if (e.pendingAdvance && e.owner === me) {
+        const n = e.pendingAdvance.ahead;
+        lines.push(`Aufstieg: ${esc(EPOCHS[e.pendingAdvance.targetEpoch].name)} – wartet auf ${n} ${n === 1 ? 'Einheit' : 'Einheiten'}`);
+      }
       if (e.research) {
         lines.push(
           `<div class="progress research"><div style="width:${(e.research.progress / e.research.total) * 100}%"></div><span>Aufstieg: ${esc(EPOCHS[e.research.targetEpoch].name)}</span></div>`,
@@ -371,12 +469,27 @@ export class Hud {
       if (e.type === 'house') lines.push('Der Kreis auf dem Boden zeigt, wie weit die Moral reicht.');
       if (e.popBlocked) lines.push('<span class="warn">Bevölkerungslimit erreicht</span>');
       let queue = '';
-      if (e.queue.length && e.owner === me) {
-        queue = `<div class="queue">${e.queue
-          .map((item, i) => {
-            const tier = Math.max(0, bestTier(item.role, world.players[me].epoch));
-            const pct = i === 0 ? (item.progress / ROLE_DEFS[item.role].trainTime) * 100 : 0;
-            return `<button class="q-item" data-cancel="${i}" title="Abbrechen"><img src="${unitIcon(item.role, ROLE_DEFS[item.role].tiers[tier].epoch, owner!.color, 32)}"><div class="q-bar" style="width:${pct}%"></div></button>`;
+      if ((e.queue.length || e.pendingAdvance) && e.owner === me) {
+        const items = e.queue.map((item, i) => {
+          const tier = Math.max(0, bestTier(item.role, world.players[me].epoch));
+          const pct = i === 0 ? (item.progress / ROLE_DEFS[item.role].trainTime) * 100 : 0;
+          return `<button class="q-item" data-cancel="${i}" title="Abbrechen"><img src="${unitIcon(item.role, ROLE_DEFS[item.role].tiers[tier].epoch, owner!.color, 32)}"><div class="q-bar" style="width:${pct}%"></div></button>`;
+        });
+        if (e.pendingAdvance) {
+          // The advance waits behind the units queued before it.
+          items.splice(
+            e.pendingAdvance.ahead,
+            0,
+            `<button class="q-item q-epoch" data-cancel="-1" title="Aufstieg abbrechen (Rohstoffe zurück)"><img src="${epochIcon(e.pendingAdvance.targetEpoch, 32)}"></button>`,
+          );
+        }
+        queue = `<div class="queue">${items.join('')}</div>`;
+      }
+      if (e.techQueue.length && e.owner === me) {
+        queue += `<div class="queue tech-queue"><span class="dim">Danach:</span>${e.techQueue
+          .map((job, i) => {
+            const t = TECH_BY_ID.get(job.id)!;
+            return `<button class="q-item" data-cancel-tech="${i}" title="${esc(t.name)} – Klick: abbrechen (Rohstoffe zurück)"><img src="${techIcon(t, 32)}"></button>`;
           })
           .join('')}</div>`;
       }
@@ -408,10 +521,14 @@ export class Hud {
         this.game.select(ids);
       };
     });
+    this.els.selection.querySelectorAll<HTMLElement>('[data-bld]').forEach((el) => {
+      el.onclick = () => this.game.select([Number(el.dataset.bld)]);
+    });
     const b = ents[0];
     if (b && b.kind === 'building') {
       this.els.selection.querySelectorAll<HTMLElement>('[data-cancel-tech]').forEach((el) => {
-        el.onclick = () => this.game.cancelTech(b.id);
+        const index = el.dataset.cancelTech;
+        el.onclick = () => this.game.cancelTech(b.id, index ? Number(index) : undefined);
       });
       this.els.selection.querySelectorAll<HTMLElement>('[data-cancel]').forEach((el) => {
         el.onclick = () => this.game.cancelQueue(b.id, Number(el.dataset.cancel));
@@ -512,12 +629,16 @@ export class Hud {
       });
     }
 
-    const b = own.length === 1 && own[0].kind === 'building' ? (own[0] as Building) : null;
-    if (b && b.built) {
+    // One building, or several finished ones of a type: orders go to the least busy.
+    const first = own[0];
+    const sites =
+      first && first.kind === 'building' && own.every((e) => e.kind === 'building' && e.built && e.type === first.type) ? (own as Building[]) : [];
+    const b = sites[0] ?? null;
+    if (b) {
       const def = BUILDING_DEFS[b.type];
-      def.trains.forEach((role, i) => cmds.push(this.trainButton(b, role, SLOT_KEYS[i])));
+      def.trains.forEach((role, i) => cmds.push(this.trainButton(sites, role, SLOT_KEYS[i])));
       if (b.type === 'towncenter') {
-        if (b.research) {
+        if (b.research || b.pendingAdvance) {
           cmds.push({
             key: 'E',
             text: 'Abbruch',
@@ -559,7 +680,7 @@ export class Hud {
         }
       }
       branchesAt(b.type).forEach((branch, i) => {
-        const btn = this.techButton(b, branch.id, TECH_KEYS[i]);
+        const btn = this.techButton(sites, branch.id, TECH_KEYS[i]);
         if (btn) cmds.push(btn);
       });
     }
@@ -580,42 +701,53 @@ export class Hud {
     return cmds;
   }
 
-  /** Button for the next level of a branch at a building, or null once the branch is done. */
-  private techButton(b: Building, branchId: string, key: string): CommandButton | null {
+  /**
+   * Button for the next level of a branch that is neither researched nor on
+   * its way; clicking again queues the level after it. Null once every level
+   * is done or planned.
+   */
+  private techButton(sites: Building[], branchId: string, key: string): CommandButton | null {
     const game = this.game;
     const { world, me } = game;
     const player = world.players[me];
-    const tech = TECHS.find((t) => t.branch.id === branchId && !player.techs.has(t.id));
+    const planned = world.plannedTechs(me);
+    const tech = TECHS.find((t) => t.branch.id === branchId && !planned.has(t.id));
     if (!tech) return null;
-    const running = b.tech?.id === tech.id;
+    const inBranch = (id: string) => TECH_BY_ID.get(id)!.branch.id === branchId;
+    const busy = sites.reduce((n, s) => n + (s.tech && inBranch(s.tech.id) ? 1 : 0) + s.techQueue.filter((j) => inBranch(j.id)).length, 0);
     const future = tech.epoch > player.epoch;
-    const missingReq = tech.requires.filter((r) => !player.techs.has(r)).map((r) => TECH_BY_ID.get(r)!);
-    const available = world.techAvailable(me, tech);
+    const missingReq = tech.requires.filter((r) => !planned.has(r)).map((r) => TECH_BY_ID.get(r)!);
+    const plannable = world.techPlannable(me, tech);
+    const room = sites.some((s) => s.techQueue.length < MAX_TECH_QUEUE);
     return {
       key,
       icon: techIcon(tech, 44),
-      enabled: available && !b.tech && !b.research && canAfford(player.stock, tech.cost),
+      enabled: plannable && room && canAfford(player.stock, tech.cost),
       locked: future,
-      badge: running ? '…' : undefined,
+      badge: busy ? String(busy) : undefined,
       title: tech.name,
-      tooltip: this.techTooltip(tech, key) + (running ? '<p class="dim">Wird gerade erforscht.</p>' : ''),
+      tooltip:
+        this.techTooltip(tech, key) +
+        (busy ? `<p class="dim">${busy} ${busy === 1 ? 'Stufe dieses Zweigs läuft oder wartet' : 'Stufen dieses Zweigs laufen oder warten'}.</p>` : '') +
+        '<p class="dim">Weitere Klicks reihen die nächsten Stufen ein.</p>',
       action: () => {
-        if (!available) {
+        if (!plannable) {
           if (missingReq.length) this.message('warn', `Zuerst erforschen: ${missingReq.map((t) => t.name).join(', ')}`);
           return;
         }
-        if (b.tech) {
-          this.message('warn', 'Hier wird schon geforscht.');
+        if (!room) {
+          this.message('warn', 'Die Forschungs-Warteschlange ist voll.');
           return;
         }
-        game.research(b.id, tech.id);
+        game.research(sites, tech.id);
       },
     };
   }
 
   private techTooltip(tech: Tech, key?: string): string {
     const player = this.game.world.players[this.game.me];
-    const missingReq = tech.requires.filter((r) => !player.techs.has(r)).map((r) => TECH_BY_ID.get(r)!);
+    const planned = this.game.world.plannedTechs(this.game.me);
+    const missingReq = tech.requires.filter((r) => !planned.has(r)).map((r) => TECH_BY_ID.get(r)!);
     return (
       `<b>${esc(tech.name)}</b>${key ? ` <kbd>${key}</kbd>` : ''} <span class="dim">${esc(tech.branch.name)} · Stufe ${tech.level + 1}/${tech.branch.levels.length}</span>` +
       `<div>${costHtml(tech.cost, player.stock)}</div><p>${esc(tech.branch.text)}</p>` +
@@ -625,7 +757,7 @@ export class Hud {
     );
   }
 
-  private trainButton(b: Building, role: Role, key: string): CommandButton {
+  private trainButton(sites: Building[], role: Role, key: string): CommandButton {
     const { world, me } = this.game;
     const player = world.players[me];
     const tier = bestTier(role, player.epoch);
@@ -643,7 +775,7 @@ export class Hud {
       };
     }
     const s = world.unitStatsFor(me, role, tier);
-    const queued = b.queue.filter((q) => q.role === role).length;
+    const queued = sites.reduce((n, b) => n + b.queue.filter((q) => q.role === role).length, 0);
     const nextTier = def.tiers[tier + 1];
     return {
       key,
@@ -661,7 +793,7 @@ export class Hud {
             : `<p><b>Stark gegen:</b> ${esc(def.strongVs)}<br><b>Schwach gegen:</b> ${esc(def.weakVs)}</p>`) +
         (nextTier ? `<p class="dim">Nächste Stufe: ${esc(nextTier.name)} (${epochTag(nextTier.epoch)})</p>` : '') +
         `<p class="dim">Umschalt+Klick: 5 Stück</p>`,
-      action: (shift) => this.game.train(b.id, role, shift ? 5 : 1),
+      action: (shift) => this.game.train(sites, role, shift ? 5 : 1),
     };
   }
 
@@ -818,6 +950,8 @@ export class Hud {
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>
         <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren, Bauaufträge nacheinander / 5 Einheiten</td></tr>
         <tr><td>Strg + 1–9, dann 1–9</td><td>Gruppe speichern / wählen (2× = hinspringen)</td></tr>
+        <tr><td>Tab, dann Bau-Taste</td><td>Gebäude dieses Typs wählen, untätige zuerst; nochmal = durchschalten, 2× schnell = hinspringen</td></tr>
+        <tr><td>Doppelklick / Rahmen auf Gebäude</td><td>Mehrere Gebäude eines Typs: Ausbilden und Forschen verteilen sich</td></tr>
         <tr><td>Punkt (.)</td><td>Nächster untätiger Bürger</td></tr>
         <tr><td>Entf</td><td>Auswahl abreißen / entlassen</td></tr>
         <tr><td>Pos1</td><td>Dorfzentrum</td></tr>
@@ -849,7 +983,11 @@ export class Hud {
       return `<button class="tt-tab${t === tab ? ' active' : ''}" data-tab="${t}">${esc(buildingName(t, player.epoch))} <span class="dim">${have}/${count}</span></button>`;
     }).join('');
     const running = new Map<string, number>();
-    for (const b of world.buildingsOf(me)) if (b.tech) running.set(b.tech.id, b.tech.progress / b.tech.total);
+    const queued = new Set<string>();
+    for (const b of world.buildingsOf(me)) {
+      if (b.tech) running.set(b.tech.id, b.tech.progress / b.tech.total);
+      for (const j of b.techQueue) queued.add(j.id);
+    }
     const rows = branchesAt(tab)
       .map((branch) => {
         const cells = TECHS.filter((t) => t.branch === branch)
@@ -857,7 +995,8 @@ export class Hud {
             let state = 'locked';
             if (player.techs.has(t.id)) state = 'done';
             else if (running.has(t.id)) state = 'running';
-            else if (world.techAvailable(me, t)) state = 'open';
+            else if (queued.has(t.id)) state = 'queued';
+            else if (world.techPlannable(me, t)) state = 'open';
             else if (t.epoch <= player.epoch) state = 'needs';
             const pct = running.has(t.id) ? `<i style="width:${Math.round(running.get(t.id)! * 100)}%"></i>` : '';
             const tip = `${t.name} – ${t.branch.text}. ${t.time} s.` + (t.requires.length ? ` Benötigt: ${t.requires.map((r) => TECH_BY_ID.get(r)!.name).join(', ')}.` : '');
@@ -874,8 +1013,8 @@ export class Hud {
     this.openOverlay(
       'pause',
       `<h2>Technologiebaum <span class="dim">${done}/${TECHS.length} erforscht</span></h2>
-       <p class="tt-status">${status}. Klick auf eine goldene Technik: im nächsten freien Gebäude erforschen.</p>
-       <div class="tt-legend"><span class="tt-cell done">erforscht</span><span class="tt-cell running">läuft</span><span class="tt-cell open">verfügbar</span><span class="tt-cell needs">Voraussetzung fehlt</span><span class="tt-cell locked">spätere Epoche</span></div>
+       <p class="tt-status">${status}. Klick auf eine goldene Technik: im Gebäude mit der kürzesten Warteschlange erforschen oder einreihen.</p>
+       <div class="tt-legend"><span class="tt-cell done">erforscht</span><span class="tt-cell running">läuft</span><span class="tt-cell queued">eingereiht</span><span class="tt-cell open">verfügbar</span><span class="tt-cell needs">Voraussetzung fehlt</span><span class="tt-cell locked">spätere Epoche</span></div>
        <div class="tt-tabs">${tabs}</div>
        <div class="tt-body">${rows}</div>
        <div class="dialog-buttons"><button data-act="resume" class="primary">Weiterspielen</button></div>`,
@@ -888,18 +1027,18 @@ export class Hud {
     this.els.overlay.querySelectorAll<HTMLElement>('[data-tech]').forEach((el) => {
       el.onclick = () => {
         const t = TECH_BY_ID.get(el.dataset.tech!)!;
-        if (!world.techAvailable(me, t)) return;
-        const site = world.buildingsOf(me, t.building).find((b) => b.built && !b.tech && !b.research);
-        if (!site) {
-          const any = world.buildingsOf(me, t.building).some((b) => b.built);
-          this.message('warn', any ? `Alle Gebäude vom Typ ${buildingName(t.building, player.epoch)} forschen gerade.` : `Erst ${buildingName(t.building, player.epoch)} bauen.`);
+        if (!world.techPlannable(me, t)) return;
+        const built = world.buildingsOf(me, t.building).filter((b) => b.built);
+        const sites = built.filter((b) => b.techQueue.length < MAX_TECH_QUEUE);
+        if (!sites.length) {
+          this.message('warn', built.length ? `Die Warteschlangen aller Gebäude vom Typ ${buildingName(t.building, player.epoch)} sind voll.` : `Erst ${buildingName(t.building, player.epoch)} bauen.`);
           return;
         }
         if (!canAfford(player.stock, t.cost)) {
           this.message('warn', `Nicht genug Rohstoffe für ${t.name}.`);
           return;
         }
-        this.game.research(site.id, t.id);
+        this.game.research(sites, t.id);
         this.showTechTree(tab);
       };
     });

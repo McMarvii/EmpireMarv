@@ -1,6 +1,6 @@
 import { BUILDING_DEFS } from '../data/buildings';
 import type { Game } from '../game';
-import type { Unit } from '../sim/entities';
+import type { Building, Unit } from '../sim/entities';
 
 const EDGE = 14;
 const PAN_SPEED = 900;
@@ -19,6 +19,8 @@ export class Input {
   /** Right button held with own units selected: a drag sets target and facing instead of panning. */
   private orderDrag: { x: number; y: number; dragging: boolean } | null = null;
   private keys = new Set<string>();
+  /** Tab pressed: the next letter picks a building type (until this time). */
+  private prefixUntil = 0;
   private lastClick = { time: 0, id: 0 };
   private selbox: HTMLElement;
   private cleanup: Array<() => void> = [];
@@ -243,7 +245,7 @@ export class Input {
     }
     const hit = game.renderer.pick(e.clientX, e.clientY, 1);
     const now = performance.now();
-    if (hit && hit.kind === 'unit' && hit.owner === game.me && now - this.lastClick.time < 350 && this.lastClick.id === hit.id) {
+    if (hit && hit.kind !== 'resource' && hit.owner === game.me && now - this.lastClick.time < 350 && this.lastClick.id === hit.id) {
       this.selectSameType(hit);
       this.lastClick = { time: 0, id: 0 };
       return;
@@ -258,8 +260,14 @@ export class Input {
       game.hud.selectionChanged();
       return;
     }
-    // Shift adds own units only; buildings and foreign entities are always single selections.
-    const add = e.shiftKey && hit.kind === 'unit' && hit.owner === game.me && game.selectedOwnUnits().length > 0;
+    // Shift adds own units to units, or own buildings of the same type to buildings.
+    const ownBuildings = game.selectedOwnBuildings();
+    const add =
+      e.shiftKey &&
+      hit.kind !== 'resource' &&
+      hit.owner === game.me &&
+      ((hit.kind === 'unit' && game.selectedOwnUnits().length > 0) ||
+        (hit.kind === 'building' && ownBuildings.length > 0 && ownBuildings.length === game.selection.size && ownBuildings[0].type === hit.type));
     game.select([hit.id], add);
   }
 
@@ -278,16 +286,37 @@ export class Input {
     // Soldiers take priority over workers, like in the classics.
     const military = inside.filter((u) => u.role !== 'citizen');
     const pick = military.length ? military : inside;
-    if (pick.length || !add) game.select(pick.map((u) => u.id), add);
+    if (pick.length) {
+      game.select(pick.map((u) => u.id), add);
+      return;
+    }
+    // No units in the box: own finished buildings of the most frequent type.
+    const byType = new Map<string, Building[]>();
+    for (const b of game.world.buildings) {
+      if (b.dead || b.owner !== game.me || !b.built) continue;
+      const [sx, sy] = game.renderer.screenPosOf(b, 1);
+      if (sx < minX || sx > maxX || sy < minY || sy > maxY) continue;
+      const list = byType.get(b.type) ?? [];
+      list.push(b);
+      byType.set(b.type, list);
+    }
+    const best = [...byType.values()].sort((a, b) => b.length - a.length)[0];
+    if (best) game.select(best.map((b) => b.id));
+    else if (!add) game.select([]);
   }
 
-  private selectSameType(unit: Unit): void {
+  /** Double click: every own unit of that kind (or building of that type) on screen. */
+  private selectSameType(hit: Unit | Building): void {
     const game = this.game;
     const ids: number[] = [];
-    for (const u of game.world.units) {
-      if (u.dead || u.owner !== game.me || u.role !== unit.role || u.tier !== unit.tier) continue;
-      const [sx, sy] = game.renderer.screenPosOf(u, 1);
-      if (sx >= 0 && sy >= 0 && sx <= game.camera.viewW && sy <= game.camera.viewH) ids.push(u.id);
+    const list: Array<Unit | Building> =
+      hit.kind === 'unit'
+        ? game.world.units.filter((u) => u.role === hit.role && u.tier === hit.tier)
+        : game.world.buildings.filter((b) => b.type === hit.type && b.built === hit.built);
+    for (const e of list) {
+      if (e.dead || e.owner !== game.me) continue;
+      const [sx, sy] = game.renderer.screenPosOf(e, 1);
+      if (sx >= 0 && sy >= 0 && sx <= game.camera.viewW && sy <= game.camera.viewH) ids.push(e.id);
     }
     game.select(ids);
   }
@@ -311,6 +340,25 @@ export class Input {
       this.keys.add(e.key);
       e.preventDefault();
       return;
+    }
+    // Tab, then a building's letter: select (and cycle through) buildings of that type.
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      if (game.hud.overlayOpen()) return;
+      this.prefixUntil = performance.now() + 2500;
+      game.hud.setPrefix(true);
+      return;
+    }
+    if (this.prefixUntil > 0) {
+      const active = performance.now() < this.prefixUntil;
+      this.prefixUntil = 0;
+      game.hud.setPrefix(false);
+      if (active && e.key.length === 1 && /[a-z]/i.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        game.selectBuildingByKey(e.key);
+        return;
+      }
+      if (e.key === 'Escape') return;
     }
     if (e.key === 'F1') {
       e.preventDefault();

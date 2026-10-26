@@ -1,5 +1,5 @@
 import { GameAudio } from './audio/director';
-import { BUILDING_DEFS, type BuildingType } from './data/buildings';
+import { BUILDING_DEFS, buildingName, type BuildingType } from './data/buildings';
 import { canAfford, type Stock } from './data/resources';
 import type { Role } from './data/units';
 import { Camera } from './render/camera';
@@ -32,6 +32,7 @@ export class Game {
   readonly groups = new Map<string, number[]>();
   activeGroup = '';
   private lastGroupTap = { key: '', time: 0 };
+  private lastBuildingTap = { type: '', time: 0 };
   mode: Mode = 'normal';
   /** Attack-move or patrol kept open by Shift for more points; ends when Shift is released. */
   stickyMode = false;
@@ -191,9 +192,39 @@ export class Game {
   }
 
   selectedOwnBuilding(): Building | null {
-    const ents = this.selectedEntities();
-    const b = ents.find((e): e is Building => e.kind === 'building' && e.owner === this.me);
-    return b ?? null;
+    return this.selectedOwnBuildings()[0] ?? null;
+  }
+
+  selectedOwnBuildings(): Building[] {
+    return this.selectedEntities().filter((e): e is Building => e.kind === 'building' && e.owner === this.me);
+  }
+
+  /**
+   * Tab, then a building letter: selects the next own building of that type,
+   * idle ones first. The same keys again within 0.8 s jump the camera there.
+   */
+  selectBuildingByKey(key: string): void {
+    const type = (Object.keys(BUILDING_DEFS) as BuildingType[]).find((t) => BUILDING_DEFS[t].hotkey === key.toUpperCase());
+    if (!type || BUILDING_DEFS[type].line) return;
+    const list = this.world
+      .buildingsOf(this.me, type)
+      .filter((b) => b.built)
+      .sort((a, b) => Number(isBusy(a)) - Number(isBusy(b)) || a.id - b.id);
+    if (!list.length) {
+      this.hud.message('info', `Kein Gebäude vom Typ ${buildingName(type, this.world.players[this.me].epoch)}.`);
+      return;
+    }
+    const now = performance.now();
+    const current = this.selectedOwnBuildings().find((b) => b.type === type);
+    if (current && this.lastBuildingTap.type === type && now - this.lastBuildingTap.time < 800) {
+      this.centerOn(current.x, current.y);
+      this.lastBuildingTap = { type: '', time: 0 };
+      return;
+    }
+    this.lastBuildingTap = { type, time: now };
+    const at = current ? list.findIndex((b) => b.id === current.id) : -1;
+    const next = list[(at + 1) % list.length];
+    this.select([next.id]);
   }
 
   // -------------------------------------------------------------- commands
@@ -205,12 +236,12 @@ export class Game {
     const target = this.renderer.pick(sx, sy, 1);
     const units = this.selectedOwnUnits();
     if (units.length === 0) {
-      const b = this.selectedOwnBuilding();
-      if (b && BUILDING_DEFS[b.type].trains.length > 0) {
+      const producers = this.selectedOwnBuildings().filter((b) => BUILDING_DEFS[b.type].trains.length > 0);
+      if (producers.length) {
         const at = target && target.kind === 'resource' ? { x: target.x, y: target.y } : pos;
-        world.issue({ type: 'rally', player: this.me, buildingId: b.id, x: at.x, y: at.y, queue });
+        for (const b of producers) world.issue({ type: 'rally', player: this.me, buildingId: b.id, x: at.x, y: at.y, queue });
         this.setMarker(at.x, at.y, '#ffffff');
-        this.audio.ack('move', [b]);
+        this.audio.ack('move', producers);
       }
       return;
     }
@@ -408,20 +439,30 @@ export class Game {
     this.preview = null;
   }
 
-  train(buildingId: number, role: Role, count: number): void {
-    this.world.issue({ type: 'train', player: this.me, buildingId, role, count });
+  /** Trains `count` units, each in the building with the shortest queue. */
+  train(buildings: Building[], role: Role, count: number): void {
+    for (let i = 0; i < count; i++) {
+      const b = [...buildings].sort((a, c) => a.queue.length - c.queue.length || a.id - c.id)[0];
+      if (!b) return;
+      const before = b.queue.length;
+      this.world.issue({ type: 'train', player: this.me, buildingId: b.id, role });
+      if (b.queue.length === before) return;
+    }
   }
 
   advance(buildingId: number): void {
     this.world.issue({ type: 'advance', player: this.me, buildingId });
   }
 
-  research(buildingId: number, tech: string): void {
-    this.world.issue({ type: 'research', player: this.me, buildingId, tech });
+  /** Researches in the least busy of the given buildings. */
+  research(buildings: Building[], tech: string): void {
+    const load = (b: Building) => (b.tech ? 1 : 0) + b.techQueue.length + (b.research ? 1 : 0);
+    const b = [...buildings].filter((x) => x.built).sort((a, c) => load(a) - load(c) || a.id - c.id)[0];
+    if (b) this.world.issue({ type: 'research', player: this.me, buildingId: b.id, tech });
   }
 
-  cancelTech(buildingId: number): void {
-    this.world.issue({ type: 'cancelTech', player: this.me, buildingId });
+  cancelTech(buildingId: number, index?: number): void {
+    this.world.issue({ type: 'cancelTech', player: this.me, buildingId, index });
   }
 
   cancelQueue(buildingId: number, index: number): void {
@@ -508,4 +549,9 @@ export function lineTiles(x0: number, y0: number, x1: number, y1: number): Array
     }
   }
   return out;
+}
+
+/** Whether a building is producing or researching anything. */
+export function isBusy(b: Building): boolean {
+  return b.queue.length > 0 || b.tech !== null || b.techQueue.length > 0 || b.research !== null || b.pendingAdvance !== null;
 }

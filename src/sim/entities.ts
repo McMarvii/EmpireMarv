@@ -106,6 +106,10 @@ export interface Building extends BaseEntity {
   research: { targetEpoch: number; progress: number; total: number } | null;
   /** Technology being researched here; runs alongside unit training. */
   tech: { id: string; progress: number; total: number; cost: Cost } | null;
+  /** Technologies waiting here, already paid; the first starts once its prerequisites are researched. */
+  techQueue: Array<{ id: string; cost: Cost }>;
+  /** Epoch advance (already paid) waiting for the first `ahead` units of the queue. */
+  pendingAdvance: { targetEpoch: number; ahead: number } | null;
   /** Waypoints for new units; the last one is the gathering point. */
   rally: Point[];
   cooldown: number;
