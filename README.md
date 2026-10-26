@@ -40,6 +40,7 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 - **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee.
 - **Formationen** Linie, Block und Keil: Infanterie vorn, Fernkampf und Belagerung hinten. Gruppen marschieren im Gleichschritt und kommen gleichzeitig an. Rechts-Ziehen legt die Blickrichtung mit einem Pfeil fest.
 - **Befehlsketten** mit Umschalt: Wegpunkte, Angriffe, Sammeln und mehrere Bauaufträge nacheinander. Die Wegpunkte sind als Linien sichtbar. Dazu **Patrouille** und **Sammelpunkt-Ketten**.
+- **Gebäude-Hotkeys und Produktionsleiste**: `Tab` plus Bau-Taste springt zu Kaserne, Stall & Co. (untätige zuerst). Eine Leiste zeigt jedes Produktionsgebäude mit laufendem Auftrag, Warteschlange und untätigem Zustand. Mehrere Gebäude eines Typs bilden gemeinsam aus, Forschung und Aufstieg lassen sich einreihen.
 - **Fog of War**, Minimap, Sammelpunkte, Kontrollgruppen mit Gruppenleiste, Angriffsbewegung, Anzeige untätiger Bürger.
 - **Deterministische Simulation**: Gleicher Seed und gleiche Befehle ergeben dieselbe Partie. Das ist die Grundlage für Replays und Mehrspieler.
 
@@ -68,6 +69,8 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 | Umschalt + Bauen / Ausbilden    | Mehrfach platzieren, nacheinander bauen / 5 Einheiten |
 | `Strg`+`1–9`, dann `1–9`        | Gruppe speichern / wählen (zweimal: hinspringen); auch über die Gruppenleiste |
 | `X`                             | Halt (leert auch die Befehlskette)                  |
+| `Tab`, dann Bau-Taste           | Gebäude dieses Typs wählen (untätige zuerst); nochmal = nächstes, 2× schnell = hinspringen |
+| Doppelklick / Rahmen auf Gebäude | Alle gleichen Gebäude: Ausbilden und Forschen verteilen sich |
 | `.`                             | Nächster untätiger Bürger                           |
 | `Pos1`                          | Dorfzentrum                                         |
 | Leertaste                       | Zum letzten Angriff springen                        |
