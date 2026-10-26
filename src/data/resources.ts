@@ -53,3 +53,10 @@ export function costText(cost: Cost): string {
     .map((r) => `${cost[r]} ${RES_LABEL[r]}`)
     .join(' · ');
 }
+
+/** A cost scaled by a factor and rounded down, e.g. the unbuilt share of a construction site. */
+export function multiplyCost(cost: Cost, factor: number): Cost {
+  const out: Cost = {};
+  for (const r of RESOURCES) if (cost[r]) out[r] = Math.floor((cost[r] ?? 0) * factor);
+  return out;
+}

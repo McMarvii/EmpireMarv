@@ -1,6 +1,6 @@
 import { BUILDING_DEFS, buildingMaxHp, buildingName, MORALE_MAX_HOUSES, MORALE_RADIUS, type BuildingType } from '../data/buildings';
 import { EPOCHS, LAST_EPOCH } from '../data/epochs';
-import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, type Cost, type Res } from '../data/resources';
+import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
 import { bestTier, ROLE_DEFS, unitStats, type Projectile, type Role } from '../data/units';
 import { updateBuilding, updateUnit, separateUnits, setPathTo } from './behavior';
 import { updateProjectiles } from './combat';
@@ -614,7 +614,10 @@ export class World {
       case 'destroy':
         for (const id of cmd.ids) {
           const e = this.get(id);
-          if (e && e.kind !== 'resource' && e.owner === cmd.player) this.kill(e, -1);
+          if (!e || e.kind === 'resource' || e.owner !== cmd.player) continue;
+          // Construction sites give back what has not been built yet.
+          if (e.kind === 'building' && !e.built) refund(player.stock, multiplyCost(BUILDING_DEFS[e.type].cost, 1 - e.progress));
+          this.kill(e, -1);
         }
         break;
     }

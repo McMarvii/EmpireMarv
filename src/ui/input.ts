@@ -13,6 +13,8 @@ export class Input {
   private inWindow = false;
   private dragStart: { x: number; y: number } | null = null;
   private panDrag: { x: number; y: number; camX: number; camY: number } | null = null;
+  /** Right button held: a drag pans the camera, a click without drag issues a command. */
+  private rightDrag: { x: number; y: number; camX: number; camY: number; panning: boolean } | null = null;
   private keys = new Set<string>();
   private groups = new Map<string, number[]>();
   private lastGroupKey = { key: '', time: 0 };
@@ -32,7 +34,11 @@ export class Input {
     this.listen(canvas, 'wheel', (e) => this.onWheel(e as WheelEvent), { passive: false });
     this.listen(window, 'keydown', (e) => this.onKeyDown(e as KeyboardEvent));
     this.listen(window, 'keyup', (e) => this.keys.delete((e as KeyboardEvent).key));
-    this.listen(window, 'blur', () => this.keys.clear());
+    this.listen(window, 'blur', () => {
+      this.keys.clear();
+      this.rightDrag = null;
+      this.panDrag = null;
+    });
     this.listen(window, 'resize', () => game.resize());
     this.listen(document, 'mouseleave', () => (this.inWindow = false));
     this.listen(document, 'mouseenter', () => (this.inWindow = true));
@@ -72,7 +78,7 @@ export class Input {
     if (this.keys.has('ArrowRight')) dx += 1;
     if (this.keys.has('ArrowUp')) dy -= 1;
     if (this.keys.has('ArrowDown')) dy += 1;
-    if (this.inWindow && !this.dragStart && !this.panDrag && this.mouseX >= 0) {
+    if (this.inWindow && !this.dragStart && !this.panDrag && !this.rightDrag?.panning && this.mouseX >= 0) {
       if (this.mouseX < EDGE) dx -= 1;
       if (this.mouseX > window.innerWidth - EDGE) dx += 1;
       if (this.mouseY < EDGE) dy -= 1;
@@ -82,7 +88,9 @@ export class Input {
       cam.x += (dx * PAN_SPEED * dt) / cam.zoom;
       cam.y += (dy * PAN_SPEED * dt) / cam.zoom;
     }
-    if (this.mouseX >= 0 && !this.dragStart) {
+    if (this.panDrag || this.rightDrag?.panning) {
+      this.canvas.style.cursor = 'grabbing';
+    } else if (this.mouseX >= 0 && !this.dragStart) {
       const over = this.overCanvas();
       const hit = over ? this.game.renderer.pick(this.mouseX, this.mouseY, 1) : null;
       this.hoverId = hit ? hit.id : 0;
@@ -117,11 +125,7 @@ export class Input {
       return;
     }
     if (e.button === 2) {
-      if (game.mode !== 'normal') {
-        game.cancelMode();
-        return;
-      }
-      game.rightClick(e.clientX, e.clientY);
+      this.rightDrag = { x: e.clientX, y: e.clientY, camX: game.camera.x, camY: game.camera.y, panning: false };
       return;
     }
     if (e.button !== 0) return;
@@ -147,6 +151,15 @@ export class Input {
       game.camera.y = this.panDrag.camY - (e.clientY - this.panDrag.y) / game.camera.zoom;
       return;
     }
+    const rd = this.rightDrag;
+    if (rd) {
+      if (!rd.panning && (Math.abs(e.clientX - rd.x) > DRAG_THRESHOLD || Math.abs(e.clientY - rd.y) > DRAG_THRESHOLD)) rd.panning = true;
+      if (rd.panning) {
+        game.camera.x = rd.camX - (e.clientX - rd.x) / game.camera.zoom;
+        game.camera.y = rd.camY - (e.clientY - rd.y) / game.camera.zoom;
+        return;
+      }
+    }
     if (game.mode === 'place') game.updatePlacement(e.clientX, e.clientY);
     if (this.dragStart) {
       const x0 = Math.min(this.dragStart.x, e.clientX);
@@ -163,6 +176,14 @@ export class Input {
   private onMouseUp(e: MouseEvent): void {
     if (e.button === 1) {
       this.panDrag = null;
+      return;
+    }
+    if (e.button === 2) {
+      const rd = this.rightDrag;
+      this.rightDrag = null;
+      if (!rd || rd.panning || this.game.hud.overlayOpen()) return;
+      if (this.game.mode !== 'normal') this.game.cancelMode();
+      else this.game.rightClick(e.clientX, e.clientY);
       return;
     }
     if (e.button !== 0 || !this.dragStart) return;
@@ -277,6 +298,11 @@ export class Input {
     }
     if (e.key === '.') {
       game.selectNextIdle();
+      return;
+    }
+    if (e.key === 'Delete') {
+      e.preventDefault();
+      game.deleteSelection();
       return;
     }
     const digit = e.code.startsWith('Digit') ? e.code.slice(5) : '';

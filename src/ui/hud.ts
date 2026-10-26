@@ -390,6 +390,20 @@ export class Hud {
         }
       }
     }
+    if (own.length) {
+      const onlyUnits = own.every((e) => e.kind === 'unit');
+      const text = onlyUnits ? 'Entlassen' : 'Abriss';
+      cmds.push({
+        key: 'Entf',
+        text,
+        enabled: true,
+        title: text,
+        tooltip: onlyUnits
+          ? '<b>Entlassen</b> <kbd>Entf</kbd><p>Entfernt die ausgewählten Einheiten.</p>'
+          : '<b>Abriss</b> <kbd>Entf</kbd><p>Reißt die Auswahl ab. Baustellen erstatten den noch nicht verbauten Anteil.</p>',
+        action: () => game.deleteSelection(),
+      });
+    }
     return cmds;
   }
 
@@ -516,13 +530,15 @@ export class Hud {
       <table class="help">
         <tr><td>Linksklick / Ziehen</td><td>Auswählen / Rahmenauswahl</td></tr>
         <tr><td>Doppelklick</td><td>Alle sichtbaren Einheiten dieses Typs</td></tr>
-        <tr><td>Rechtsklick</td><td>Bewegen, Angreifen, Sammeln, Bauen – je nach Ziel</td></tr>
+        <tr><td>Rechtsklick</td><td>Bewegen, Angreifen, Sammeln, Bauen, Einlagern – je nach Ziel</td></tr>
+        <tr><td>Rechts ziehen / Mitte ziehen</td><td>Karte verschieben</td></tr>
         <tr><td>Rechtsklick mit Gebäude</td><td>Sammelpunkt setzen</td></tr>
         <tr><td>A, dann Klick</td><td>Angriffsbewegung</td></tr>
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>
         <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren / 5 Einheiten</td></tr>
         <tr><td>Strg + 1–9, dann 1–9</td><td>Gruppe speichern / wählen (2× = hinspringen)</td></tr>
         <tr><td>Punkt (.)</td><td>Nächster untätiger Bürger</td></tr>
+        <tr><td>Entf</td><td>Auswahl abreißen / entlassen</td></tr>
         <tr><td>Pos1</td><td>Dorfzentrum</td></tr>
         <tr><td>Leertaste</td><td>Zum letzten Angriff springen</td></tr>
         <tr><td>Pfeiltasten / Bildschirmrand / Mausrad</td><td>Kamera bewegen / zoomen</td></tr>
