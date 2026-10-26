@@ -1,9 +1,17 @@
-import { BUILDABLE, BUILDING_DEFS, buildingName, FARM_CAPACITY } from '../data/buildings';
-import { EPOCHS } from '../data/epochs';
+import {
+  BUILDABLE,
+  BUILDING_DEFS,
+  buildingName,
+  FARM_CAPACITY,
+  MORALE_MAX_HOUSES,
+  MORALE_PER_HOUSE,
+  type BuildingType,
+} from '../data/buildings';
+import { epochLabel, epochNumeral, EPOCHS } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
 import { bestTier, GATHER_LABEL, ROLE_DEFS, unitStats, type Role } from '../data/units';
 import type { Game } from '../game';
-import { buildingIcon, unitIcon } from '../render/icons';
+import { buildingIcon, epochIcon, unitIcon } from '../render/icons';
 import type { Building, Entity, Unit } from '../sim/entities';
 import type { GameEvent } from '../sim/world';
 
@@ -34,6 +42,11 @@ function costHtml(cost: Cost, stock?: Record<string, number>): string {
     .join('');
 }
 
+/** Inline epoch emblem plus label, e.g. for tooltips. */
+function epochTag(index: number): string {
+  return `<span class="ep-tag"><img src="${epochIcon(index, 32)}" alt="">${esc(epochLabel(index))}</span>`;
+}
+
 function fmtTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
@@ -47,6 +60,7 @@ export class Hud {
   private els: Record<string, HTMLElement>;
   private resEls: Record<string, HTMLElement> = {};
   private sig = '';
+  private groupSig = '';
   private lastPanel = 0;
   private hoverCmd: number = -1;
 
@@ -68,6 +82,7 @@ export class Hud {
       menuBtn: q('btn-menu'),
       idleBtn: q('btn-idle'),
       idleCount: q('idle-count'),
+      groups: q('groups'),
     };
     this.els.hud.hidden = false;
     this.els.resources.innerHTML = RESOURCES.map(
@@ -83,6 +98,8 @@ export class Hud {
   }
 
   destroy(): void {
+    this.els.groups.hidden = true;
+    this.els.groups.innerHTML = '';
     this.els.hud.hidden = true;
     this.els.overlay.hidden = true;
     this.els.overlay.innerHTML = '';
@@ -93,10 +110,16 @@ export class Hud {
     this.sig = '';
   }
 
-  message(type: GameEvent['type'], text: string, onClick?: () => void): void {
+  message(type: GameEvent['type'], text: string, onClick?: () => void, icon?: string): void {
     const el = document.createElement('div');
     el.className = `msg msg-${type}`;
-    el.textContent = text;
+    if (icon) {
+      const img = document.createElement('img');
+      img.src = icon;
+      img.alt = '';
+      el.append(img);
+    }
+    el.append(text);
     if (onClick) {
       el.classList.add('clickable');
       el.onclick = onClick;
@@ -123,10 +146,12 @@ export class Hud {
     if (this.els.pop.textContent !== pop) this.els.pop.textContent = pop;
     const epoch = EPOCHS[player.epoch];
     const research = world.buildings.find((b) => b.owner === me && b.research);
-    const epochText = research
-      ? `${epoch.name} → ${EPOCHS[research.research!.targetEpoch].name} ${Math.floor((research.research!.progress / research.research!.total) * 100)} %`
-      : `${epoch.name}`;
-    const epochHtml = `<span class="ep-num">${player.epoch + 1}/${EPOCHS.length}</span> ${esc(epochText)}`;
+    let epochHtml = `<img class="ep-icon" src="${epochIcon(player.epoch, 32)}" alt=""><span class="ep-num">${epochNumeral(player.epoch)}</span> ${esc(epoch.name)}`;
+    if (research) {
+      const target = research.research!.targetEpoch;
+      const pct = Math.floor((research.research!.progress / research.research!.total) * 100);
+      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> ${esc(EPOCHS[target].name)} ${pct} %`;
+    }
     if (this.els.epoch.innerHTML !== epochHtml) this.els.epoch.innerHTML = epochHtml;
     const idle = String(this.game.idleCitizens().length);
     if (this.els.idleCount.textContent !== idle) {
@@ -143,7 +168,45 @@ export class Hud {
     if (now - this.lastPanel > 120) {
       this.lastPanel = now;
       this.updatePanels();
+      this.updateGroups();
     }
+  }
+
+  /** Bar of control groups: number, portrait of the most common unit, head count. */
+  private updateGroups(): void {
+    const game = this.game;
+    const color = game.world.players[game.me].color;
+    const entries = [...game.groups.keys()]
+      .sort()
+      .map((key) => {
+        const units = game.groupUnits(key);
+        const counts = new Map<string, { unit: Unit; n: number }>();
+        for (const u of units) {
+          const k = `${u.role}:${u.tier}`;
+          const c = counts.get(k);
+          if (c) c.n++;
+          else counts.set(k, { unit: u, n: 1 });
+        }
+        const top = [...counts.values()].sort((a, b) => b.n - a.n)[0];
+        return { key, count: units.length, top: top?.unit };
+      })
+      .filter((g) => g.count > 0);
+    const sig = entries.map((g) => `${g.key}:${g.count}:${g.top!.role}${g.top!.tier}`).join(',') + `|${game.activeGroup}`;
+    if (sig === this.groupSig) return;
+    this.groupSig = sig;
+    const el = this.els.groups;
+    el.hidden = entries.length === 0;
+    el.innerHTML = entries
+      .map(
+        (g) =>
+          `<button class="grp${g.key === game.activeGroup ? ' active' : ''}" data-grp="${g.key}" title="Gruppe ${g.key}: ${g.count} Einheiten (Doppelklick: hinspringen)">` +
+          `<img src="${unitIcon(g.top!.role, g.top!.stats.epoch, color, 32)}" alt=""><span class="grp-key">${g.key}</span><span class="grp-count">${g.count}</span></button>`,
+      )
+      .join('');
+    el.querySelectorAll<HTMLElement>('[data-grp]').forEach((b) => {
+      b.onclick = () => game.recallGroup(b.dataset.grp!);
+      b.ondblclick = () => game.recallGroup(b.dataset.grp!, true);
+    });
   }
 
   private handleEvent(ev: GameEvent): void {
@@ -156,7 +219,7 @@ export class Hud {
       return;
     }
     if (ev.type === 'gameover') return;
-    this.message(ev.type, ev.text);
+    this.message(ev.type, ev.text, undefined, ev.epoch !== undefined ? epochIcon(ev.epoch, 32) : undefined);
   }
 
   // ------------------------------------------------------------- panels
@@ -169,6 +232,7 @@ export class Hud {
       this.game.world.players[this.game.me].epoch,
       commands.map((c) => `${c.key}${c.enabled ? 1 : 0}${c.locked ? 1 : 0}${c.badge ?? ''}${c.text ?? ''}`).join(''),
       this.dynamicSig(ents),
+      ents.reduce((s, e) => s + (e.kind === 'unit' ? e.morale : 0), 0),
     ];
     const sig = sigParts.join('|');
     if (sig === this.sig) return;
@@ -207,7 +271,12 @@ export class Hud {
         if (g) g.count++;
         else groups.set(key, { unit: e, count: 1 });
       }
-      return `<div class="sel-multi">${[...groups.entries()]
+      const units = ents.filter((e): e is Unit => e.kind === 'unit');
+      const avg = units.length ? units.reduce((s, u) => s + u.morale, 0) / units.length : 0;
+      const moraleLine = units.length
+        ? `<div class="morale-line${avg > 0 ? ' up' : ''}">${avg > 0 ? `Moral Ø +${Math.round(avg * MORALE_PER_HOUSE * 100)} %` : 'Keine Moral – eigene Häuser in der Nähe stärken Einheiten'}</div>`
+        : '';
+      return `${moraleLine}<div class="sel-multi">${[...groups.entries()]
         .map(
           ([key, g]) =>
             `<button class="sel-group" data-group="${key}" title="${esc(g.unit.stats.name)}"><img src="${unitIcon(g.unit.role, g.unit.stats.epoch, world.players[g.unit.owner].color, 40)}"><span>${g.count}</span></button>`,
@@ -226,19 +295,34 @@ export class Hud {
       let activity = '';
       if (e.order.kind === 'gather') activity = GATHER_LABEL[e.order.res];
       else if (e.order.kind === 'build') activity = 'baut';
+      else if (e.order.kind === 'deposit') activity = 'lagert ein';
+      else if (e.order.kind === 'explore') activity = 'erkundet';
       else if (e.order.kind === 'attack') activity = 'kämpft';
       else if (e.order.kind === 'move') activity = 'unterwegs';
       else activity = 'untätig';
       const carry = e.carry && e.carryAmount > 0 ? ` · trägt ${Math.floor(e.carryAmount)} ${RES_LABEL[e.carry]}` : '';
-      const morale = e.morale > 0 ? ` · Moral +${e.morale}` : '';
+      const pct = Math.round(e.morale * MORALE_PER_HOUSE * 100);
+      const moraleLine =
+        e.owner !== me
+          ? ''
+          : e.morale > 0
+            ? `<div class="morale-line up">${'★'.repeat(e.morale)}${'☆'.repeat(MORALE_MAX_HOUSES - e.morale)} Moral: +${pct} % Angriff, −${pct} % Schaden</div>`
+            : '<div class="morale-line">☆ Keine Moral – eigene Häuser in der Nähe stärken Einheiten</div>';
       return `<div class="sel-single">
         <img class="portrait" src="${unitIcon(e.role, s.epoch, owner!.color, 64)}">
         <div class="sel-info">
           <div class="sel-name">${esc(s.name)} ${ownerLine}</div>
-          <div class="sel-sub">${esc(def.label)} · ${esc(EPOCHS[s.epoch].name)} · ${activity}${carry}${morale}</div>
+          <div class="sel-sub">${esc(def.label)} · ${epochTag(s.epoch)} · ${activity}${carry}</div>
           ${hpBar(e.hp, e.maxHp)}
+          ${moraleLine}
           <div class="stats"><span>Angriff ${s.dmg}</span><span>Rüstung ${s.armor}</span><span>Reichweite ${s.range.toFixed(1)}</span><span>Tempo ${s.speed.toFixed(1)}</span></div>
-          ${e.role !== 'citizen' ? `<div class="counter"><b>Stark gegen:</b> ${esc(def.strongVs)} · <b>Schwach gegen:</b> ${esc(def.weakVs)}</div>` : ''}
+          ${
+            e.role === 'scout'
+              ? '<div class="counter">Schnell und weitsichtig, kämpft kaum. <b>E</b>: Erkunden</div>'
+              : e.role !== 'citizen'
+                ? `<div class="counter"><b>Stark gegen:</b> ${esc(def.strongVs)} · <b>Schwach gegen:</b> ${esc(def.weakVs)}</div>`
+                : ''
+          }
         </div></div>`;
     }
 
@@ -252,7 +336,7 @@ export class Hud {
         );
       }
       if (e.type === 'farm' && e.built) lines.push(`Bauern: ${world.farmWorkers(e)} / ${FARM_CAPACITY}`);
-      if (e.type === 'house') lines.push('Moral für Einheiten in der Nähe.');
+      if (e.type === 'house') lines.push('Der Kreis auf dem Boden zeigt, wie weit die Moral reicht.');
       if (e.popBlocked) lines.push('<span class="warn">Bevölkerungslimit erreicht</span>');
       let queue = '';
       if (e.queue.length && e.owner === me) {
@@ -324,7 +408,7 @@ export class Hud {
           title: name,
           tooltip:
             `<b>${esc(name)}</b> <kbd>${def.hotkey}</kbd><div>${costHtml(def.cost, player.stock)}</div><p>${esc(def.description)}</p>` +
-            (unlocked ? '' : `<p class="warn">Verfügbar ab: ${esc(EPOCHS[def.minEpoch].name)}</p>`),
+            (unlocked ? '' : `<p class="warn">Verfügbar ab: ${epochTag(def.minEpoch)}</p>`),
           action: () => {
             if (!unlocked) return;
             if (!canAfford(player.stock, def.cost)) {
@@ -349,6 +433,14 @@ export class Hud {
       });
     }
     if (units.length) {
+      cmds.push({
+        key: 'E',
+        text: 'Erkunden',
+        enabled: true,
+        title: 'Erkunden',
+        tooltip: '<b>Erkunden</b> <kbd>E</kbd><p>Die Einheiten ziehen selbstständig zum nächsten unerkundeten Gebiet, bis die Karte bekannt ist. Sie kämpfen dabei nicht.</p>',
+        action: () => game.explore(),
+      });
       cmds.push({
         key: 'X',
         text: 'Halt',
@@ -376,19 +468,45 @@ export class Hud {
         } else if (player.epoch < world.settings.maxEpoch) {
           const next = EPOCHS[player.epoch + 1];
           const busy = world.isResearching(me);
+          const missing = world.missingRequirements(me);
+          const reqs = (Object.entries(next.requires) as Array<[BuildingType, number]>)
+            .map(([type, need]) => {
+              const gap = missing.find((m) => m.type === type);
+              const have = gap ? gap.have : need;
+              return `<li class="${gap ? 'missing' : 'ok'}">${gap ? '✘' : '✔'} ${esc(buildingName(type, player.epoch))} <span class="dim">${have}/${need}</span></li>`;
+            })
+            .join('');
           cmds.push({
             key: 'E',
-            text: 'Epoche',
-            enabled: !busy && canAfford(player.stock, next.advanceCost),
-            title: `Aufstieg: ${next.name}`,
-            tooltip: `<b>Aufstieg in die ${esc(next.name)}</b> <kbd>E</kbd><div class="period">${esc(next.period)}</div><div>${costHtml(
-              next.advanceCost,
-              player.stock,
-            )}</div><p>${esc(next.description)}</p><p>Dauer: ${next.advanceTime} s</p>`,
+            icon: epochIcon(next.index, 44),
+            enabled: !busy && missing.length === 0 && canAfford(player.stock, next.advanceCost),
+            badge: missing.length ? '!' : undefined,
+            title: `Aufstieg: ${epochLabel(next.index)}`,
+            tooltip:
+              `<b>Aufstieg: ${epochTag(next.index)}</b> <kbd>E</kbd><div class="period">${esc(next.period)}</div><div>${costHtml(
+                next.advanceCost,
+                player.stock,
+              )}</div>` +
+              (reqs ? `<div class="reqs-title">Benötigt:</div><ul class="reqs">${reqs}</ul>` : '') +
+              `<p>${esc(next.description)}</p><p>Dauer: ${next.advanceTime} s</p>`,
             action: () => game.advance(b.id),
           });
         }
       }
+    }
+    if (own.length) {
+      const onlyUnits = own.every((e) => e.kind === 'unit');
+      const text = onlyUnits ? 'Entlassen' : 'Abriss';
+      cmds.push({
+        key: 'Entf',
+        text,
+        enabled: true,
+        title: text,
+        tooltip: onlyUnits
+          ? '<b>Entlassen</b> <kbd>Entf</kbd><p>Entfernt die ausgewählten Einheiten.</p>'
+          : '<b>Abriss</b> <kbd>Entf</kbd><p>Reißt die Auswahl ab. Baustellen erstatten den noch nicht verbauten Anteil.</p>',
+        action: () => game.deleteSelection(),
+      });
     }
     return cmds;
   }
@@ -406,7 +524,7 @@ export class Hud {
         enabled: false,
         locked: true,
         title: def.label,
-        tooltip: `<b>${esc(first.name)}</b><p class="warn">Verfügbar ab: ${esc(EPOCHS[first.epoch].name)}</p>`,
+        tooltip: `<b>${esc(first.name)}</b><p class="warn">Verfügbar ab: ${epochTag(first.epoch)}</p>`,
         action: () => {},
       };
     }
@@ -422,8 +540,12 @@ export class Hud {
       tooltip:
         `<b>${esc(s.name)}</b> <kbd>${key}</kbd> <span class="dim">${esc(def.label)}</span><div>${costHtml(s.cost, player.stock)}</div>` +
         `<div class="stats"><span>LP ${s.hp}</span><span>Angriff ${s.dmg}</span><span>Rüstung ${s.armor}</span><span>Reichweite ${s.range.toFixed(1)}</span></div>` +
-        (role !== 'citizen' ? `<p><b>Stark gegen:</b> ${esc(def.strongVs)}<br><b>Schwach gegen:</b> ${esc(def.weakVs)}</p>` : '<p>Sammelt Rohstoffe und errichtet Gebäude.</p>') +
-        (nextTier ? `<p class="dim">Nächste Stufe: ${esc(nextTier.name)} (${esc(EPOCHS[nextTier.epoch].name)})</p>` : '') +
+        (role === 'citizen'
+          ? '<p>Sammelt Rohstoffe und errichtet Gebäude.</p>'
+          : role === 'scout'
+            ? '<p>Schnell, große Sichtweite, kämpft kaum. Ideal zum Erkunden (Taste E).</p>'
+            : `<p><b>Stark gegen:</b> ${esc(def.strongVs)}<br><b>Schwach gegen:</b> ${esc(def.weakVs)}</p>`) +
+        (nextTier ? `<p class="dim">Nächste Stufe: ${esc(nextTier.name)} (${epochTag(nextTier.epoch)})</p>` : '') +
         `<p class="dim">Umschalt+Klick: 5 Stück</p>`,
       action: (shift) => this.game.train(b.id, role, shift ? 5 : 1),
     };
@@ -516,13 +638,17 @@ export class Hud {
       <table class="help">
         <tr><td>Linksklick / Ziehen</td><td>Auswählen / Rahmenauswahl</td></tr>
         <tr><td>Doppelklick</td><td>Alle sichtbaren Einheiten dieses Typs</td></tr>
-        <tr><td>Rechtsklick</td><td>Bewegen, Angreifen, Sammeln, Bauen – je nach Ziel</td></tr>
+        <tr><td>Rechtsklick</td><td>Bewegen, Angreifen, Sammeln, Bauen, Einlagern – je nach Ziel</td></tr>
+        <tr><td>Rechts ziehen / Mitte ziehen</td><td>Karte verschieben</td></tr>
         <tr><td>Rechtsklick mit Gebäude</td><td>Sammelpunkt setzen</td></tr>
         <tr><td>A, dann Klick</td><td>Angriffsbewegung</td></tr>
+        <tr><td>E</td><td>Erkunden (Einheiten ausgewählt)</td></tr>
+        <tr><td>M / G, dann ziehen</td><td>Mauer / Tor als Linie bauen</td></tr>
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>
         <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren / 5 Einheiten</td></tr>
         <tr><td>Strg + 1–9, dann 1–9</td><td>Gruppe speichern / wählen (2× = hinspringen)</td></tr>
         <tr><td>Punkt (.)</td><td>Nächster untätiger Bürger</td></tr>
+        <tr><td>Entf</td><td>Auswahl abreißen / entlassen</td></tr>
         <tr><td>Pos1</td><td>Dorfzentrum</td></tr>
         <tr><td>Leertaste</td><td>Zum letzten Angriff springen</td></tr>
         <tr><td>Pfeiltasten / Bildschirmrand / Mausrad</td><td>Kamera bewegen / zoomen</td></tr>
@@ -542,7 +668,7 @@ export class Hud {
     const rows = world.players
       .map((p) => {
         const gathered = RESOURCES.reduce((s, r) => s + p.stats.gathered[r], 0);
-        return `<tr><td style="color:${p.color}">${esc(p.name)}</td><td>${esc(EPOCHS[p.epoch].name)}</td><td>${Math.round(gathered)}</td><td>${p.stats.unitsTrained}</td><td>${p.stats.kills}</td><td>${p.stats.unitsLost}</td><td>${p.stats.buildingsLost}</td></tr>`;
+        return `<tr><td style="color:${p.color}">${esc(p.name)}</td><td>${epochTag(p.epoch)}</td><td>${Math.round(gathered)}</td><td>${p.stats.unitsTrained}</td><td>${p.stats.kills}</td><td>${p.stats.unitsLost}</td><td>${p.stats.buildingsLost}</td></tr>`;
       })
       .join('');
     this.openOverlay(

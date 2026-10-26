@@ -7,13 +7,18 @@ import type { BuildingType } from './buildings';
  * the rock-paper-scissors logic stays readable from the stone age to space.
  */
 export type CombatRole = 'assault' | 'pike' | 'ranged' | 'mounted' | 'siege';
-export type Role = 'citizen' | CombatRole;
+/** Scouts sit outside the counter loop: fast, far-sighted and nearly harmless. */
+export type Role = 'citizen' | 'scout' | CombatRole;
 
 export const COMBAT_ROLES: CombatRole[] = ['assault', 'pike', 'ranged', 'mounted', 'siege'];
 
 /** How a tier is drawn; the renderer picks a sprite per look. */
 export type Look =
   | 'citizen'
+  | 'runner'
+  | 'scouthorse'
+  | 'jeep'
+  | 'drone'
   | 'club'
   | 'sword'
   | 'spear'
@@ -90,6 +95,30 @@ export const ROLE_DEFS: Record<Role, RoleDef> = {
       { epoch: 6, name: 'Bauer', look: 'citizen' },
       { epoch: 12, name: 'Arbeiter', look: 'citizen' },
       { epoch: 15, name: 'Techniker', look: 'citizen' },
+    ],
+  },
+  scout: {
+    role: 'scout',
+    label: 'Späher',
+    producedAt: 'towncenter',
+    hp: 55,
+    dmg: 3,
+    armor: 0,
+    range: MELEE_RANGE,
+    sight: 11,
+    speed: 3.1,
+    cooldown: 1.4,
+    splash: 0,
+    cost: { food: 60 },
+    trainTime: 16,
+    strongVs: '—',
+    weakVs: 'Allem – Späher meiden den Kampf',
+    tiers: [
+      { epoch: 0, name: 'Läufer', look: 'runner' },
+      { epoch: 3, name: 'Kundschafter', look: 'scouthorse' },
+      { epoch: 9, name: 'Meldereiter', look: 'scouthorse' },
+      { epoch: 12, name: 'Spähwagen', look: 'jeep' },
+      { epoch: 15, name: 'Aufklärungsdrohne', look: 'drone' },
     ],
   },
   assault: {

@@ -7,6 +7,16 @@ import type { Point } from './pathfinding';
 import { Rng } from './rng';
 import type { Controller, Difficulty, World } from './world';
 
+interface WallTile {
+  x: number;
+  y: number;
+  type: 'wall' | 'gate';
+  side: number;
+  d: number;
+}
+
+const RING_RADIUS = 12;
+
 interface Profile {
   think: number;
   gatherBonus: number;
@@ -24,6 +34,7 @@ const PROFILES: Record<Difficulty, Profile> = {
 /** Counter picks: what to build more of when the enemy fields a role. */
 const COUNTERS: Record<Role, CombatRole[]> = {
   citizen: [],
+  scout: [],
   assault: ['ranged'],
   pike: ['assault', 'ranged'],
   ranged: ['mounted', 'assault'],
@@ -45,6 +56,9 @@ export class AIController implements Controller {
   private rng: Rng;
   private nextScout = 0;
   private scoutId = 0;
+  /** Planned ring wall around the town center: gates first, then the walls. */
+  private wallPlan: WallTile[] | null = null;
+  private ringCenter: Point = { x: 0, y: 0 };
 
   constructor(
     readonly playerId: number,
@@ -70,10 +84,18 @@ export class AIController implements Controller {
     this.scout(w, s);
   }
 
-  /** Sends one soldier to uncover the map, so new deposits become known. */
+  /**
+   * Uncovers the map so new deposits become known: scouts explore on their
+   * own, without one a soldier is sent to unexplored spots now and then.
+   */
   private scout(w: World, s: ReturnType<AIController['snapshot']>): void {
     if (w.tick < this.nextScout) return;
     this.nextScout = w.tick + 30 * 20;
+    if (s.scouts.length) {
+      const idle = s.scouts.filter((u) => u.order.kind === 'idle').map((u) => u.id);
+      if (idle.length) w.issue({ type: 'explore', player: this.playerId, ids: idle });
+      return;
+    }
     let scout = this.scoutId ? w.get(this.scoutId) : undefined;
     if (!scout || scout.kind !== 'unit' || scout.order.kind !== 'idle') {
       const candidates = s.army.filter((u) => !this.attackers.has(u.id) && u.order.kind === 'idle');
@@ -106,9 +128,10 @@ export class AIController implements Controller {
     const tc = buildings.find((b) => b.type === 'towncenter' && b.built) ?? null;
     const base: Point = tc ? { x: tc.x, y: tc.y } : w.startPositions[id];
     const citizens = units.filter((u) => u.role === 'citizen');
-    const army = units.filter((u) => u.role !== 'citizen');
+    const army = units.filter((u) => u.role !== 'citizen' && u.role !== 'scout');
+    const scouts = units.filter((u) => u.role === 'scout');
     const count = (t: BuildingType) => buildings.filter((b) => b.type === t).length;
-    return { player: w.players[id], units, buildings, tc, base, citizens, army, count };
+    return { player: w.players[id], units, buildings, tc, base, citizens, army, scouts, count };
   }
 
   // -------------------------------------------------------------- economy
@@ -217,7 +240,7 @@ export class AIController implements Controller {
     let best: ResourceNode | null = null;
     let bestD = 80;
     for (const n of w.resources) {
-      if (n.dead || n.res !== res || !w.isVisibleTo(this.playerId, n)) continue;
+      if (n.dead || n.res !== res || n.blockedUntil > w.tick || !w.isVisibleTo(this.playerId, n)) continue;
       let d = Math.hypot(n.x - s.base.x, n.y - s.base.y);
       for (const b of drops) d = Math.min(d, Math.hypot(n.x - b.x, n.y - b.y));
       if (d < bestD) {
@@ -237,17 +260,32 @@ export class AIController implements Controller {
     if (pending.length > 0) {
       // Make sure someone is actually working on unfinished buildings.
       for (const b of pending) {
+        if (BUILDING_DEFS[b.type].line) continue;
         const builders = citizens.filter((c) => c.order.kind === 'build' && c.order.targetId === b.id);
         if (builders.length === 0) {
           const helper = this.pickWorker(s, b);
           if (helper) w.issue({ type: 'construct', player: id, ids: [helper.id], targetId: b.id });
         }
       }
+      // A wall line only needs a small crew walking it, not one citizen per segment.
+      const segments = pending.filter((b) => BUILDING_DEFS[b.type].line);
+      const crew = citizens.filter((c) => c.order.kind === 'build' && segments.some((b) => b.id === (c.order as { targetId: number }).targetId));
+      if (segments.length && crew.length < 2) {
+        const helper = this.pickWorker(s, segments[0]);
+        if (helper) w.issue({ type: 'construct', player: id, ids: [helper.id], targetId: segments[0].id });
+      }
       return;
     }
     if (citizens.length < 6) return;
+    if (this.walls(w, s)) return;
 
+    // Buildings the next epoch asks for come first (walls are handled by the wall plan).
+    const required: Array<[BuildingType, boolean]> =
+      player.epoch < w.settings.maxEpoch
+        ? w.missingRequirements(id).flatMap((m): Array<[BuildingType, boolean]> => (BUILDING_DEFS[m.type].line ? [] : [[m.type, true]]))
+        : [];
     const wants: Array<[BuildingType, boolean]> = [
+      ...required,
       ['barracks', count('barracks') === 0 && citizens.length >= 8],
       ['storehouse', count('storehouse') < Math.min(3, 1 + Math.floor(citizens.length / 12))],
       ['house', count('house') < Math.min(6, 1 + Math.floor(s.army.length / 6))],
@@ -268,6 +306,106 @@ export class AIController implements Controller {
       this.placeNear(w, s, type, where, [builder], minR, maxR);
       return;
     }
+  }
+
+  /**
+   * Builds a square ring wall around the town center in batches, with a gate
+   * in the middle of every side. Tiles that cannot take a wall (forest,
+   * water, buildings) are skipped – they block on their own or stay a gap.
+   */
+  private walls(w: World, s: ReturnType<AIController['snapshot']>): boolean {
+    const { player, tc, citizens } = s;
+    const id = this.playerId;
+    if (!tc || !w.buildingUnlocked(id, 'wall')) return false;
+    const needed = w.missingRequirements(id).some((m) => BUILDING_DEFS[m.type].line);
+    if (!needed && (player.epoch < 2 || citizens.length < 18)) return false;
+    if (!this.wallPlan) this.wallPlan = this.planRing(w, tc);
+    const batch: WallTile[] = [];
+    let type: 'wall' | 'gate' = 'wall';
+    const later: WallTile[] = [];
+    while (this.wallPlan.length && batch.length < 8) {
+      const next = this.wallPlan[0];
+      if (batch.length && next.type !== type) break;
+      this.wallPlan.shift();
+      // Unexplored tiles wait until someone has seen them; blocked ones are dropped.
+      if (player.vis[w.map.idx(next.x, next.y)] === 0) later.push(next);
+      else if (w.canPlace(id, next.type, next.x, next.y)) {
+        type = next.type;
+        batch.push(next);
+      } else if (next.type === 'gate') {
+        // A gate must exist on every side: slide it along the wall to a free tile.
+        const moved = this.shiftGate(w, next);
+        if (moved) this.wallPlan.unshift(moved);
+      }
+    }
+    this.wallPlan.push(...later);
+    if (batch.length === 0) return false;
+    const cost: Cost = {};
+    for (const r of RESOURCES) if (BUILDING_DEFS[type].cost[r]) cost[r] = (BUILDING_DEFS[type].cost[r] ?? 0) * batch.length;
+    if (!this.spendable(w, s, cost)) {
+      this.wallPlan.unshift(...batch);
+      return false;
+    }
+    const builders: Unit[] = [];
+    for (let i = 0; i < 2; i++) {
+      const b = this.pickWorker({ ...s, citizens: citizens.filter((c) => !builders.includes(c)) }, batch[0]);
+      if (b) builders.push(b);
+    }
+    if (!builders.length) return false;
+    w.issue({ type: 'placeLine', player: id, ids: builders.map((b) => b.id), building: type, tiles: batch.map((t) => ({ x: t.x, y: t.y })) });
+    return true;
+  }
+
+  /** Tile `d` steps along one side of the ring (sides go clockwise from the north). */
+  private ringTile(side: number, d: number): Point {
+    const { x: cx, y: cy } = this.ringCenter;
+    const R = RING_RADIUS;
+    switch (side) {
+      case 0:
+        return { x: cx + d, y: cy - R };
+      case 1:
+        return { x: cx + R, y: cy + d };
+      case 2:
+        return { x: cx - d, y: cy + R };
+      default:
+        return { x: cx - R, y: cy - d };
+    }
+  }
+
+  private shiftGate(w: World, gate: WallTile): WallTile | null {
+    for (let k = 2; k <= 8; k++) {
+      for (const d of [gate.d + k, gate.d - k]) {
+        if (Math.abs(d) >= RING_RADIUS) continue;
+        const t = this.ringTile(gate.side, d);
+        if (!w.map.inBounds(t.x, t.y) || !w.canPlace(this.playerId, 'gate', t.x, t.y)) continue;
+        // The tile becomes a gate instead of a wall.
+        this.wallPlan = this.wallPlan!.filter((p) => p.x !== t.x || p.y !== t.y);
+        return { ...t, type: 'gate', side: gate.side, d };
+      }
+    }
+    return null;
+  }
+
+  private planRing(w: World, tc: Building): WallTile[] {
+    const R = RING_RADIUS;
+    this.ringCenter = { x: Math.floor(tc.x), y: Math.floor(tc.y) };
+    const gates: WallTile[] = [];
+    const walls: WallTile[] = [];
+    for (let d = -R; d <= R; d++) {
+      // Walk the four sides; the gate sits in the middle of each one.
+      for (let side = 0; side < 4; side++) {
+        const { x, y } = this.ringTile(side, d);
+        if (!w.map.inBounds(x, y)) continue;
+        if (Math.abs(d) === R && walls.some((t) => t.x === x && t.y === y)) continue;
+        if (d === 0 || d === 1) gates.push({ x, y, type: 'gate', side, d });
+        else walls.push({ x, y, type: 'wall', side, d });
+      }
+    }
+    const cx = this.ringCenter.x;
+    const cy = this.ringCenter.y;
+    // Close the ring outwards from the gates, so early segments already protect the entrances.
+    walls.sort((a, b) => Math.min(Math.abs(a.x - cx), Math.abs(a.y - cy)) - Math.min(Math.abs(b.x - cx), Math.abs(b.y - cy)));
+    return [...gates, ...walls];
   }
 
   /** A deposit with several workers but far from any drop-off. */
@@ -430,7 +568,8 @@ export class AIController implements Controller {
     let bestD = Infinity;
     for (const b of w.buildings) {
       if (b.dead || !w.areEnemies(this.playerId, b.owner)) continue;
-      const d = Math.hypot(b.x - from.x, b.y - from.y) - (b.type === 'towncenter' ? 6 : 0);
+      // Walls are only attacked when they stand in the way, not marched to.
+      const d = Math.hypot(b.x - from.x, b.y - from.y) - (b.type === 'towncenter' ? 6 : 0) + (BUILDING_DEFS[b.type].line ? 40 : 0);
       if (d < bestD) {
         bestD = d;
         best = b;

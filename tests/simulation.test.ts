@@ -61,6 +61,26 @@ describe('simulation', () => {
     expect(fingerprint(a)).toBe(fingerprint(b));
   });
 
+  it('lets the AI wall in its base, with gates for its own units', () => {
+    const w = new World({
+      seed: 7,
+      mapSize: 80,
+      startEpoch: 2,
+      startResources: 'high',
+      players: [
+        { name: 'A', color: '#2f7de1', isAI: true, team: 0 },
+        { name: 'B', color: '#d9412b', isAI: false, team: 1 },
+      ],
+    });
+    w.controllers.push(new AIController(0, 'normal', w));
+    run(w, 420);
+    const built = (t: 'wall' | 'gate') => w.buildingsOf(0, t).filter((b) => b.built).length;
+    expect(built('wall')).toBeGreaterThan(20);
+    expect(built('gate')).toBeGreaterThanOrEqual(2);
+    const citizens = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    expect(citizens.filter((u) => u.order.kind === 'idle').length / citizens.length).toBeLessThan(0.3);
+  }, 60000);
+
   it('lets two AIs build an economy, advance and fight', () => {
     const w = aiMatch(7);
     run(w, 600);

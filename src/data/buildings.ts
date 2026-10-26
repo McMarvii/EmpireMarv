@@ -9,7 +9,9 @@ export type BuildingType =
   | 'workshop'
   | 'storehouse'
   | 'farm'
-  | 'tower';
+  | 'tower'
+  | 'wall'
+  | 'gate';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -25,6 +27,10 @@ export interface BuildingDef {
   walkable: boolean;
   sight: number;
   attack?: { dmg: number; range: number; cooldown: number };
+  /** Placed by dragging a line of 1×1 segments (walls and gates). */
+  line?: boolean;
+  /** Lets units of the owner's team through, blocks everyone else. */
+  gate?: boolean;
   hotkey: string;
   description: string;
 }
@@ -43,13 +49,13 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     cost: { wood: 300, stone: 200, gold: 100 },
     buildTime: 90,
     minEpoch: 0,
-    trains: ['citizen'],
+    trains: ['citizen', 'scout'],
     dropoff: true,
     walkable: false,
     sight: 10,
     attack: { dmg: 6, range: 6, cooldown: 2 },
     hotkey: 'Z',
-    description: 'Bildet Bürger aus, nimmt alle Rohstoffe an und erforscht den Aufstieg in die nächste Epoche.',
+    description: 'Bildet Bürger und Späher aus, nimmt alle Rohstoffe an und erforscht den Aufstieg in die nächste Epoche.',
   },
   house: {
     type: 'house',
@@ -186,6 +192,53 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     hotkey: 'T',
     description: 'Verteidigungsturm. Wird mit jeder Epoche stärker.',
   },
+  wall: {
+    type: 'wall',
+    names: [
+      [1, 'Palisade'],
+      [3, 'Lehmziegelmauer'],
+      [6, 'Steinmauer'],
+      [9, 'Festungsmauer'],
+      [12, 'Betonmauer'],
+      [15, 'Energiebarriere'],
+    ],
+    size: 1,
+    hp: 700,
+    cost: { wood: 4, stone: 2 },
+    buildTime: 6,
+    minEpoch: 1,
+    trains: [],
+    dropoff: false,
+    walkable: false,
+    sight: 2,
+    line: true,
+    hotkey: 'M',
+    description: 'Sperrt Gegner aus. Ziehen baut eine ganze Linie, Türme dürfen direkt anschließen.',
+  },
+  gate: {
+    type: 'gate',
+    names: [
+      [1, 'Palisadentor'],
+      [3, 'Stadttor'],
+      [6, 'Torhaus'],
+      [9, 'Festungstor'],
+      [12, 'Schranke'],
+      [15, 'Energietor'],
+    ],
+    size: 1,
+    hp: 900,
+    cost: { wood: 25, stone: 15 },
+    buildTime: 14,
+    minEpoch: 1,
+    trains: [],
+    dropoff: false,
+    walkable: false,
+    sight: 3,
+    line: true,
+    gate: true,
+    hotkey: 'G',
+    description: 'Durchgang in der Mauer: lässt eigene und verbündete Einheiten durch, Gegner nicht.',
+  },
 };
 
 export const BUILDABLE: BuildingType[] = [
@@ -194,6 +247,8 @@ export const BUILDABLE: BuildingType[] = [
   'storehouse',
   'barracks',
   'tower',
+  'wall',
+  'gate',
   'workshop',
   'stable',
   'towncenter',

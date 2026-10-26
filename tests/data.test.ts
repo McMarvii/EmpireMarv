@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING_DEFS, BUILDABLE } from '../src/data/buildings';
+import { BUILDING_DEFS, BUILDABLE, type BuildingType } from '../src/data/buildings';
 import { damageMultiplier } from '../src/data/combat';
-import { EPOCHS, EPOCH_COUNT } from '../src/data/epochs';
+import { epochNumeral, EPOCHS, EPOCH_COUNT, toRoman } from '../src/data/epochs';
 import { bestTier, COMBAT_ROLES, ROLE_DEFS, unitStats } from '../src/data/units';
 
 describe('epochs', () => {
@@ -9,6 +9,21 @@ describe('epochs', () => {
     expect(EPOCH_COUNT).toBe(18);
     expect(EPOCHS[0].name).toBe('Urzeit');
     expect(EPOCHS[EPOCH_COUNT - 1].name).toBe('Weltraumzeitalter');
+  });
+
+  it('writes epoch numbers in roman numerals', () => {
+    expect([1, 4, 9, 14, 18].map(toRoman)).toEqual(['I', 'IV', 'IX', 'XIV', 'XVIII']);
+    expect(epochNumeral(0)).toBe('I');
+    expect(epochNumeral(EPOCH_COUNT - 1)).toBe('XVIII');
+  });
+
+  it('only requires buildings that are unlocked before the advance', () => {
+    for (const e of EPOCHS.slice(1)) {
+      expect(Object.keys(e.requires).length, e.name).toBeGreaterThan(0);
+      for (const type of Object.keys(e.requires) as BuildingType[]) {
+        expect(BUILDING_DEFS[type].minEpoch, `${e.name}: ${type}`).toBeLessThan(e.index);
+      }
+    }
   });
 
   it('makes every advance cost more than the previous one', () => {
@@ -29,6 +44,11 @@ describe('units', () => {
       const available = COMBAT_ROLES.filter((r) => bestTier(r, e) >= 0);
       expect(available.length).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  it('keeps scouts out of the counter loop', () => {
+    expect(COMBAT_ROLES).not.toContain('scout');
+    expect(ROLE_DEFS.scout.producedAt).toBe('towncenter');
   });
 
   it('makes later tiers stronger', () => {

@@ -1,6 +1,6 @@
-import { EPOCHS, LAST_EPOCH } from '../data/epochs';
+import { epochNumeral, EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { ROLE_DEFS, type CombatRole } from '../data/units';
-import { unitIcon } from '../render/icons';
+import { epochIcon, unitIcon } from '../render/icons';
 import type { Difficulty, GameSettings, PlayerSetup, StartResources } from '../sim/world';
 
 const PLAYER_COLORS = ['#2f7de1', '#d9412b', '#e3b322', '#3fa34d'];
@@ -81,7 +81,7 @@ function signatureRole(epoch: number): CombatRole {
 export function showMenu(root: HTMLElement, onStart: (settings: Partial<GameSettings>) => void): void {
   const el = root.querySelector<HTMLElement>('#menu')!;
   const v = load();
-  const epochOpts = EPOCHS.map((e) => [e.index, `${e.index + 1}. ${e.name}`] as [number, string]);
+  const epochOpts = EPOCHS.map((e) => [e.index, `${epochNumeral(e.index)}. ${e.name}`] as [number, string]);
   const timeline = EPOCHS.map(
     (e) =>
       `<div class="tl-item" title="${e.name} (${e.period}): ${e.description}"><img src="${unitIcon(
@@ -89,7 +89,7 @@ export function showMenu(root: HTMLElement, onStart: (settings: Partial<GameSett
         e.index,
         PLAYER_COLORS[0],
         40,
-      )}" alt=""><span>${e.name}</span></div>`,
+      )}" alt=""><img class="tl-emblem" src="${epochIcon(e.index, 24)}" alt="${epochNumeral(e.index)}"><span>${e.name}</span></div>`,
   ).join('');
   el.innerHTML = `
     <div class="menu-card">

@@ -9,6 +9,7 @@ export type TargetClass = Role | 'building';
  */
 export const DAMAGE_MULTIPLIER: Record<Role | 'tower', Partial<Record<TargetClass, number>>> = {
   citizen: { building: 0.4 },
+  scout: { building: 0.2 },
   assault: { pike: 1.6, siege: 1.6, mounted: 0.7, citizen: 1.2, building: 0.5 },
   pike: { mounted: 2.2, assault: 0.7, building: 0.4 },
   ranged: { assault: 1.6, pike: 1.3, mounted: 0.6, siege: 0.8, building: 0.25 },
