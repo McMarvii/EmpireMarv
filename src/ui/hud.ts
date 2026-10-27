@@ -13,7 +13,7 @@ import { bestTier, GATHER_LABEL, ROLE_DEFS, type Role } from '../data/units';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
 import { downloadReplay } from '../replay';
-import { buildingIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
+import { buildingIcon, commandIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
 import type { Building, Entity, Unit } from '../sim/entities';
 import { FORMATION_LABEL, FORMATIONS, type Formation } from '../sim/formation';
@@ -28,6 +28,8 @@ export interface CommandButton {
   /** Highlighted as the current choice (formations). */
   active?: boolean;
   badge?: string;
+  /** Share done of what runs behind this button (research), drawn as a bar. */
+  progress?: number;
   title: string;
   tooltip: string;
   action: (shift: boolean) => void;
@@ -228,14 +230,7 @@ export class Hud {
       .filter((b) => b.built && (BUILDING_DEFS[b.type].trains.length > 0 || b.type === 'smithy' || b.type === 'academy' || (branchesAt(b.type).length > 0 && isBusy(b))))
       .sort((a, b) => PROD_ORDER.indexOf(a.type) - PROD_ORDER.indexOf(b.type) || a.id - b.id);
     const entries = list.map((b) => {
-      const unit = b.queue[0];
-      const bars: Array<{ cls: string; pct: number; label: string }> = [];
-      if (b.research) bars.push({ cls: 'adv', pct: b.research.progress / b.research.total, label: `Aufstieg: ${EPOCHS[b.research.targetEpoch].name}` });
-      if (unit) {
-        const tier = Math.max(0, bestTier(unit.role, player.epoch));
-        bars.push({ cls: 'unit', pct: unit.progress / ROLE_DEFS[unit.role].trainTime, label: ROLE_DEFS[unit.role].tiers[tier].name });
-      }
-      if (b.tech) bars.push({ cls: 'tech', pct: b.tech.progress / b.tech.total, label: `Forschung: ${TECH_BY_ID.get(b.tech.id)!.name}` });
+      const bars = this.jobBars(b);
       const waiting = Math.max(0, b.queue.length - 1) + b.techQueue.length + (b.pendingAdvance ? 1 : 0);
       return { b, bars, waiting, idle: !isBusy(b) };
     });
@@ -277,6 +272,20 @@ export class Hud {
         if (b) this.game.centerOn(b.x, b.y);
       };
     });
+  }
+
+  /** What runs in a building right now (advance, unit, research), each with its share done. */
+  private jobBars(b: Building): Array<{ cls: string; pct: number; label: string }> {
+    const player = this.game.world.players[b.owner];
+    const bars: Array<{ cls: string; pct: number; label: string }> = [];
+    const unit = b.queue[0];
+    if (b.research) bars.push({ cls: 'adv', pct: b.research.progress / b.research.total, label: `Aufstieg: ${EPOCHS[b.research.targetEpoch].name}` });
+    if (unit) {
+      const tier = Math.max(0, bestTier(unit.role, player.epoch));
+      bars.push({ cls: 'unit', pct: unit.progress / ROLE_DEFS[unit.role].trainTime, label: ROLE_DEFS[unit.role].tiers[tier].name });
+    }
+    if (b.tech) bars.push({ cls: 'tech', pct: b.tech.progress / b.tech.total, label: `Forschung: ${TECH_BY_ID.get(b.tech.id)!.name}` });
+    return bars;
   }
 
   /** Bar of control groups: number, portrait of the most common unit, head count. */
@@ -339,7 +348,9 @@ export class Hud {
     const sigParts = [
       ents.map((e) => `${e.id}:${Math.ceil(e.hp)}`).join(','),
       this.game.world.players[this.game.me].epoch,
-      commands.map((c) => `${c.key}${c.title}${c.enabled ? 1 : 0}${c.locked ? 1 : 0}${c.active ? 1 : 0}${c.badge ?? ''}${c.text ?? ''}`).join(''),
+      commands
+        .map((c) => `${c.key}${c.title}${c.enabled ? 1 : 0}${c.locked ? 1 : 0}${c.active ? 1 : 0}${c.badge ?? ''}${c.text ?? ''}${c.progress === undefined ? '' : Math.floor(c.progress * 40)}`)
+        .join(''),
       this.dynamicSig(ents),
       ents.reduce((s, e) => s + (e.kind === 'unit' ? e.morale : 0), 0),
     ];
@@ -353,14 +364,15 @@ export class Hud {
   }
 
   private dynamicSig(ents: Entity[]): string {
-    return ents
-      .slice(0, 1)
+    // Several buildings show a progress bar each, so all of them count.
+    const shown = ents.length > 1 && ents.every((e) => e.kind === 'building') ? ents : ents.slice(0, 1);
+    return shown
       .map((e) => {
         if (e.kind === 'building') {
           const q = e.queue.map((i) => `${i.role}${Math.floor(i.progress * 2)}`).join('');
           const tech = e.tech ? `${e.tech.id}${Math.floor(e.tech.progress)}` : '';
           const waiting = `${e.techQueue.map((j) => j.id).join('')}${e.pendingAdvance ? `a${e.pendingAdvance.ahead}` : ''}`;
-          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}`;
+          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}${e.garrison.length}`;
         }
         if (e.kind === 'unit') return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}`;
         return `${Math.floor(e.amount)}`;
@@ -378,7 +390,13 @@ export class Hud {
       return `<div class="sel-multi">${blds
         .map((b) => {
           const waiting = b.queue.length + b.techQueue.length + (b.tech ? 1 : 0) + (b.research || b.pendingAdvance ? 1 : 0);
-          return `<button class="sel-group${isBusy(b) ? '' : ' idle'}" data-bld="${b.id}" title="${esc(buildingName(b.type, b.epoch))}: ${waiting ? `${waiting} in Arbeit` : 'untätig'}"><img src="${buildingIcon(b.type, b.epoch, world.players[b.owner].color, 40)}"><span>${waiting || ''}</span></button>`;
+          const bars = b.owner === me ? this.jobBars(b) : [];
+          const title = `${buildingName(b.type, b.epoch)}: ${waiting ? `${waiting} in Arbeit` : 'untätig'}${bars.map((x) => ` · ${x.label} ${Math.floor(x.pct * 100)} %`).join('')}`;
+          return (
+            `<button class="sel-group${isBusy(b) ? '' : ' idle'}" data-bld="${b.id}" title="${esc(title)}"><img src="${buildingIcon(b.type, b.epoch, world.players[b.owner].color, 40)}"><span>${waiting || ''}</span>` +
+            bars.map((x) => `<i class="prod-bar ${x.cls}" style="width:${Math.round(x.pct * 100)}%"></i>`).join('') +
+            `</button>`
+          );
         })
         .join('')}</div><div class="dim sel-note">Ausbilden und Forschen gehen an das Gebäude mit der kürzesten Warteschlange.</div>`;
     }
@@ -468,6 +486,10 @@ export class Hud {
         );
       }
       if (e.type === 'farm' && e.built) lines.push(`Bauern: ${world.farmWorkers(e)} / ${FARM_CAPACITY}`);
+      if (def.garrison && e.built && e.owner === me) {
+        const n = e.garrison.length;
+        lines.push(n ? `Zuflucht: ${n} / ${def.garrison} Bürger · +${n} ${n === 1 ? 'Pfeil' : 'Pfeile'}` : `Zuflucht: 0 / ${def.garrison} Bürger (Z: Alarm)`);
+      }
       if (e.type === 'house') lines.push('Der Kreis auf dem Boden zeigt, wie weit die Moral reicht.');
       if (e.popBlocked) lines.push('<span class="warn">Bevölkerungslimit erreicht</span>');
       let queue = '';
@@ -578,7 +600,7 @@ export class Hud {
     if (units.some((u) => u.role !== 'citizen')) {
       cmds.push({
         key: 'A',
-        text: 'Angriff',
+        icon: commandIcon('attack'),
         enabled: true,
         title: 'Angriffsbewegung',
         tooltip: '<b>Angriffsbewegung</b> <kbd>A</kbd><p>Dann Linksklick auf ein Ziel: Einheiten greifen alles auf dem Weg an.</p>',
@@ -588,7 +610,7 @@ export class Hud {
       });
       cmds.push({
         key: 'R',
-        text: 'Patrouille',
+        icon: commandIcon('patrol'),
         enabled: true,
         title: 'Patrouille',
         tooltip:
@@ -611,12 +633,24 @@ export class Hud {
             action: () => game.setFormation(f),
           });
         }
+        const inStep = units.filter((u) => u.lockstep).length * 2 >= units.length;
+        cmds.push({
+          key: 'L',
+          icon: commandIcon('lockstep'),
+          enabled: true,
+          active: inStep,
+          title: `Gleichschritt: ${inStep ? 'an' : 'aus'}`,
+          tooltip:
+            `<b>Gleichschritt: ${inStep ? 'an' : 'aus'}</b> <kbd>L</kbd><p>An: Schnelle Einheiten passen sich den langsamen an, die Gruppe kommt gemeinsam an.</p>` +
+            '<p>Aus: Jede Einheit läuft so schnell sie kann, Reiter sind zuerst da.</p><p class="dim">Klick schaltet um.</p>',
+          action: () => game.setLockstep(!inStep),
+        });
       }
     }
     if (units.length) {
       cmds.push({
         key: 'E',
-        text: 'Erkunden',
+        icon: commandIcon('explore'),
         enabled: true,
         title: 'Erkunden',
         tooltip: '<b>Erkunden</b> <kbd>E</kbd><p>Die Einheiten ziehen selbstständig zum nächsten unerkundeten Gebiet, bis die Karte bekannt ist. Sie kämpfen dabei nicht.</p>',
@@ -624,7 +658,7 @@ export class Hud {
       });
       cmds.push({
         key: 'X',
-        text: 'Halt',
+        icon: commandIcon('stop'),
         enabled: true,
         title: 'Halt',
         tooltip: '<b>Halt</b> <kbd>X</kbd><p>Alle Befehle abbrechen.</p>',
@@ -644,7 +678,7 @@ export class Hud {
         if (b.research || b.pendingAdvance) {
           cmds.push({
             key: 'E',
-            text: 'Abbruch',
+            icon: commandIcon('cancel'),
             enabled: true,
             title: 'Aufstieg abbrechen',
             tooltip: '<b>Aufstieg abbrechen</b><p>Rohstoffe werden erstattet.</p>',
@@ -682,6 +716,20 @@ export class Hud {
           });
         }
       }
+      if (def.garrison) {
+        const on = game.sheltering();
+        cmds.push({
+          key: 'Z',
+          icon: commandIcon(on ? 'allclear' : 'shelter'),
+          enabled: true,
+          active: on,
+          title: on ? 'Entwarnung' : 'Zuflucht',
+          tooltip: on
+            ? '<b>Entwarnung</b> <kbd>Z</kbd><p>Die Bürger verlassen Dorfzentrum und Türme und gehen zurück an ihre Arbeit.</p>'
+            : `<b>Zuflucht</b> <kbd>Z</kbd><p>Alarm: Alle Bürger suchen sich einen Platz im nächsten Dorfzentrum oder Turm, bis zu ${def.garrison} je Gebäude.</p><p>Jeder Bürger darin schießt einen zusätzlichen Pfeil.</p><p class="dim">Nochmal drücken: Entwarnung, alle gehen zurück an die Arbeit.</p>`,
+          action: () => game.shelter(!on),
+        });
+      }
       branchesAt(b.type).forEach((branch, i) => {
         const btn = this.techButton(sites, branch.id, TECH_KEYS[i]);
         if (btn) cmds.push(btn);
@@ -692,7 +740,7 @@ export class Hud {
       const text = onlyUnits ? 'Entlassen' : 'Abriss';
       cmds.push({
         key: 'Entf',
-        text,
+        icon: commandIcon(onlyUnits ? 'dismiss' : 'demolish'),
         enabled: true,
         title: text,
         tooltip: onlyUnits
@@ -718,6 +766,7 @@ export class Hud {
     if (!tech) return null;
     const inBranch = (id: string) => TECH_BY_ID.get(id)!.branch.id === branchId;
     const busy = sites.reduce((n, s) => n + (s.tech && inBranch(s.tech.id) ? 1 : 0) + s.techQueue.filter((j) => inBranch(j.id)).length, 0);
+    const running = sites.reduce((pct, s) => (s.tech && inBranch(s.tech.id) ? Math.max(pct, s.tech.progress / s.tech.total) : pct), -1);
     const future = tech.epoch > player.epoch;
     const missingReq = tech.requires.filter((r) => !planned.has(r)).map((r) => TECH_BY_ID.get(r)!);
     const plannable = world.techPlannable(me, tech);
@@ -728,6 +777,7 @@ export class Hud {
       enabled: plannable && room && canAfford(player.stock, tech.cost),
       locked: future,
       badge: busy ? String(busy) : undefined,
+      progress: running >= 0 ? running : undefined,
       title: tech.name,
       tooltip:
         this.techTooltip(tech, key) +
@@ -807,7 +857,9 @@ export class Hud {
         (c, i) =>
           `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}${c.active ? ' active' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
           (c.icon ? `<img src="${c.icon}" alt="">` : `<span class="cmd-text">${esc(c.text ?? '')}</span>`) +
-          `<span class="hk">${c.key}</span>${c.badge ? `<span class="badge">${c.badge}</span>` : ''}</button>`,
+          `<span class="hk">${c.key}</span>${c.badge ? `<span class="badge">${c.badge}</span>` : ''}` +
+          (c.progress !== undefined ? `<i class="cmd-progress" style="width:${Math.round(c.progress * 100)}%"></i>` : '') +
+          `</button>`,
       )
       .join('');
     el.querySelectorAll<HTMLButtonElement>('button.cmd').forEach((btn) => {
@@ -967,6 +1019,8 @@ export class Hud {
         <tr><td>Umschalt + Rechtsklick</td><td>Befehl anhängen (Wegpunkte, Ziele, Bauaufträge); gehaltene Umschalttaste zeigt die Pläne</td></tr>
         <tr><td>Rechts ziehen (Einheiten gewählt)</td><td>Ziel und Blickrichtung der Formation (Pfeil)</td></tr>
         <tr><td>N / O / V</td><td>Formation Linie / Block / Keil</td></tr>
+        <tr><td>L</td><td>Gleichschritt an/aus (Armee ausgewählt)</td></tr>
+        <tr><td>Z (Dorfzentrum oder Turm gewählt)</td><td>Zuflucht: Bürger gehen in Dorfzentrum und Türme (je 5, +1 Pfeil pro Bürger); nochmal = Entwarnung</td></tr>
         <tr><td>E</td><td>Erkunden (Einheiten ausgewählt)</td></tr>
         <tr><td>M / G, dann ziehen</td><td>Mauer / Tor als Linie bauen</td></tr>
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>

@@ -404,8 +404,10 @@ button.primary {
 }
 
 .q-item img {
+  display: block;
   width: 32px;
   height: 32px;
+  margin: 1px auto 0;
 }
 
 .q-bar {
@@ -493,7 +495,7 @@ button.primary {
 .prod-bar {
   position: absolute;
   left: 0;
-  height: 3px;
+  height: 4px;
 }
 
 .prod-bar.unit {
@@ -502,7 +504,7 @@ button.primary {
 }
 
 .prod-bar.tech {
-  bottom: 3px;
+  bottom: 4px;
   background: #b48cff;
 }
 
@@ -678,6 +680,15 @@ button.primary {
   font-weight: 700;
   color: var(--gold);
   text-shadow: 0 1px 2px #000;
+}
+
+.cmd-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 5px;
+  background: #b48cff;
+  box-shadow: 0 0 4px rgba(180, 140, 255, 0.8);
 }
 
 .cmd .badge {
