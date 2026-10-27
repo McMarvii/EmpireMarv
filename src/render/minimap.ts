@@ -1,6 +1,7 @@
 import { Terrain } from '../sim/map';
 import type { World } from '../sim/world';
 import type { Camera } from './camera';
+import type { View } from './view';
 
 const TERRAIN_RGB: Record<number, [number, number, number]> = {
   [Terrain.Grass]: [92, 140, 58],
@@ -30,7 +31,7 @@ export class Minimap {
     private canvas: HTMLCanvasElement,
     private world: World,
     private camera: Camera,
-    private me: number,
+    private view: View,
   ) {
     this.ctx = canvas.getContext('2d')!;
     this.resize();
@@ -60,7 +61,7 @@ export class Minimap {
   private bake(): void {
     const { world, w, h } = this;
     const map = world.map;
-    const vis = world.players[this.me].vis;
+    const vis = this.view.vis();
     const img = this.image ?? this.ctx.createImageData(w, h);
     const data = img.data;
     for (let my = 0; my < h; my++) {
@@ -103,7 +104,7 @@ export class Minimap {
     ctx.clearRect(0, 0, this.w, this.h);
     ctx.putImageData(this.image!, 0, 0);
     const dot = Math.max(2, this.k * 1.6);
-    const vis = world.players[this.me].vis;
+    const vis = this.view.vis();
     for (const n of world.resources) {
       if (n.dead || n.nodeType === 'tree') continue;
       if (vis[world.map.idx(Math.floor(n.x), Math.floor(n.y))] === 0) continue;
@@ -112,7 +113,7 @@ export class Minimap {
       ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
     }
     for (const b of world.buildings) {
-      if (b.dead || !world.isVisibleTo(this.me, b)) continue;
+      if (b.dead || !this.view.sees(b)) continue;
       const [x, y] = this.toMini(b.x, b.y);
       const s = Math.max(3, b.size * this.k * 1.4);
       ctx.fillStyle = world.players[b.owner].color;
@@ -121,7 +122,7 @@ export class Minimap {
       ctx.strokeRect(x - s / 2, y - s / 2, s, s);
     }
     for (const u of world.units) {
-      if (u.dead || (u.owner !== this.me && !world.inSight(this.me, u))) continue;
+      if (u.dead || !this.view.seesUnit(u)) continue;
       const [x, y] = this.toMini(u.x, u.y);
       ctx.fillStyle = world.players[u.owner].color;
       ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
@@ -143,13 +144,15 @@ export class Minimap {
     ctx.stroke();
   }
 
-  /** Pulses a marker at a world position (attack alerts). */
-  ping(x: number, y: number, t: number): void {
+  /** Pulsing ring at a world position: attack alerts (red) and allies' marks (in their colour). */
+  ping(x: number, y: number, t: number, color = '#ff503c'): void {
     const [mx, my] = this.toMini(x, y);
     this.ctx.beginPath();
     this.ctx.arc(mx, my, 4 + (t % 1) * 8, 0, Math.PI * 2);
-    this.ctx.strokeStyle = `rgba(255,80,60,${1 - (t % 1)})`;
+    this.ctx.globalAlpha = 1 - (t % 1);
+    this.ctx.strokeStyle = color;
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
+    this.ctx.globalAlpha = 1;
   }
 }

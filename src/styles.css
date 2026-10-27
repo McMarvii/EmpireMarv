@@ -1142,37 +1142,6 @@ table.help td:first-child {
   color: #ff7a6b;
 }
 
-#menu-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px 16px;
-}
-
-#menu-form label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--dim);
-  font-size: 13px;
-}
-
-#menu-form label.check {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  padding-top: 20px;
-}
-
-#menu-form select,
-#menu-form input[type='number'] {
-  font: inherit;
-  color: var(--text);
-  background: #241f18;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px 8px;
-}
-
 #menu-form .start {
   grid-column: 1 / -1;
   justify-self: center;
@@ -1186,6 +1155,415 @@ table.help td:first-child {
   text-align: center;
   color: var(--dim);
   font-size: 12.5px;
+}
+
+/* ------------------------------------------------------ menu tabs */
+
+.menu-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.menu-tabs button {
+  flex: 1;
+  padding: 9px 12px;
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--dim);
+}
+
+.menu-tabs button.active {
+  color: var(--text);
+  border-color: var(--gold);
+  background: linear-gradient(#4a3e2a, #2c2419);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px 16px;
+}
+
+.settings-grid label,
+.mp-name,
+.invite label,
+.code-box label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.settings-grid label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding-top: 20px;
+}
+
+.settings-grid select,
+.settings-grid input[type='number'],
+.menu-card input:not([type]),
+.menu-card .slot select {
+  font: inherit;
+  color: var(--text);
+  background: #241f18;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  user-select: text;
+}
+
+.mp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.mp-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.mp-box h3,
+.lobby h3 {
+  margin: 0;
+  font-family: var(--serif);
+  color: var(--gold);
+}
+
+.mp-box p {
+  margin: 0;
+}
+
+.mp-box > button,
+.file-btn {
+  align-self: flex-start;
+  padding: 8px 20px;
+}
+
+.file-btn {
+  background: linear-gradient(#3a3226, #251f17);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.mp-error,
+.lobby-problem {
+  margin: 0;
+  color: var(--red);
+  min-height: 1em;
+}
+
+/* ------------------------------------------------------------ lobby */
+
+.lobby h2 {
+  margin: 0 0 12px;
+  font-family: var(--serif);
+}
+
+.lobby h3 {
+  margin: 18px 0 8px;
+}
+
+.invite-row {
+  display: flex;
+  gap: 6px;
+}
+
+.invite-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.invite-status,
+.code-status,
+.join-status {
+  margin: 6px 0 0;
+}
+
+.code-invite {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+}
+
+.code-invite summary {
+  cursor: pointer;
+  color: var(--dim);
+}
+
+.code-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.slots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.slot {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 110px;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.slot.closed {
+  opacity: 0.55;
+}
+
+.slot > i {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.slot-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.slot-who button {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.lobby .dialog-buttons {
+  margin-top: 16px;
+}
+
+/* ---------------------------------------------------------- netbar */
+
+#net-banner {
+  position: fixed;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(640px, calc(100vw - 24px));
+  padding: 8px 16px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--gold-dark);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  z-index: 7;
+}
+
+#net-banner button {
+  margin-left: 8px;
+  padding: 3px 10px;
+  background: linear-gradient(#3a3226, #251f17);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+#net-players {
+  position: fixed;
+  top: 46px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: rgba(20, 17, 13, 0.8);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.np-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 120px) 22px 64px;
+  align-items: center;
+  gap: 6px;
+}
+
+.np-row > i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.np-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-row.self span:nth-of-type(1) {
+  font-weight: 700;
+}
+
+.np-info {
+  text-align: right;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+#chatlog {
+  position: fixed;
+  left: 270px;
+  bottom: 252px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(520px, calc(100vw - 290px));
+  pointer-events: none;
+  z-index: 5;
+}
+
+.chat-line {
+  padding: 2px 8px;
+  background: rgba(10, 8, 6, 0.7);
+  border-radius: 3px;
+  text-shadow: 0 1px 2px #000;
+  transition: opacity 1s;
+}
+
+.chat-line.fade {
+  opacity: 0;
+}
+
+#chatform {
+  position: fixed;
+  left: 270px;
+  bottom: 214px;
+  display: flex;
+  gap: 6px;
+  width: min(520px, calc(100vw - 290px));
+  z-index: 7;
+}
+
+#chat-to {
+  flex: none;
+  padding: 4px 10px;
+  background: linear-gradient(#3a3226, #251f17);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+#chat-to.team {
+  color: #5ad1ff;
+  border-color: #5ad1ff;
+}
+
+#chat-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text);
+  background: rgba(20, 17, 13, 0.95);
+  border: 1px solid var(--gold-dark);
+  border-radius: 4px;
+  padding: 5px 8px;
+  user-select: text;
+}
+
+/* -------------------------------------------------------- replaybar */
+
+#hud:has(#replaybar:not([hidden])) #messages {
+  top: 96px;
+}
+
+#replaybar {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--gold-dark);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  z-index: 6;
+}
+
+#replaybar button,
+#replaybar select {
+  font: inherit;
+  color: var(--text);
+  background: linear-gradient(#3a3226, #251f17);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 9px;
+}
+
+.rb-title {
+  font-family: var(--serif);
+  font-weight: 700;
+  color: var(--gold);
+  margin-right: 4px;
+}
+
+.rb-play {
+  min-width: 38px;
+}
+
+.rb-speed-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rb-speed {
+  min-width: 30px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.rb-seek {
+  width: 200px;
+  accent-color: var(--gold);
+}
+
+.rb-time {
+  min-width: 96px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+.rb-fog {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dim);
+}
+
+.rb-warn {
+  flex-basis: 100%;
+  text-align: center;
+  color: #f2c84b;
+  font-size: 12px;
 }
 
 /* --------------------------------------------------------- small screens */
@@ -1253,5 +1631,28 @@ table.help td:first-child {
   #tooltip {
     bottom: 160px;
     width: min(300px, calc(100vw - 20px));
+  }
+
+  #chatlog,
+  #chatform {
+    left: 8px;
+    max-width: calc(100vw - 16px);
+    width: calc(100vw - 16px);
+  }
+
+  #chatlog {
+    bottom: 290px;
+  }
+
+  #chatform {
+    bottom: 250px;
+  }
+
+  #net-players {
+    display: none;
+  }
+
+  .rb-seek {
+    width: 120px;
   }
 }

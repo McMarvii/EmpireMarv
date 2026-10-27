@@ -57,10 +57,14 @@ export class Input {
       const me = e as MouseEvent;
       const r = minimap.getBoundingClientRect();
       const pos = game.minimap.toWorld(me.clientX - r.left, me.clientY - r.top);
+      if (me.altKey && me.type === 'mousedown' && me.button === 0) {
+        game.markSpot(pos.x, pos.y, true);
+        return;
+      }
       if (me.button === 2 || (me.type === 'contextmenu' && me.button !== 0)) {
         e.preventDefault();
         const ids = game.selectedOwnUnits().map((u) => u.id);
-        if (ids.length) game.world.issue({ type: 'move', player: game.me, ids, x: pos.x, y: pos.y, queue: me.shiftKey });
+        if (ids.length) game.issue({ type: 'move', player: game.me, ids, x: pos.x, y: pos.y, queue: me.shiftKey });
         return;
       }
       if (me.buttons & 1 || me.type === 'mousedown') game.centerOn(pos.x, pos.y);
@@ -150,6 +154,11 @@ export class Input {
       return;
     }
     if (e.button !== 0) return;
+    if (e.altKey && game.net) {
+      // Alt+click: point a spot out to the own team.
+      game.markSpot(e.clientX, e.clientY);
+      return;
+    }
     if (game.mode === 'place') {
       game.updatePlacement(e.clientX, e.clientY);
       // Walls are dragged out as a line and placed on release.
@@ -367,7 +376,7 @@ export class Input {
     }
     if (e.key === 'F2') {
       e.preventDefault();
-      if (game.hud.overlayOpen()) game.togglePause(false);
+      if (game.hud.overlayOpen()) game.menuPause(false);
       else game.hud.showTechTree();
       return;
     }
@@ -376,10 +385,16 @@ export class Input {
       game.hud.toggleMute();
       return;
     }
+    if (e.key === 'Enter' && game.netUi && !game.hud.overlayOpen()) {
+      // Enter: chat to everyone; Shift+Enter: to the own team.
+      e.preventDefault();
+      game.netUi.openChat(e.shiftKey);
+      return;
+    }
     if (e.key === 'Escape') {
       if (game.hud.overlayOpen()) {
         if (game.world.over) game.hud.closeOverlay();
-        else game.togglePause(false);
+        else game.menuPause(false);
       } else if (game.mode !== 'normal') game.cancelMode();
       else if (game.selection.size) game.select([]);
       else game.hud.showPauseMenu();

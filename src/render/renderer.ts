@@ -7,6 +7,7 @@ import type { World } from '../sim/world';
 import { Camera, TILE_W } from './camera';
 import { TERRAIN_COLORS } from './colors';
 import { buildingTopZ, drawBuilding, drawNode, drawUnit, LINK_E, LINK_N, LINK_S, LINK_W } from './sprites';
+import type { View } from './view';
 
 export interface LineSegment {
   tx: number;
@@ -56,6 +57,18 @@ export interface Marker {
   color: string;
 }
 
+/** How long an ally's mark stays on the map (s). */
+export const MARK_TIME = 6;
+
+/** A spot an ally pointed out (Alt+click). */
+export interface Mark {
+  x: number;
+  y: number;
+  color: string;
+  /** Seconds since it was set. */
+  age: number;
+}
+
 /** Right-drag with units: target, direction arrow and the planned slots. */
 export interface OrderPreview {
   from: Point;
@@ -74,6 +87,7 @@ export interface RenderState {
   /** Shift held: show every selected unit's plans, not only queues and patrols. */
   showPlans: boolean;
   preview: OrderPreview | null;
+  marks: Mark[];
 }
 
 /** Waypoint colours by what happens there. */
@@ -110,7 +124,7 @@ export class Renderer {
     private canvas: HTMLCanvasElement,
     private world: World,
     readonly camera: Camera,
-    private me: number,
+    private view: View,
   ) {
     this.ctx = canvas.getContext('2d')!;
   }
@@ -155,7 +169,7 @@ export class Renderer {
     const { ctx, world, camera } = this;
     const project = camera.project;
     const zoom = camera.zoom;
-    const vis = world.players[this.me].vis;
+    const vis = this.view.vis();
     const map = world.map;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     // The canvas has a CSS background, so clearing is enough (and much cheaper than a fill).
@@ -217,11 +231,11 @@ export class Renderer {
     // Tiles of visible walls, gates and towers, so wall segments can join up.
     const joins = new Map<number, number>();
     for (const b of world.buildings) {
-      if (b.dead || !(BUILDING_DEFS[b.type].line || b.type === 'tower') || !world.isVisibleTo(this.me, b)) continue;
+      if (b.dead || !(BUILDING_DEFS[b.type].line || b.type === 'tower') || !this.view.sees(b)) continue;
       for (let y = b.ty; y < b.ty + b.size; y++) for (let x = b.tx; x < b.tx + b.size; x++) joins.set(y * map.width + x, b.owner);
     }
     for (const b of world.buildings) {
-      if (!world.isVisibleTo(this.me, b)) continue;
+      if (!this.view.sees(b)) continue;
       const [sx, sy] = project(b.x, b.y);
       if (!this.onScreen(sx, sy, b.size * TILE_W * zoom)) continue;
       const line = BUILDING_DEFS[b.type].line;
@@ -242,7 +256,7 @@ export class Renderer {
       const selected = state.selection.has(b.id) || state.hoverId === b.id;
       if (selected) this.footprint(b.tx, b.ty, b.size, this.ringColor(b.owner), state.selection.has(b.id) ? 2 : 1);
       // Morale reach of houses: when one is selected and while a new one is being placed.
-      if (b.type === 'house' && b.owner === this.me && b.built && (state.selection.has(b.id) || state.placement?.type === 'house')) {
+      if (b.type === 'house' && b.owner === this.view.me && b.built && (state.selection.has(b.id) || state.placement?.type === 'house')) {
         this.moraleRing(b.x, b.y, state.selection.has(b.id) ? 0.9 : 0.5);
       }
       if (BUILDING_DEFS[b.type].walkable) {
@@ -263,7 +277,7 @@ export class Renderer {
           ],
         });
       }
-      if (state.selection.has(b.id) && b.owner === this.me && b.rally.length) {
+      if (state.selection.has(b.id) && b.owner === this.view.me && b.rally.length) {
         // Rally chain: dashed line through the waypoints, flag at the end.
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
@@ -287,7 +301,7 @@ export class Renderer {
         ctx.lineTo(rx, ry - 16 * zoom);
         ctx.strokeStyle = '#eee';
         ctx.stroke();
-        ctx.fillStyle = world.players[this.me].color;
+        ctx.fillStyle = world.players[this.view.me].color;
         ctx.fillRect(rx, ry - 16 * zoom, 9 * zoom, 6 * zoom);
       }
     }
@@ -307,7 +321,7 @@ export class Renderer {
 
     const unitScale = zoom * UNIT_SCALE;
     for (const u of world.units) {
-      if (u.dead || (u.owner !== this.me && !world.inSight(this.me, u))) continue;
+      if (u.dead || !this.view.seesUnit(u)) continue;
       const [x, y] = this.unitPos(u, state.alpha);
       const [sx, sy] = project(x, y);
       if (!this.onScreen(sx, sy, 60 * zoom)) continue;
@@ -376,6 +390,37 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.stroke();
     }
+    for (const m of state.marks) this.drawMark(m);
+  }
+
+  /** An ally's mark: rings pulsing outwards around a small flag. */
+  private drawMark(m: Mark): void {
+    const { ctx, camera } = this;
+    const [sx, sy] = camera.project(m.x, m.y);
+    const zoom = camera.zoom;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, (MARK_TIME - m.age) / 1.5);
+    ctx.strokeStyle = m.color;
+    ctx.lineWidth = 2.5;
+    for (let i = 0; i < 2; i++) {
+      const t = (m.age * 0.8 + i * 0.5) % 1;
+      ctx.globalAlpha = Math.min(1, (MARK_TIME - m.age) / 1.5) * (1 - t);
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, (6 + t * 30) * zoom, (3 + t * 15) * zoom, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = Math.min(1, (MARK_TIME - m.age) / 1.5);
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx, sy - 34 * zoom);
+    ctx.stroke();
+    ctx.fillStyle = m.color;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - 34 * zoom);
+    ctx.lineTo(sx + 16 * zoom, sy - 28 * zoom);
+    ctx.lineTo(sx, sy - 22 * zoom);
+    ctx.fill();
+    ctx.restore();
   }
 
   /** Dashed ground circle showing how far a house's morale bonus reaches. */
@@ -408,13 +453,13 @@ export class Renderer {
     const map = this.world.map;
     const tx = Math.floor(x);
     const ty = Math.floor(y);
-    return map.inBounds(tx, ty) && this.world.players[this.me].vis[map.idx(tx, ty)] === 2;
+    return map.inBounds(tx, ty) && this.view.vis()[map.idx(tx, ty)] === 2;
   }
 
   private ringColor(owner: number): string {
-    if (owner === this.me) return '#8dff5a';
+    if (owner === this.view.me) return '#8dff5a';
     if (owner < 0) return '#ffd24d';
-    return this.world.areEnemies(this.me, owner) ? '#ff5a4d' : '#5ad1ff';
+    return this.world.areEnemies(this.view.me, owner) ? '#ff5a4d' : '#5ad1ff';
   }
 
   private footprint(tx: number, ty: number, size: number, color: string, width: number): void {
@@ -442,7 +487,7 @@ export class Renderer {
       const arcH = p.kind === 'boulder' || p.kind === 'shell' ? dist * 9 : p.kind === 'arrow' || p.kind === 'stone' ? dist * 4 : 0;
       const z = 14 + arcH * 4 * t * (1 - t);
       const [sx, sy] = project(x, y, z);
-      if (p.owner !== this.me && !this.tileVisible(x, y)) continue;
+      if (p.owner !== this.view.me && !this.tileVisible(x, y)) continue;
       switch (p.kind) {
         case 'arrow': {
           const [px, py] = project(x - (p.x1 - p.x0) * 0.04, y - (p.y1 - p.y0) * 0.04, z - arcH * 0.1 * (1 - 2 * t));
@@ -548,7 +593,7 @@ export class Renderer {
     const routes: Array<{ start: Point; steps: Array<{ p: Point; color: string }>; loop: Point[] }> = [];
     for (const id of state.selection) {
       const u = world.get(id);
-      if (!u || u.kind !== 'unit' || u.owner !== this.me) continue;
+      if (!u || u.kind !== 'unit' || u.owner !== this.view.me) continue;
       const patrol = u.order.kind === 'patrol' ? u.order : u.order.kind === 'attack' && u.order.resume?.kind === 'patrol' ? u.order.resume : null;
       if (!state.showPlans && u.queue.length === 0 && !patrol) continue;
       const steps: Array<{ p: Point; color: string }> = [];
@@ -668,13 +713,13 @@ export class Renderer {
       const selected = state.selection.has(u.id);
       const damaged = u.hp < u.maxHp && world.tick - u.lastHitTick < 100;
       if (!selected && !damaged) continue;
-      if (u.owner !== this.me && !world.inSight(this.me, u)) continue;
+      if (!this.view.seesUnit(u)) continue;
       const [x, y] = this.unitPos(u, state.alpha);
       const tall = wide(u) ? 34 : 30;
       const [sx, sy] = camera.project(x, y, tall * UNIT_SCALE);
       bar(sx, sy, 22 * zoom, u.hp / u.maxHp, hpColor(u.hp / u.maxHp));
       // Morale: one gold pip per house in reach, right of the bar.
-      if (selected && u.morale > 0 && u.owner === this.me) {
+      if (selected && u.morale > 0 && u.owner === this.view.me) {
         for (let i = 0; i < u.morale; i++) {
           const px = sx + 11 * zoom + 3 + i * 4;
           ctx.fillStyle = 'rgba(0,0,0,0.65)';
@@ -685,7 +730,7 @@ export class Renderer {
       }
     }
     for (const b of world.buildings) {
-      if (b.dead || !world.isVisibleTo(this.me, b)) continue;
+      if (b.dead || !this.view.sees(b)) continue;
       const selected = state.selection.has(b.id);
       if (!selected && b.built && (b.hp >= b.maxHp || world.tick - b.lastHitTick > 100)) continue;
       const [sx, sy] = camera.project(b.x, b.y, buildingTopZ(b.type, b.epoch, b.size));
@@ -726,8 +771,8 @@ export class Renderer {
       this.camera.zoom,
       {
         type: p.type,
-        epoch: this.world.players[this.me].epoch,
-        color: this.world.players[this.me].color,
+        epoch: this.world.players[this.view.me].epoch,
+        color: this.world.players[this.view.me].color,
         tx: p.tx,
         ty: p.ty,
         size,
@@ -763,7 +808,7 @@ export class Renderer {
     let best: Entity | null = null;
     let bestDepth = -Infinity;
     for (const u of world.units) {
-      if (u.dead || (u.owner !== this.me && !world.inSight(this.me, u))) continue;
+      if (u.dead || !this.view.seesUnit(u)) continue;
       const [x, y] = this.unitPos(u, alpha);
       const [px, py] = camera.project(x, y);
       const w = (wide(u) ? 14 : 9) * UNIT_SCALE * zoom;
@@ -787,7 +832,7 @@ export class Renderer {
       const [cx] = camera.project(e.x, e.y);
       return inside || Math.abs(sx - cx) < ((right - left) / 2) * 0.75;
     };
-    const vis = world.players[this.me].vis;
+    const vis = this.view.vis();
     const nodes = (trees: boolean) => {
       for (const n of world.resources) {
         if (n.dead || (n.nodeType === 'tree') !== trees || vis[world.map.idx(Math.floor(n.x), Math.floor(n.y))] === 0) continue;
@@ -801,7 +846,7 @@ export class Renderer {
     nodes(false);
     if (best) return best;
     for (const b of world.buildings) {
-      if (b.dead || !world.isVisibleTo(this.me, b)) continue;
+      if (b.dead || !this.view.sees(b)) continue;
       const depth = b.tx + b.ty + b.size;
       if (depth > bestDepth && hitsSprite(b, buildingTopZ(b.type, b.epoch, b.size))) {
         best = b;
