@@ -7,10 +7,34 @@ import type { BuildingType } from './buildings';
  * the rock-paper-scissors logic stays readable from the stone age to space.
  */
 export type CombatRole = 'assault' | 'pike' | 'ranged' | 'mounted' | 'siege';
+/** Heroes lead and the faithful heal, convert and curse – also outside the counter loop. */
+export type SpecialRole = 'strategist' | 'warrior' | 'priest' | 'prophet';
 /** Scouts sit outside the counter loop: fast, far-sighted and nearly harmless. */
-export type Role = 'citizen' | 'scout' | CombatRole;
+export type Role = 'citizen' | 'scout' | CombatRole | SpecialRole;
 
 export const COMBAT_ROLES: CombatRole[] = ['assault', 'pike', 'ranged', 'mounted', 'siege'];
+/** One of each per player at a time; they grow with every epoch. */
+export const HERO_ROLES: Role[] = ['strategist', 'warrior'];
+/** Units that live on faith points instead of weapons. */
+export const FAITH_ROLES: Role[] = ['priest', 'prophet'];
+
+export function isHero(role: Role): boolean {
+  return role === 'strategist' || role === 'warrior';
+}
+
+export function isFaithful(role: Role): boolean {
+  return role === 'priest' || role === 'prophet';
+}
+
+/** Roles that never pick a fight on their own. */
+export function isPeaceful(role: Role): boolean {
+  return role === 'citizen' || role === 'scout' || role === 'priest' || role === 'prophet';
+}
+
+/** Faith points: priests convert with a full store, prophets pay for calamities. */
+export const MAX_FAITH: Partial<Record<Role, number>> = { priest: 100, prophet: 200 };
+/** Faith regained per second. */
+export const FAITH_REGEN: Partial<Record<Role, number>> = { priest: 1.5, prophet: 1 };
 
 /** How a tier is drawn; the renderer picks a sprite per look. */
 export type Look =
@@ -39,7 +63,11 @@ export type Look =
   | 'trebuchet'
   | 'cannon'
   | 'rocket'
-  | 'beam';
+  | 'beam'
+  | 'strategist'
+  | 'warrior'
+  | 'priest'
+  | 'prophet';
 
 export type Projectile = 'none' | 'stone' | 'arrow' | 'bullet' | 'shell' | 'boulder' | 'laser';
 
@@ -274,6 +302,106 @@ export const ROLE_DEFS: Record<Role, RoleDef> = {
       { epoch: 14, name: 'Raketenartillerie', look: 'rocket', projectile: 'shell', range: 11 },
       { epoch: 16, name: 'Ionenkanone', look: 'beam', projectile: 'laser', range: 11 },
       { epoch: 17, name: 'Plasmaartillerie', look: 'beam', projectile: 'laser', range: 12 },
+    ],
+  },
+  strategist: {
+    role: 'strategist',
+    label: 'Held: Stratege',
+    producedAt: 'towncenter',
+    hp: 220,
+    dmg: 7,
+    armor: 2,
+    range: MELEE_RANGE,
+    sight: 9,
+    speed: 1.9,
+    cooldown: 1.2,
+    splash: 0,
+    cost: { food: 200, gold: 250 },
+    trainTime: 45,
+    strongVs: 'Führt: Einheiten in der Nähe heilen und kämpfen mutiger',
+    weakVs: 'Fernkampf, Übermacht',
+    tiers: [
+      { epoch: 0, name: 'Häuptling', look: 'strategist' },
+      { epoch: 3, name: 'Heerführer', look: 'strategist' },
+      { epoch: 6, name: 'Feldherr', look: 'strategist' },
+      { epoch: 9, name: 'Marschall', look: 'strategist' },
+      { epoch: 12, name: 'General', look: 'strategist' },
+      { epoch: 15, name: 'Kommandant', look: 'strategist' },
+    ],
+  },
+  warrior: {
+    role: 'warrior',
+    label: 'Held: Krieger',
+    producedAt: 'towncenter',
+    hp: 320,
+    dmg: 16,
+    armor: 4,
+    range: MELEE_RANGE,
+    sight: 8,
+    speed: 2,
+    cooldown: 1.1,
+    splash: 0,
+    cost: { food: 250, gold: 200, iron: 100 },
+    trainTime: 50,
+    strongVs: 'Allen Fußtruppen; feuert Einheiten in der Nähe an',
+    weakVs: 'Übermacht, Belagerung aus der Ferne',
+    tiers: [
+      { epoch: 0, name: 'Recke', look: 'warrior' },
+      { epoch: 3, name: 'Kriegsheld', look: 'warrior' },
+      { epoch: 6, name: 'Bannerritter', look: 'warrior' },
+      { epoch: 9, name: 'Haudegen', look: 'warrior' },
+      { epoch: 12, name: 'Kommandosoldat', look: 'warrior', projectile: 'bullet', range: 4 },
+      { epoch: 16, name: 'Elitekämpfer', look: 'warrior', projectile: 'laser', range: 4.5 },
+    ],
+  },
+  priest: {
+    role: 'priest',
+    label: 'Priester',
+    producedAt: 'temple',
+    hp: 55,
+    dmg: 0,
+    armor: 0,
+    range: MELEE_RANGE,
+    sight: 8,
+    speed: 1.5,
+    cooldown: 1.5,
+    splash: 0,
+    cost: { food: 50, gold: 100 },
+    trainTime: 30,
+    strongVs: 'Bekehrt Gegner, heilt Verbündete',
+    weakVs: 'Kavallerie, allem im Nahkampf',
+    tiers: [
+      { epoch: 1, name: 'Schamane', look: 'priest' },
+      { epoch: 4, name: 'Priester', look: 'priest' },
+      { epoch: 7, name: 'Mönch', look: 'priest' },
+      { epoch: 10, name: 'Pfarrer', look: 'priest' },
+      { epoch: 13, name: 'Feldgeistlicher', look: 'priest' },
+      { epoch: 16, name: 'Psioniker', look: 'priest' },
+    ],
+  },
+  prophet: {
+    role: 'prophet',
+    label: 'Prophet',
+    producedAt: 'temple',
+    hp: 50,
+    dmg: 0,
+    armor: 0,
+    range: MELEE_RANGE,
+    sight: 9,
+    speed: 1.4,
+    cooldown: 1.5,
+    splash: 0,
+    cost: { food: 50, gold: 150 },
+    trainTime: 40,
+    strongVs: 'Katastrophen gegen Armeen und Städte',
+    weakVs: 'Kavallerie, allem im Nahkampf',
+    tiers: [
+      { epoch: 2, name: 'Seher', look: 'prophet' },
+      { epoch: 5, name: 'Orakel', look: 'prophet' },
+      { epoch: 8, name: 'Prophet', look: 'prophet' },
+      { epoch: 11, name: 'Mystiker', look: 'prophet' },
+      { epoch: 14, name: 'Weissager', look: 'prophet' },
+      { epoch: 16, name: 'Technoprophet', look: 'prophet' },
     ],
   },
 };

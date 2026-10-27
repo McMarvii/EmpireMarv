@@ -657,6 +657,8 @@ const GEOMETRY: Record<BuildingType, Geometry> = {
   gate: { inset: 0, wall: 20 },
   smithy: { inset: 0.3, wall: 30 },
   academy: { inset: 0.25, wall: 42 },
+  temple: { inset: 0.3, wall: 40 },
+  wonder: { inset: 0.35, wall: 70 },
 };
 
 interface WallLook {

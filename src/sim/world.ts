@@ -1,16 +1,19 @@
+import { ABILITY_BY_ID, type AbilityId } from '../data/abilities';
 import { buildingAttack, BUILDING_DEFS, buildingMaxHp, buildingName, MORALE_MAX_HOUSES, MORALE_RADIUS, type BuildingType } from '../data/buildings';
-import { EPOCHS, LAST_EPOCH } from '../data/epochs';
+import { epochStyle, EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
 import { modsFor, TECH_BY_ID, TECHS, TECHS_FOR_ADVANCE, type Tech } from '../data/techs';
-import { bestTier, CARRY_CAPACITY, ROLE_DEFS, unitStats, type Look, type Projectile, type Role, type UnitStats } from '../data/units';
+import { bestTier, CARRY_CAPACITY, isHero, MAX_FAITH, ROLE_DEFS, unitStats, type Look, type Projectile, type Role, type UnitStats } from '../data/units';
+import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
 import { isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { updateProjectiles } from './combat';
-import { rectOf, type Building, type Entity, type NodeType, type Plan, type Player, type ResourceNode, type Unit } from './entities';
+import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Plan, type Player, type ResourceNode, type Unit } from './entities';
 import { hypot } from './fmath';
 import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
 import { GameMap } from './map';
 import { generateMap } from './mapgen';
 import { distToRect, Pathfinder, type Point } from './pathfinding';
+import { updateAuras, updateHazards, useAbility } from './powers';
 import { Rng } from './rng';
 import { updateVision } from './vision';
 
@@ -37,6 +40,8 @@ export interface GameSettings {
   aiDifficulty: Difficulty;
   players: PlayerSetup[];
   revealMap?: boolean;
+  /** Minutes a finished wonder must stand to win (0 or missing: no wonder victory). */
+  wonderVictory?: number;
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -54,7 +59,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
 };
 
 export interface GameEvent {
-  type: 'info' | 'warn' | 'epoch' | 'attack' | 'built' | 'trained' | 'tech' | 'gameover';
+  type: 'info' | 'warn' | 'epoch' | 'attack' | 'built' | 'trained' | 'tech' | 'gameover' | 'wonder';
   player: number;
   text: string;
   /** Epoch events: the epoch that was reached. */
@@ -87,7 +92,7 @@ export interface ProjectileFx {
  * simulation never reads them back, so they cannot affect determinism.
  */
 export interface SoundCue {
-  kind: 'shot' | 'melee' | 'impact' | 'blast' | 'death' | 'collapse' | 'work';
+  kind: 'shot' | 'melee' | 'impact' | 'blast' | 'death' | 'collapse' | 'work' | 'ability' | 'calamity' | 'convert' | 'heal';
   x: number;
   y: number;
   owner: number;
@@ -98,18 +103,22 @@ export interface SoundCue {
   /** Work cues: what is being worked on. */
   work?: Res | 'build';
   size?: number;
+  /** Ability and calamity cues: which one. */
+  ability?: AbilityId;
 }
 
 /** Cues kept until the client drains them; headless runs simply stop recording. */
 const MAX_CUES = 256;
 
 export interface Effect {
-  kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit';
+  kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit' | 'ring' | 'convert' | 'heal';
   x: number;
   y: number;
   t: number;
   dur: number;
   size: number;
+  /** Ring effects: the ability that caused it (decides the colour). */
+  ability?: AbilityId;
 }
 
 export interface Controller {
@@ -145,7 +154,13 @@ export type Command =
   | { type: 'stop'; player: number; ids: number[] }
   | { type: 'destroy'; player: number; ids: number[] }
   /** The computer takes over a player's empire (they left) or hands it back. */
-  | { type: 'control'; player: number; ai: boolean };
+  | { type: 'control'; player: number; ai: boolean }
+  /** Hero abilities (around the hero) and prophets' calamities (at x, y). */
+  | { type: 'ability'; player: number; ids: number[]; ability: AbilityId; x?: number; y?: number }
+  /** Priests: win an enemy unit over. */
+  | { type: 'convert'; player: number; ids: number[]; targetId: number; queue?: boolean }
+  /** Priests: heal a friendly unit. */
+  | { type: 'heal'; player: number; ids: number[]; targetId: number; queue?: boolean };
 
 const START_STOCK: Record<StartResources, Record<Res, number>> = {
   low: { food: 200, wood: 200, stone: 100, gold: 100, iron: 50 },
@@ -185,6 +200,10 @@ export class World {
   events: GameEvent[] = [];
   cues: SoundCue[] = [];
   controllers: Controller[] = [];
+  /** Calamities at work. */
+  hazards: Hazard[] = [];
+  /** How the match was won, once it is over. */
+  victory: 'conquest' | 'wonder' | null = null;
   /** Builds the computer player that takes over an empire whose human left. */
   makeAI: ((player: number) => Controller) | null = null;
   over = false;
@@ -196,6 +215,9 @@ export class World {
   private grid: Unit[][];
   private gridCols: number;
   private lastAlertTick: number[] = [];
+  private nextHazard = 1;
+  /** Effects of each player's standing wonders. */
+  private wonderFx: Array<Set<WonderEffect>> = [];
 
   constructor(settings: Partial<GameSettings> = {}) {
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
@@ -236,6 +258,7 @@ export class World {
       });
       this.statCache.push(new Map());
       this.lastAlertTick.push(-1000);
+      this.wonderFx.push(new Set());
     });
 
     this.startPositions.push(...generateMap(this));
@@ -310,6 +333,11 @@ export class World {
       moving: false,
       attackAnim: 0,
       stuckTime: 0,
+      faith: (MAX_FAITH[role] ?? 0) / 2,
+      ready: {},
+      status: {},
+      aura: 0,
+      plagueBy: -1,
     };
     this.entities.set(u.id, u);
     this.units.push(u);
@@ -348,6 +376,7 @@ export class World {
       targetId: 0,
       seenBy: 1 << owner,
       popBlocked: false,
+      countdown: 0,
     };
     this.entities.set(b.id, b);
     this.buildings.push(b);
@@ -780,9 +809,35 @@ export class World {
       case 'attack': {
         const target = this.get(cmd.targetId);
         if (!target || target.kind === 'resource' || !this.areEnemies(cmd.player, target.owner)) return;
-        for (const u of this.ownUnits(cmd.player, cmd.ids)) this.assign(u, { kind: 'attack', targetId: target.id }, cmd.queue ?? false);
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
+          // Priests answer an attack order by converting; prophets do not fight at all.
+          if (u.role === 'priest') {
+            if (target.kind === 'unit' && !isHero(target.role)) this.assign(u, { kind: 'convert', targetId: target.id }, cmd.queue ?? false);
+          } else if (u.role !== 'prophet') {
+            this.assign(u, { kind: 'attack', targetId: target.id }, cmd.queue ?? false);
+          }
+        }
         break;
       }
+      case 'convert': {
+        const target = this.get(cmd.targetId);
+        if (!target || target.kind !== 'unit' || isHero(target.role) || !this.areEnemies(cmd.player, target.owner)) return;
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
+          if (u.role === 'priest') this.assign(u, { kind: 'convert', targetId: target.id }, cmd.queue ?? false);
+        }
+        break;
+      }
+      case 'heal': {
+        const target = this.get(cmd.targetId);
+        if (!target || target.kind !== 'unit' || this.areEnemies(cmd.player, target.owner)) return;
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
+          if (u.role === 'priest' && u !== target) this.assign(u, { kind: 'heal', targetId: target.id }, cmd.queue ?? false);
+        }
+        break;
+      }
+      case 'ability':
+        this.commandAbility(cmd.player, cmd.ids, cmd.ability, cmd.x, cmd.y);
+        break;
       case 'patrol':
         this.commandPatrol(cmd.player, cmd.ids, cmd.x, cmd.y, cmd.queue ?? false);
         break;
@@ -1036,6 +1091,11 @@ export class World {
     const p = this.players[player];
     const def = BUILDING_DEFS[type];
     if (!this.buildingUnlocked(player, type)) return;
+    const wonder = type === 'wonder' ? this.wonderProblem(player) : null;
+    if (wonder) {
+      this.emit({ type: 'warn', player, text: wonder });
+      return;
+    }
     if (!this.canPlace(player, type, tx, ty)) {
       this.emit({ type: 'warn', player, text: 'Hier kann nicht gebaut werden.' });
       return;
@@ -1087,6 +1147,10 @@ export class World {
     if (!BUILDING_DEFS[b.type].trains.includes(role)) return false;
     const tier = bestTier(role, p.epoch);
     if (tier < 0) return false;
+    if (isHero(role) && this.hasHero(player, role)) {
+      this.emit({ type: 'warn', player, text: `Es gibt schon einen ${ROLE_DEFS[role].label.replace('Held: ', '')}en – jeder Held nur einmal.` });
+      return false;
+    }
     if (b.queue.length >= 10) {
       this.emit({ type: 'warn', player, text: 'Die Warteschlange ist voll.' });
       return false;
@@ -1099,6 +1163,137 @@ export class World {
     pay(p.stock, cost);
     b.queue.push({ role, progress: 0, cost });
     return true;
+  }
+
+  /** A living hero of this kind, or one in a training queue. */
+  hasHero(player: number, role: Role): boolean {
+    if (this.units.some((u) => !u.dead && u.owner === player && u.role === role)) return true;
+    return this.buildings.some((b) => !b.dead && b.owner === player && b.queue.some((q) => q.role === role));
+  }
+
+  private commandAbility(player: number, ids: number[], id: AbilityId, x?: number, y?: number): void {
+    const a = ABILITY_BY_ID.get(id);
+    if (!a) return;
+    const units = this.ownUnits(player, ids).filter((u) => u.role === a.role);
+    if (a.target === 'self') {
+      for (const u of units) useAbility(this, u, id);
+      return;
+    }
+    if (x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    // One prophet answers: the nearest one with enough faith.
+    let best: Unit | null = null;
+    let bestD = Infinity;
+    for (const u of units) {
+      if (u.faith < a.faith || this.players[player].epoch < a.minEpoch) continue;
+      const d = hypot(u.x - x, u.y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    if (!best) {
+      if (units.length) this.emit({ type: 'warn', player, text: `Zu wenig Glaube für ${a.name} (${a.faith} nötig).` });
+      return;
+    }
+    best.queue = [];
+    best.order = { kind: 'cast', ability: id, x, y };
+    best.path = [];
+    best.repathTick = -1000;
+  }
+
+  /** A priest won a unit over: it changes sides with its wounds, but forgets its orders. */
+  convertUnit(u: Unit, owner: number): void {
+    const old = u.owner;
+    if (old === owner || u.dead) return;
+    const ratio = u.hp / u.maxHp;
+    u.owner = owner;
+    u.stats = this.unitStatsFor(owner, u.role, u.tier);
+    u.maxHp = u.stats.hp;
+    u.hp = Math.max(1, ratio * u.maxHp);
+    u.order = { kind: 'idle' };
+    u.queue = [];
+    u.path = [];
+    u.status = {};
+    u.aura = 0;
+    this.players[old].stats.unitsLost++;
+    this.players[owner].stats.kills++;
+    this.effects.push({ kind: 'convert', x: u.x, y: u.y, t: 0, dur: 1.2, size: 1 });
+    this.cue({ kind: 'convert', x: u.x, y: u.y, owner, epoch: u.stats.epoch });
+    this.emit({ type: 'warn', player: old, text: `${u.stats.name} wurde bekehrt und kämpft jetzt für ${this.players[owner].name}!`, x: u.x, y: u.y });
+    this.emit({ type: 'info', player: owner, text: `${u.stats.name} ist bekehrt und gehört jetzt zu dir.`, x: u.x, y: u.y });
+  }
+
+  addHazard(kind: Hazard['kind'], x: number, y: number, r: number, owner: number, seconds: number): void {
+    this.hazards.push({ id: this.nextHazard++, kind, x, y, r, owner, start: this.tick, until: this.tick + Math.max(1, Math.round(seconds * TICK_RATE)) });
+    const name = ABILITY_BY_ID.get(kind)!.name;
+    // Everyone with something in the area hears about it once.
+    const hit = new Set<number>();
+    this.forUnitsNear(x, y, r, (u) => {
+      if (!u.dead && this.areEnemies(owner, u.owner) && hypot(u.x - x, u.y - y) <= r) hit.add(u.owner);
+    });
+    for (const b of this.buildings) if (!b.dead && this.areEnemies(owner, b.owner) && distToRect(x, y, rectOf(b)) <= r) hit.add(b.owner);
+    for (const p of hit) this.emit({ type: 'attack', player: p, text: `${name}! ${this.players[owner].name} ruft eine Katastrophe herbei.`, x, y });
+  }
+
+  // ---------------------------------------------------------------- wonders
+
+  /** Whether a standing wonder of this player has the effect. */
+  wonderEffect(owner: number, effect: WonderEffect): boolean {
+    return owner >= 0 && this.wonderFx[owner].has(effect);
+  }
+
+  /** Recomputes wonder effects after a wonder was finished or lost. */
+  refreshWonders(): void {
+    for (const fx of this.wonderFx) fx.clear();
+    for (const b of this.buildings) {
+      if (b.dead || b.type !== 'wonder' || !b.built) continue;
+      this.wonderFx[b.owner].add(WONDERS[epochStyle(b.epoch)].effect);
+    }
+  }
+
+  /** Why the player cannot found a wonder now, or null. Each era's wonder once per player. */
+  wonderProblem(player: number): string | null {
+    const era = epochStyle(this.players[player].epoch);
+    const has = this.buildings.some((b) => !b.dead && b.owner === player && b.type === 'wonder' && epochStyle(b.epoch) === era);
+    return has ? `${WONDERS[era].name} steht schon – jedes Ära-Wunder nur einmal.` : null;
+  }
+
+  /** A wonder was finished: with wonder victory on, the countdown starts. */
+  wonderFinished(b: Building): void {
+    this.refreshWonders();
+    const name = buildingName(b.type, b.epoch);
+    const owner = this.players[b.owner];
+    const minutes = this.settings.wonderVictory ?? 0;
+    if (minutes > 0) b.countdown = minutes * 60 * TICK_RATE;
+    for (const p of this.players) {
+      const mine = this.teamOf(p.id) === owner.team;
+      const tail = minutes > 0 ? (mine ? ` Haltet es ${minutes} Minuten für den Wundersieg!` : ` Zerstört es in ${minutes} Minuten, sonst gewinnt ${owner.name}!`) : '';
+      this.emit({ type: 'wonder', player: p.id, text: `${owner.name} hat ${name} vollendet.${tail}`, x: b.x, y: b.y });
+    }
+  }
+
+  private updateWonders(): void {
+    for (const b of this.buildings) {
+      if (b.dead || b.type !== 'wonder' || !b.built || b.countdown <= 0) continue;
+      b.countdown--;
+      const left = b.countdown / TICK_RATE;
+      if (left === 60) {
+        for (const p of this.players) this.emit({ type: 'wonder', player: p.id, text: `Noch 1 Minute bis zum Wundersieg von ${this.players[b.owner].name}!`, x: b.x, y: b.y });
+      }
+      if (b.countdown === 0) {
+        this.finish(this.players[b.owner].team, 'wonder');
+        return;
+      }
+    }
+  }
+
+  private finish(team: number | null, how: 'conquest' | 'wonder'): void {
+    this.over = true;
+    this.winnerTeam = team;
+    this.victory = how;
+    for (const q of this.players) {
+      this.emit({ type: 'gameover', player: q.id, text: q.team === this.winnerTeam ? 'Sieg!' : 'Niederlage' });
+    }
   }
 
   private commandResearch(player: number, buildingId: number, id: string): void {
@@ -1165,12 +1360,19 @@ export class World {
     for (const u of this.units) if (!u.dead) updateUnit(this, u);
     separateUnits(this);
     updateProjectiles(this);
+    updateHazards(this);
+    this.updateWonders();
     for (const fx of this.effects) fx.t += DT;
     this.effects = this.effects.filter((fx) => fx.t < fx.dur);
 
     if (this.tick % 20 === 0) {
-      for (const u of this.units) if (!u.dead) u.morale = this.moraleAt(u.owner, u.x, u.y);
-      this.checkVictory();
+      for (const u of this.units) {
+        if (u.dead) continue;
+        u.morale = this.moraleAt(u.owner, u.x, u.y) + (this.wonderEffect(u.owner, 'morale') ? WONDER_MORALE : 0);
+        u.aura = 0;
+      }
+      updateAuras(this);
+      if (!this.over) this.checkVictory();
     }
     this.compact();
     this.rebuildGrid();
@@ -1198,6 +1400,7 @@ export class World {
     if (e.kind === 'unit') {
       owner.stats.unitsLost++;
       this.cue({ kind: 'death', x: e.x, y: e.y, owner: e.owner, epoch: e.stats.epoch, look: e.stats.look });
+      if (isHero(e.role)) this.emit({ type: 'warn', player: e.owner, text: `${e.stats.name} ist gefallen.`, x: e.x, y: e.y });
     } else {
       owner.stats.buildingsLost++;
       this.cue({ kind: 'collapse', x: e.x, y: e.y, owner: e.owner, epoch: e.epoch, size: e.size });
@@ -1206,6 +1409,12 @@ export class World {
       this.effects.push({ kind: 'collapse', x: e.x, y: e.y, t: 0, dur: 1.6, size: e.size });
       if (e.type === 'towncenter') {
         this.emit({ type: 'warn', player: e.owner, text: `${buildingName(e.type, e.epoch)} wurde zerstört!`, x: e.x, y: e.y });
+      }
+      if (e.type === 'wonder') {
+        this.refreshWonders();
+        for (const p of this.players) {
+          this.emit({ type: 'wonder', player: p.id, text: `${buildingName(e.type, e.epoch)} von ${owner.name} wurde zerstört.`, x: e.x, y: e.y });
+        }
       }
     }
   }
@@ -1225,13 +1434,7 @@ export class World {
       }
     }
     const teams = new Set(this.players.filter((p) => p.alive).map((p) => p.team));
-    if (teams.size <= 1) {
-      this.over = true;
-      this.winnerTeam = teams.size === 1 ? [...teams][0] : null;
-      for (const q of this.players) {
-        this.emit({ type: 'gameover', player: q.id, text: q.team === this.winnerTeam ? 'Sieg!' : 'Niederlage' });
-      }
-    }
+    if (teams.size <= 1) this.finish(teams.size === 1 ? [...teams][0] : null, 'conquest');
   }
 
   /**
@@ -1255,6 +1458,8 @@ export class World {
       h.add(u.hp);
       h.add(u.carryAmount);
       h.add(u.queue.length);
+      h.add(u.owner);
+      h.add(u.faith);
     }
     for (const b of this.buildings) {
       if (b.dead) continue;
@@ -1262,6 +1467,11 @@ export class World {
       h.add(b.hp);
       h.add(b.progress);
       h.add(b.queue.length);
+      h.add(b.countdown);
+    }
+    for (const hz of this.hazards) {
+      h.add(hz.id);
+      h.add(hz.until);
     }
     for (const n of this.resources) {
       if (n.dead) continue;

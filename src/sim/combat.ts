@@ -1,9 +1,10 @@
 import { MORALE_PER_HOUSE } from '../data/buildings';
 import { applyArmor, damageMultiplier } from '../data/combat';
-import type { Projectile, Role } from '../data/units';
+import { isFaithful, type Projectile, type Role } from '../data/units';
 import { rectOf, type Building, type Entity, type Unit } from './entities';
 import { hypot } from './fmath';
 import { distToRect } from './pathfinding';
+import { attackBoost, damageTaken } from './status';
 import { DT, type World } from './world';
 
 const PROJECTILE_SPEED: Record<Projectile, number> = {
@@ -40,7 +41,7 @@ export function fire(w: World, attacker: Unit | Building, target: Entity): void 
   let epoch: number;
   if (attacker.kind === 'unit') {
     role = attacker.role;
-    dmg = attacker.stats.dmg * (1 + attacker.morale * MORALE_PER_HOUSE);
+    dmg = attacker.stats.dmg * (1 + attacker.morale * MORALE_PER_HOUSE) * attackBoost(w, attacker);
     projectile = attacker.stats.projectile;
     splash = attacker.stats.splash;
     epoch = attacker.stats.epoch;
@@ -149,17 +150,27 @@ export function applyDamage(
   const cls = target.kind === 'building' ? 'building' : target.role;
   const armor = target.kind === 'unit' ? target.stats.armor : 1 + target.epoch * 0.6;
   const moraleDef = target.kind === 'unit' ? target.morale * MORALE_PER_HOUSE : 0;
-  const dmg = applyArmor(raw * damageMultiplier(role, cls), armor) * (1 - moraleDef);
+  const shield = target.kind === 'unit' ? damageTaken(w, target) : 1;
+  const dmg = applyArmor(raw * damageMultiplier(role, cls), armor) * Math.max(0.2, 1 - moraleDef) * shield;
   target.hp -= dmg;
   target.lastHitTick = w.tick;
   w.alertAttack(target.owner, target.x, target.y);
 
   if (target.kind === 'unit' && target.hp > 0) {
     const attacker = w.get(attackerId);
-    // Idle soldiers strike back; workers keep working like in the classics.
-    if (attacker && attacker.kind !== 'resource' && target.role !== 'citizen' && target.order.kind === 'idle') {
+    // Idle soldiers strike back; workers and the faithful keep doing their thing like in the classics.
+    if (attacker && attacker.kind !== 'resource' && target.role !== 'citizen' && !isFaithful(target.role) && target.order.kind === 'idle') {
       target.order = { kind: 'attack', targetId: attacker.id, resume: null, leash: { x: target.x, y: target.y } };
     }
   }
+  if (target.hp <= 0) w.kill(target, attackerOwner);
+}
+
+/** Damage past armor and morale: calamities and the plague. */
+export function harm(w: World, target: Unit | Building, amount: number, attackerOwner: number): void {
+  if (target.dead || amount <= 0) return;
+  target.hp -= amount;
+  target.lastHitTick = w.tick;
+  w.alertAttack(target.owner, target.x, target.y);
   if (target.hp <= 0) w.kill(target, attackerOwner);
 }

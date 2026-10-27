@@ -1,11 +1,15 @@
+import { ABILITY_BY_ID, CONVERT_RANGE, CONVERT_SETBACK, CONVERT_TIME, HEAL_RANGE, PRIEST_HEAL } from '../data/abilities';
 import { BUILDING_DEFS, buildingName, FARM_CAPACITY } from '../data/buildings';
 import { epochLabel, EPOCHS } from '../data/epochs';
 import { TECH_BY_ID } from '../data/techs';
-import { BUILD_RATE, gatherRate, ROLE_DEFS } from '../data/units';
+import { bestTier, BUILD_RATE, gatherRate, isFaithful, isHero, isPeaceful, MAX_FAITH, ROLE_DEFS } from '../data/units';
+import { WONDER_GATHER, WONDER_RESEARCH, WONDER_TRAIN } from '../data/wonders';
 import { fire } from './combat';
 import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type Order, type PatrolOrder, type Plan, type ResourceNode, type Unit } from './entities';
 import { atan2, cos, hypot, sin } from './fmath';
 import { distToRect, type PathGoal, type Point, type Rect } from './pathfinding';
+import { castCalamity, healFactor, tickPowers } from './powers';
+import { attackCooldown, unitSpeed } from './status';
 import { DT, TICK_RATE, type World } from './world';
 
 const WORK_REACH = 1.0;
@@ -78,7 +82,8 @@ function followPath(w: World, u: Unit): void {
   const dy = next.y - u.y;
   const dist = hypot(dx, dy);
   const o = u.order;
-  const speed = o.kind === 'move' && o.pace ? Math.min(u.stats.speed, o.pace) : u.stats.speed;
+  const v = unitSpeed(w, u);
+  const speed = o.kind === 'move' && o.pace ? Math.min(v, o.pace) : v;
   const step = speed * DT;
   u.moving = true;
   if (dist > 1e-6) u.facing = atan2(dy, dx);
@@ -134,6 +139,11 @@ export function updateUnit(w: World, u: Unit): void {
   const regen = w.players[u.owner].mods.regen;
   if (regen > 0 && u.hp < u.maxHp && w.tick - u.lastHitTick > 5 * TICK_RATE) u.hp = Math.min(u.maxHp, u.hp + regen * DT);
   if (u.attackAnim > 0) u.attackAnim = Math.max(0, u.attackAnim - DT);
+  // Stunned (Kampfschrei): no orders, no steps until it wears off.
+  if (!tickPowers(w, u)) {
+    u.moving = false;
+    return;
+  }
   if (u.order.kind === 'idle' && u.queue.length > 0) startPlan(w, u, u.queue.shift()!);
   switch (u.order.kind) {
     case 'idle':
@@ -159,6 +169,15 @@ export function updateUnit(w: World, u: Unit): void {
       break;
     case 'patrol':
       updatePatrol(w, u);
+      break;
+    case 'convert':
+      updateConvert(w, u);
+      break;
+    case 'heal':
+      updateHeal(w, u);
+      break;
+    case 'cast':
+      updateCast(w, u);
       break;
   }
   followPath(w, u);
@@ -196,6 +215,12 @@ export function startPlan(w: World, u: Unit, plan: Plan): void {
       u.order = { kind: 'patrol', points: plan.points.map((p) => ({ ...p })), index: Math.min(1, plan.points.length - 1) };
       routeTo(w, u);
       break;
+    case 'convert':
+      u.order = u.role === 'priest' ? { kind: 'convert', targetId: plan.targetId, progress: 0, seenHit: u.lastHitTick } : { kind: 'idle' };
+      break;
+    case 'heal':
+      u.order = u.role === 'priest' ? { kind: 'heal', targetId: plan.targetId } : { kind: 'idle' };
+      break;
   }
 }
 
@@ -213,6 +238,8 @@ export function orderTarget(w: World, o: Order | Plan): Point | null {
       return 'index' in o ? o.points[o.index] : o.points[o.points.length - 1];
     case 'explore':
       return 'tx' in o && o.tx >= 0 ? { x: o.tx + 0.5, y: o.ty + 0.5 } : null;
+    case 'cast':
+      return { x: o.x, y: o.y };
     case 'idle':
       return null;
     default: {
@@ -234,7 +261,7 @@ function routeTo(w: World, u: Unit): void {
  */
 function updatePatrol(w: World, u: Unit): void {
   const o = u.order as PatrolOrder;
-  if (u.role !== 'citizen' && u.role !== 'scout' && scanDue(w, u)) {
+  if (!isPeaceful(u.role) && scanDue(w, u)) {
     const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
     if (target) {
       u.order = { kind: 'attack', targetId: target.id, resume: o, leash: null };
@@ -258,7 +285,11 @@ function scanDue(w: World, u: Unit): boolean {
 }
 
 function updateIdle(w: World, u: Unit): void {
-  if (u.role === 'citizen' || u.role === 'scout' || !scanDue(w, u)) return;
+  if (u.role === 'priest') {
+    if (scanDue(w, u)) seekPatient(w, u);
+    return;
+  }
+  if (isPeaceful(u.role) || !scanDue(w, u)) return;
   const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
   if (target) {
     u.order = { kind: 'attack', targetId: target.id, resume: null, leash: { x: u.x, y: u.y } };
@@ -268,7 +299,7 @@ function updateIdle(w: World, u: Unit): void {
 function updateMove(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'move') return;
-  if (o.attackMove && u.role !== 'citizen' && scanDue(w, u)) {
+  if (o.attackMove && !isPeaceful(u.role) && scanDue(w, u)) {
     const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
     if (target) {
       u.order = { kind: 'attack', targetId: target.id, resume: { kind: 'move', x: o.x, y: o.y, attackMove: true }, leash: null };
@@ -314,7 +345,7 @@ function updateAttack(w: World, u: Unit): void {
     face(u, t);
     if (u.cooldown <= 0) {
       fire(w, u, t);
-      u.cooldown = u.stats.cooldown;
+      u.cooldown = attackCooldown(w, u);
     }
     return;
   }
@@ -335,6 +366,100 @@ function updateAttack(w: World, u: Unit): void {
         endAttack(w, u);
       }
     }
+  }
+}
+
+/** Walks towards a unit until within `range`; false while still on the way. */
+function closeIn(w: World, u: Unit, t: Unit, range: number): boolean {
+  if (hypot(t.x - u.x, t.y - u.y) <= range) {
+    u.path = [];
+    face(u, t);
+    return true;
+  }
+  if (u.path.length === 0 || w.tick - u.repathTick >= 10) setPathTo(w, u, { kind: 'point', x: t.x, y: t.y });
+  return false;
+}
+
+/**
+ * Priest: channel at an enemy unit until it changes sides. Needs a full
+ * store of faith; every hit on the priest throws the prayer back, the
+ * target slipping out of range starts it over. Heroes cannot be won over.
+ */
+function updateConvert(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'convert') return;
+  const t = w.get(o.targetId);
+  if (!t || t.kind !== 'unit' || isHero(t.role) || !w.areEnemies(u.owner, t.owner) || !w.inSight(u.owner, t)) return goIdle(u);
+  if (!closeIn(w, u, t, CONVERT_RANGE)) {
+    o.progress = 0;
+    return;
+  }
+  if (u.lastHitTick > o.seenHit) {
+    o.seenHit = u.lastHitTick;
+    o.progress = Math.max(0, o.progress - CONVERT_SETBACK);
+  }
+  if (u.faith < (MAX_FAITH.priest ?? 0)) {
+    o.progress = 0;
+    return;
+  }
+  o.progress += DT;
+  u.attackAnim = Math.max(u.attackAnim, 0.2);
+  const resist = 1 + w.players[t.owner].mods.convertResist;
+  const need = CONVERT_TIME * resist * (isFaithful(t.role) ? 1.5 : 1);
+  if (o.progress < need) return;
+  w.convertUnit(t, u.owner);
+  u.faith = 0;
+  goIdle(u);
+}
+
+/** Priest: tend a friendly unit until it is whole. */
+function updateHeal(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'heal') return;
+  const t = w.get(o.targetId);
+  if (!t || t.kind !== 'unit' || w.areEnemies(u.owner, t.owner) || t.hp >= t.maxHp) {
+    goIdle(u);
+    u.scanTick = w.tick;
+    return;
+  }
+  if (!closeIn(w, u, t, HEAL_RANGE)) return;
+  t.hp = Math.min(t.maxHp, t.hp + t.maxHp * PRIEST_HEAL * healFactor(w, u.owner) * DT);
+  u.attackAnim = Math.max(u.attackAnim, 0.2);
+  if (w.tick % TICK_RATE === u.id % TICK_RATE) {
+    w.effects.push({ kind: 'heal', x: t.x, y: t.y, t: 0, dur: 0.8, size: 1 });
+    w.cue({ kind: 'heal', x: t.x, y: t.y, owner: u.owner });
+  }
+}
+
+/** Idle priests look after the wounded nearby, the worst first. */
+function seekPatient(w: World, u: Unit): void {
+  let best: Unit | null = null;
+  let bestRatio = 1;
+  w.forUnitsNear(u.x, u.y, u.stats.sight, (o) => {
+    if (o === u || o.dead || w.areEnemies(u.owner, o.owner) || hypot(o.x - u.x, o.y - u.y) > u.stats.sight) return;
+    const ratio = o.hp / o.maxHp;
+    if (ratio < bestRatio) {
+      bestRatio = ratio;
+      best = o;
+    }
+  });
+  if (best) u.order = { kind: 'heal', targetId: (best as Unit).id };
+}
+
+/** Prophet: walk within range of the spot, then call down the calamity. */
+function updateCast(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'cast') return;
+  const a = ABILITY_BY_ID.get(o.ability)!;
+  if (hypot(o.x - u.x, o.y - u.y) <= a.range) {
+    u.path = [];
+    u.facing = atan2(o.y - u.y, o.x - u.x);
+    castCalamity(w, u, o.ability, o.x, o.y);
+    return goIdle(u);
+  }
+  if (u.path.length === 0) {
+    if (w.tick - u.repathTick < TICK_RATE) return goIdle(u);
+    setPathTo(w, u, { kind: 'point', x: o.x, y: o.y });
   }
 }
 
@@ -435,7 +560,8 @@ function updateGather(w: World, u: Unit): void {
     u.carryAmount = 0;
   }
   const bonus = player.mods.gather[o.res] * (isFarm ? player.mods.farm : 1);
-  let amount = gatherRate(player.epoch) * player.gatherBonus * bonus * DT;
+  const wonder = w.wonderEffect(u.owner, 'gather') ? WONDER_GATHER : 1;
+  let amount = gatherRate(player.epoch) * player.gatherBonus * bonus * wonder * DT;
   if (target.kind === 'resource') {
     amount = Math.min(amount, target.amount);
     target.amount -= amount;
@@ -636,6 +762,7 @@ function completeBuilding(w: World, b: Building): void {
   const p = w.players[b.owner];
   p.stats.buildingsBuilt++;
   w.emit({ type: 'built', player: b.owner, text: `${buildingName(b.type, b.epoch)} fertiggestellt.`, x: b.x, y: b.y });
+  if (b.type === 'wonder') w.wonderFinished(b);
 }
 
 /** Builders look for useful follow-up work, like the classic games did. */
@@ -704,18 +831,29 @@ export function updateBuilding(w: World, b: Building): void {
     b.research = { targetEpoch: target, progress: 0, total: EPOCHS[target].advanceTime };
   }
   if (b.research) {
-    b.research.progress += DT * player.mods.research;
+    b.research.progress += DT * player.mods.research * (w.wonderEffect(b.owner, 'research') ? WONDER_RESEARCH : 1);
     if (b.research.progress >= b.research.total) {
       const epoch = EPOCHS[b.research.targetEpoch];
       player.epoch = epoch.index;
       b.research = null;
-      // The whole city moves into the new era: new look, sturdier walls.
+      // The whole city moves into the new era: new look, sturdier walls. Wonders stay what they were built as.
       for (const other of w.buildings) {
-        if (other.dead || other.owner !== b.owner) continue;
+        if (other.dead || other.owner !== b.owner || other.type === 'wonder') continue;
         const ratio = other.hp / other.maxHp;
         other.epoch = epoch.index;
         other.maxHp = w.buildingMaxHpFor(other.owner, other.type, epoch.index);
         other.hp = Math.max(1, ratio * other.maxHp);
+      }
+      // Heroes grow with their people: the next title, the next weapons.
+      for (const h of w.units) {
+        if (h.dead || h.owner !== b.owner || !isHero(h.role)) continue;
+        const tier = bestTier(h.role, epoch.index);
+        if (tier <= h.tier) continue;
+        const ratio = h.hp / h.maxHp;
+        h.tier = tier;
+        h.stats = w.unitStatsFor(h.owner, h.role, tier);
+        h.maxHp = h.stats.hp;
+        h.hp = Math.max(1, ratio * h.maxHp);
       }
       for (const p of w.players) {
         const label = epochLabel(epoch.index);
@@ -727,7 +865,7 @@ export function updateBuilding(w: World, b: Building): void {
   }
 
   if (b.tech) {
-    b.tech.progress += DT * player.mods.research;
+    b.tech.progress += DT * player.mods.research * (w.wonderEffect(b.owner, 'research') ? WONDER_RESEARCH : 1);
     if (b.tech.progress >= b.tech.total) {
       const tech = TECH_BY_ID.get(b.tech.id)!;
       b.tech = null;
@@ -748,7 +886,7 @@ export function updateBuilding(w: World, b: Building): void {
     return;
   }
   b.popBlocked = false;
-  item.progress += DT * player.mods.train;
+  item.progress += DT * player.mods.train * (w.wonderEffect(b.owner, 'train') ? WONDER_TRAIN : 1);
   if (item.progress < ROLE_DEFS[item.role].trainTime) return;
   const towards = b.rally[0] ?? { x: b.x + b.size, y: b.y + b.size };
   const spot = w.findSpawnPoint(b, towards);

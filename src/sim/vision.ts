@@ -53,6 +53,8 @@ export function updateVision(w: World): void {
     const sight = b.built ? BUILDING_DEFS[b.type].sight + b.size / 2 : b.size;
     reveal(w, w.players[b.owner].vis, b.x, b.y, sight);
   }
+  // The Great Library shows the whole world.
+  for (const p of w.players) if (w.wonderEffect(p.id, 'reveal')) p.vis.fill(2);
   shareWithAllies(w);
   for (const b of w.buildings) {
     if (b.dead) continue;

@@ -1,3 +1,4 @@
+import type { AbilityId } from '../data/abilities';
 import { EPOCHS, type EraStyle } from '../data/epochs';
 import type { Res } from '../data/resources';
 import type { Look, Projectile } from '../data/units';
@@ -175,6 +176,86 @@ export function collapseSound(o: Out, size: number, r: number): void {
   }
 }
 
+// ------------------------------------------------------------ heroes, faith
+
+/** Hero abilities: a call to arms, a war cry, the whirl of a blade … */
+export function abilitySound(o: Out, ability: AbilityId, style: EraStyle, r: number): void {
+  const k = vary(r, 0.06);
+  const { lead, fanfare } = ERA_INST[style];
+  switch (ability) {
+    case 'rally':
+      // Rising call on the era's fanfare instrument.
+      [60, 64, 67, 72].forEach((m, i) => playNote(sub(o, i * 0.09), fanfare, m, 0.16, 0.55));
+      break;
+    case 'shieldwall':
+      playDrum(o, 'timpani', 0.8);
+      playNote(o, fanfare, 55, 0.5, 0.5);
+      playNote(o, fanfare, 62, 0.5, 0.4);
+      noise(o, { at: 0.02, dur: 0.12, vol: 0.12, filter: { type: 'bandpass', f: 2600, q: 3 } });
+      break;
+    case 'fieldheal':
+      [72, 76, 79, 84].forEach((m, i) => playNote(sub(o, i * 0.07), 'bell', m, 0.5, 0.35));
+      break;
+    case 'warcry':
+      // A shout: a falling, growling saw plus a war horn.
+      tone(o, { type: 'sawtooth', f: 240 * k, f2: 150, glide: 0.5, dur: 0.6, attack: 0.03, vol: 0.18, vibrato: [7, 0.04], filter: { type: 'bandpass', f: 900, q: 1.2 } });
+      playNote(o, 'horn', 50, 0.7, 0.6);
+      break;
+    case 'whirlwind':
+      for (let i = 0; i < 3; i++) noise(o, { at: i * 0.09, dur: 0.12, vol: 0.18, filter: { type: 'bandpass', f: 1800 + i * 600, q: 1.5 } });
+      playDrum(sub(o, 0.3), 'tom', 0.8);
+      break;
+    case 'frenzy':
+      tone(o, { type: 'sawtooth', f: 90 * k, f2: 180, glide: 0.4, dur: 0.5, attack: 0.02, vol: 0.16, filter: { type: 'lowpass', f: 1200 } });
+      playDrum(o, 'kick', 0.9);
+      playDrum(sub(o, 0.18), 'kick', 0.9);
+      break;
+    default:
+      playNote(o, lead, 67, 0.3, 0.4);
+  }
+}
+
+/** Prophets' calamities: rumbling earth, roaring fire, howling wind, a sickly drone. */
+export function calamitySound(o: Out, ability: AbilityId, r: number): void {
+  const k = vary(r, 0.1);
+  switch (ability) {
+    case 'quake':
+      noise(o, { dur: 2.6, attack: 0.2, vol: 0.55, rate: 0.35, filter: { type: 'lowpass', f: 260, f2: 90 } });
+      tone(o, { f: 38 * k, f2: 28, dur: 2.4, attack: 0.15, vol: 0.4, vibrato: [9, 0.2] });
+      for (let i = 0; i < 5; i++) noise(o, { at: 0.3 + i * 0.37, dur: 0.12, vol: 0.12, filter: { type: 'bandpass', f: 700 + i * 160, q: 2 } });
+      break;
+    case 'firestorm':
+      noise(o, { dur: 2.2, attack: 0.25, vol: 0.4, filter: { type: 'bandpass', f: 600, f2: 1800, q: 0.6 } });
+      for (let i = 0; i < 8; i++) noise(o, { at: 0.1 + ((i * 0.37 + r) % 1) * 1.8, dur: 0.03, vol: 0.12, filter: { type: 'highpass', f: 3000 } });
+      break;
+    case 'storm':
+      noise(o, { dur: 2.8, attack: 0.5, vol: 0.4, filter: { type: 'bandpass', f: 500, f2: 1400, q: 3 } });
+      noise(o, { at: 0.6, dur: 2, attack: 0.4, vol: 0.25, filter: { type: 'bandpass', f: 1500, f2: 700, q: 4 } });
+      break;
+    case 'plague':
+      tone(o, { type: 'sawtooth', f: 73 * k, dur: 2.2, attack: 0.4, vol: 0.12, vibrato: [3, 0.03], filter: { type: 'lowpass', f: 500 } });
+      tone(o, { type: 'sawtooth', f: 77.8 * k, dur: 2.2, attack: 0.4, vol: 0.1, filter: { type: 'lowpass', f: 500 } });
+      for (let i = 0; i < 6; i++) tone(o, { at: 0.2 + i * 0.3, f: 300 + ((i * 97) % 200), f2: 120, dur: 0.08, vol: 0.05 });
+      break;
+    default:
+      noise(o, { dur: 1, vol: 0.3, filter: { type: 'lowpass', f: 600 } });
+  }
+}
+
+/** A unit changes sides: a soft choir chord swelling up. */
+export function convertSound(o: Out, style: EraStyle): void {
+  const inst = style === 'future' ? 'pad' : 'strings';
+  for (const m of [60, 64, 67, 72]) playNote(o, inst, m, 1.2, 0.3);
+  playNote(sub(o, 0.5), 'bell', 84, 0.8, 0.3);
+}
+
+/** A priest's healing: a quiet chime. */
+export function healSound(o: Out, r: number): void {
+  const k = vary(r, 0.05);
+  tone(o, { type: 'sine', f: 1320 * k, dur: 0.5, attack: 0.01, vol: 0.06 });
+  tone(o, { at: 0.08, type: 'sine', f: 1760 * k, dur: 0.45, attack: 0.01, vol: 0.05 });
+}
+
 /** Citizens at work: axe on wood, pick on rock, rustling crops, hammering. */
 export function workSound(o: Out, work: Res | 'build', style: EraStyle, r: number): void {
   const k = vary(r, 0.15);
@@ -331,7 +412,8 @@ export function ackSound(o: Out, ack: Ack, look: Look | undefined, style: EraSty
     tone(o, { f: 1500 * k, f2: 1950 * k, glide: 0.1, dur: 0.14, attack: 0.01, vol: 0.1 });
     tone(o, { at: 0.16, f: 1950 * k, f2: ack === 'attack' ? 1500 : 2300, glide: 0.08, dur: 0.12, attack: 0.01, vol: 0.1 });
   } else {
-    const root = look === 'citizen' ? 76 : look === 'horse' || look === 'chariot' ? 69 : 64;
+    // Heroes answer low and firm, the faithful high and soft.
+    const root = look === 'citizen' ? 76 : look === 'horse' || look === 'chariot' ? 69 : look === 'strategist' || look === 'warrior' ? 57 : look === 'priest' || look === 'prophet' ? 72 : 64;
     const [a, b] = ACK_STEPS[ack];
     playNote(o, lead, root + a, 0.1, 0.6);
     playNote(sub(o, 0.11), lead, root + b, ack === 'attack' ? 0.18 : 0.14, ack === 'attack' ? 0.8 : 0.6);
@@ -366,7 +448,9 @@ const SHOT_CASES: Array<[Projectile, Look | undefined, number]> = [
   ['laser', 'laser', 16],
   ['laser', 'beam', 17],
 ];
-const ACK_LOOKS: Array<Look | undefined> = [undefined, 'citizen', 'sword', 'horse', 'runner', 'catapult', 'tank', 'mech', 'drone'];
+const ACK_LOOKS: Array<Look | undefined> = [undefined, 'citizen', 'sword', 'horse', 'runner', 'catapult', 'tank', 'mech', 'drone', 'warrior', 'priest'];
+const ABILITY_IDS: AbilityId[] = ['rally', 'shieldwall', 'fieldheal', 'warcry', 'whirlwind', 'frenzy'];
+const CALAMITY_IDS: AbilityId[] = ['plague', 'quake', 'firestorm', 'storm'];
 
 /** Every recipe with representative inputs: for tests and listening checks. */
 export function soundSamples(): Sample[] {
@@ -385,6 +469,10 @@ export function soundSamples(): Sample[] {
     out.push({ name: `work:${work}`, dur: 0.3, play: (o) => workSound(o, work, 'medieval', 0.5) });
   }
   out.push({ name: 'work:build:future', dur: 0.3, play: (o) => workSound(o, 'build', 'future', 0.5) });
+  for (const id of ABILITY_IDS) out.push({ name: `ability:${id}`, dur: 1.8, play: (o) => abilitySound(o, id, 'medieval', 0.5) });
+  for (const id of CALAMITY_IDS) out.push({ name: `calamity:${id}`, dur: 3, play: (o) => calamitySound(o, id, 0.5) });
+  out.push({ name: 'convert', dur: 2.6, play: (o) => convertSound(o, 'ancient') });
+  out.push({ name: 'heal', dur: 0.6, play: (o) => healSound(o, 0.5) });
   for (const style of STYLES) {
     for (const id of UI_SOUNDS) out.push({ name: `ui:${id}:${style}`, dur: id === 'defeat' ? 4 : id === 'victory' ? 3 : 2.5, play: (o) => uiSound(o, id, style) });
     for (const look of ACK_LOOKS) {

@@ -2,7 +2,7 @@ import { BUILDING_DEFS, FARM_CAPACITY, type BuildingType } from '../data/buildin
 import { EPOCHS } from '../data/epochs';
 import { canAfford, RESOURCES, type Cost, type Res } from '../data/resources';
 import { RESEARCH_BUILDINGS, TECHS, type Tech } from '../data/techs';
-import { bestTier, unitStats, type CombatRole, type Role } from '../data/units';
+import { bestTier, COMBAT_ROLES, unitStats, type CombatRole, type Role } from '../data/units';
 import type { Building, ResourceNode, Unit } from './entities';
 import { cos, hypot, sin } from './fmath';
 import type { Point } from './pathfinding';
@@ -42,6 +42,10 @@ const COUNTERS: Record<Role, CombatRole[]> = {
   ranged: ['mounted', 'assault'],
   mounted: ['pike'],
   siege: ['mounted', 'assault'],
+  strategist: ['ranged'],
+  warrior: ['ranged'],
+  priest: ['mounted'],
+  prophet: ['mounted'],
 };
 
 /**
@@ -581,7 +585,7 @@ export class AIController implements Controller {
     for (const b of military) {
       if (b.queue.length >= 2) continue;
       if (!b.rally.length && s.tc) b.rally = [{ x: s.tc.x - 4 + (b.id % 3), y: s.tc.y + 4 }];
-      const roles = BUILDING_DEFS[b.type].trains.filter((r): r is CombatRole => r !== 'citizen' && bestTier(r, player.epoch) >= 0);
+      const roles = BUILDING_DEFS[b.type].trains.filter((r): r is CombatRole => COMBAT_ROLES.includes(r as CombatRole) && bestTier(r, player.epoch) >= 0);
       if (roles.length === 0) continue;
       const counts: Record<string, number> = {};
       for (const u of army) counts[u.role] = (counts[u.role] ?? 0) + 1;

@@ -1,3 +1,4 @@
+import type { AbilityId, Status } from '../data/abilities';
 import type { BuildingType } from '../data/buildings';
 import type { Cost, Res, Stock } from '../data/resources';
 import type { Mods } from '../data/techs';
@@ -37,7 +38,13 @@ export type Order =
   | { kind: 'deposit'; targetId: number; resume: GatherOrder | null }
   /** Head for the nearest unexplored ground until the whole map is known. */
   | { kind: 'explore'; tx: number; ty: number; skip: number[] }
-  | PatrolOrder;
+  | PatrolOrder
+  /** Priest: win an enemy unit over; `progress` in seconds of channelling, `seenHit` the last hit already paid for. */
+  | { kind: 'convert'; targetId: number; progress: number; seenHit: number }
+  /** Priest: heal a friendly unit until it is whole. */
+  | { kind: 'heal'; targetId: number }
+  /** Prophet: walk within range of a spot, then call down a calamity. */
+  | { kind: 'cast'; ability: AbilityId; x: number; y: number };
 
 /** A queued command (Shift), turned into an order once the unit gets to it. */
 export type Plan =
@@ -47,7 +54,9 @@ export type Plan =
   | { kind: 'build'; targetId: number }
   | { kind: 'deposit'; targetId: number; resume: GatherOrder | null }
   | { kind: 'explore' }
-  | { kind: 'patrol'; points: Point[] };
+  | { kind: 'patrol'; points: Point[] }
+  | { kind: 'convert'; targetId: number }
+  | { kind: 'heal'; targetId: number };
 
 interface BaseEntity {
   id: number;
@@ -83,7 +92,22 @@ export interface Unit extends BaseEntity {
   moving: boolean;
   attackAnim: number;
   stuckTime: number;
+  /** Priests and prophets: faith points for conversions and calamities. */
+  faith: number;
+  /** Tick from which each used ability is ready again. */
+  ready: Partial<Record<AbilityId, number>>;
+  /** Timed states (stunned, hastened, shielded …) with the tick they end. */
+  status: Partial<Record<Status, number>>;
+  /** Hero auras on this unit, refreshed every second (AURA_LED, AURA_INSPIRED). */
+  aura: number;
+  /** Who infected it with the plague (for kill statistics). */
+  plagueBy: number;
 }
+
+/** Near the own strategist: more morale, slow healing. */
+export const AURA_LED = 1;
+/** Near the own warrior: stronger attacks. */
+export const AURA_INSPIRED = 2;
 
 export interface QueueItem {
   role: Role;
@@ -118,6 +142,20 @@ export interface Building extends BaseEntity {
   /** Bitmask of players who have seen this building (for fog of war). */
   seenBy: number;
   popBlocked: boolean;
+  /** Wonders: ticks left until the wonder victory (only with it switched on, once finished). */
+  countdown: number;
+}
+
+/** A calamity at work: deterministic, processed every tick until `until`. */
+export interface Hazard {
+  id: number;
+  kind: 'plague' | 'quake' | 'firestorm' | 'storm';
+  x: number;
+  y: number;
+  r: number;
+  owner: number;
+  start: number;
+  until: number;
 }
 
 export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron';
