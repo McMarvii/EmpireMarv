@@ -2,6 +2,7 @@ import { MORALE_PER_HOUSE } from '../data/buildings';
 import { applyArmor, damageMultiplier } from '../data/combat';
 import type { Projectile, Role } from '../data/units';
 import { rectOf, type Building, type Entity, type Unit } from './entities';
+import { hypot } from './fmath';
 import { distToRect } from './pathfinding';
 import { DT, type World } from './world';
 
@@ -61,7 +62,7 @@ export function fire(w: World, attacker: Unit | Building, target: Entity): void 
   const from = centerOf(attacker);
   const to = centerOf(target);
   w.cue({ kind: 'shot', x: from.x, y: from.y, owner: attacker.owner, epoch, look, projectile });
-  const dist = Math.hypot(to.x - from.x, to.y - from.y);
+  const dist = hypot(to.x - from.x, to.y - from.y);
   w.projectiles.push({
     kind: projectile,
     x0: from.x,
@@ -111,7 +112,7 @@ export function updateProjectiles(w: World): void {
 }
 
 function hitsPoint(e: Entity, x: number, y: number, tolerance: number): boolean {
-  if (e.kind === 'unit') return Math.hypot(e.x - x, e.y - y) <= tolerance;
+  if (e.kind === 'unit') return hypot(e.x - x, e.y - y) <= tolerance;
   return distToRect(x, y, rectOf(e as Building)) <= tolerance;
 }
 
@@ -128,7 +129,7 @@ function splashDamage(
 ): void {
   w.forUnitsNear(x, y, radius, (u) => {
     if (u.id === skipId || !w.areEnemies(owner, u.owner)) return;
-    if (Math.hypot(u.x - x, u.y - y) <= radius) applyDamage(w, u, dmg, role, owner, attackerId);
+    if (hypot(u.x - x, u.y - y) <= radius) applyDamage(w, u, dmg, role, owner, attackerId);
   });
   for (const b of w.buildings) {
     if (b.dead || b.id === skipId || !w.areEnemies(owner, b.owner)) continue;

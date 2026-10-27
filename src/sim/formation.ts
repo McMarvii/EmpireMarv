@@ -1,4 +1,5 @@
 import type { Role } from '../data/units';
+import { atan2, cos, hypot, sin } from './fmath';
 import type { Point } from './pathfinding';
 
 /**
@@ -52,8 +53,8 @@ function rowWidth(kind: Formation, total: number, row: number): number {
 export function formationSlots(members: Member[], kind: Formation, tx: number, ty: number, facing: number): Slot[] {
   if (members.length === 0) return [];
   if (members.length === 1) return [{ id: members[0].id, x: tx, y: ty }];
-  const fx = Math.cos(facing);
-  const fy = Math.sin(facing);
+  const fx = cos(facing);
+  const fy = sin(facing);
   // Lateral axis, pointing to the left of the front.
   const lx = -fy;
   const ly = fx;
@@ -104,15 +105,15 @@ export function formationSlots(members: Member[], kind: Formation, tx: number, t
 export function headingTo(members: Array<{ x: number; y: number; facing?: number }>, tx: number, ty: number): number {
   const cx = members.reduce((s, m) => s + m.x, 0) / members.length;
   const cy = members.reduce((s, m) => s + m.y, 0) / members.length;
-  if (Math.hypot(tx - cx, ty - cy) > 0.5) return Math.atan2(ty - cy, tx - cx);
+  if (hypot(tx - cx, ty - cy) > 0.5) return atan2(ty - cy, tx - cx);
   // Already there: keep the way the group looks now.
   let sx = 0;
   let sy = 0;
   for (const m of members) {
-    sx += Math.cos(m.facing ?? 0);
-    sy += Math.sin(m.facing ?? 0);
+    sx += cos(m.facing ?? 0);
+    sy += sin(m.facing ?? 0);
   }
-  return sx === 0 && sy === 0 ? 0 : Math.atan2(sy, sx);
+  return sx === 0 && sy === 0 ? 0 : atan2(sy, sx);
 }
 
 /** Slowest a unit is slowed down to keep pace, as a share of its own speed. */
@@ -127,10 +128,10 @@ export function arrivalPace(from: Array<{ id: number; x: number; y: number; spee
   const pace = new Map<number, number>();
   let time = 0;
   from.forEach((m, i) => {
-    time = Math.max(time, Math.hypot(to[i].x - m.x, to[i].y - m.y) / m.speed);
+    time = Math.max(time, hypot(to[i].x - m.x, to[i].y - m.y) / m.speed);
   });
   from.forEach((m, i) => {
-    const d = Math.hypot(to[i].x - m.x, to[i].y - m.y);
+    const d = hypot(to[i].x - m.x, to[i].y - m.y);
     const v = time > 0 ? d / time : m.speed;
     pace.set(m.id, Math.min(m.speed, Math.max(m.speed * MIN_PACE, v)));
   });

@@ -104,7 +104,9 @@ export class GameMap {
           const tx = cx + dx;
           const ty = cy + dy;
           if (!this.passable(tx, ty)) continue;
-          const d = (tx + 0.5 - x) ** 2 + (ty + 0.5 - y) ** 2;
+          const ex = tx + 0.5 - x;
+          const ey = ty + 0.5 - y;
+          const d = ex * ex + ey * ey;
           if (d < bestD) {
             bestD = d;
             best = { x: tx, y: ty };

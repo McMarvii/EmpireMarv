@@ -4,6 +4,7 @@ import { canAfford, RESOURCES, type Cost, type Res } from '../data/resources';
 import { RESEARCH_BUILDINGS, TECHS, type Tech } from '../data/techs';
 import { bestTier, unitStats, type CombatRole, type Role } from '../data/units';
 import type { Building, ResourceNode, Unit } from './entities';
+import { cos, hypot, sin } from './fmath';
 import type { Point } from './pathfinding';
 import { Rng } from './rng';
 import type { Controller, Difficulty, World } from './world';
@@ -114,7 +115,7 @@ export class AIController implements Controller {
       const x = this.rng.int(2, size - 2);
       const y = this.rng.int(2, size - 2);
       if (vis[w.map.idx(x, y)] !== 0) continue;
-      const d = Math.hypot(x - s.base.x, y - s.base.y);
+      const d = hypot(x - s.base.x, y - s.base.y);
       if (d < bestD) {
         bestD = d;
         best = { x: x + 0.5, y: y + 0.5 };
@@ -245,8 +246,8 @@ export class AIController implements Controller {
     let bestD = 80;
     for (const n of w.resources) {
       if (n.dead || n.res !== res || n.blockedUntil > w.tick || !w.isVisibleTo(this.playerId, n)) continue;
-      let d = Math.hypot(n.x - s.base.x, n.y - s.base.y);
-      for (const b of drops) d = Math.min(d, Math.hypot(n.x - b.x, n.y - b.y));
+      let d = hypot(n.x - s.base.x, n.y - s.base.y);
+      for (const b of drops) d = Math.min(d, hypot(n.x - b.x, n.y - b.y));
       if (d < bestD) {
         bestD = d;
         best = n;
@@ -444,7 +445,7 @@ export class AIController implements Controller {
       const node = w.get(c.order.targetId);
       if (!node) continue;
       const drop = w.nearestDropoff(this.playerId, node.x, node.y);
-      const d = drop ? Math.hypot(drop.x - node.x, drop.y - node.y) : 99;
+      const d = drop ? hypot(drop.x - node.x, drop.y - node.y) : 99;
       if (d > 9 && d > bestScore) {
         bestScore = d;
         best = { x: node.x, y: node.y };
@@ -458,7 +459,7 @@ export class AIController implements Controller {
     let bestD = Infinity;
     for (const c of s.citizens) {
       if (c.order.kind === 'build') continue;
-      const d = Math.hypot(c.x - near.x, c.y - near.y) + (c.carryAmount > 3 ? 4 : 0);
+      const d = hypot(c.x - near.x, c.y - near.y) + (c.carryAmount > 3 ? 4 : 0);
       if (d < bestD) {
         bestD = d;
         best = c;
@@ -484,8 +485,8 @@ export class AIController implements Controller {
       const steps = Math.max(8, Math.round(r * 6));
       for (let i = 0; i < steps; i++) {
         const a = offset + (i / steps) * Math.PI * 2;
-        const tx = Math.round(center.x + Math.cos(a) * r - size / 2);
-        const ty = Math.round(center.y + Math.sin(a) * r - size / 2);
+        const tx = Math.round(center.x + cos(a) * r - size / 2);
+        const ty = Math.round(center.y + sin(a) * r - size / 2);
         if (!w.canPlace(this.playerId, type, tx, ty)) continue;
         if (type !== 'storehouse' && this.blocksResources(w, tx, ty, size)) continue;
         w.issue({ type: 'place', player: this.playerId, ids: builders.map((b) => b.id), building: type, tx, ty });
@@ -600,7 +601,7 @@ export class AIController implements Controller {
 
     // Defence: anything hostile near the base pulls the home army.
     const threat = w.units.find(
-      (e) => w.areEnemies(id, e.owner) && w.inSight(id, e) && Math.hypot(e.x - s.base.x, e.y - s.base.y) < 18,
+      (e) => w.areEnemies(id, e.owner) && w.inSight(id, e) && hypot(e.x - s.base.x, e.y - s.base.y) < 18,
     );
     for (const id2 of [...this.attackers]) if (!w.get(id2)) this.attackers.delete(id2);
     const home = army.filter((u) => !this.attackers.has(u.id));
@@ -635,7 +636,7 @@ export class AIController implements Controller {
     for (const b of w.buildings) {
       if (b.dead || !w.areEnemies(this.playerId, b.owner)) continue;
       // Walls are only attacked when they stand in the way, not marched to.
-      const d = Math.hypot(b.x - from.x, b.y - from.y) - (b.type === 'towncenter' ? 6 : 0) + (BUILDING_DEFS[b.type].line ? 40 : 0);
+      const d = hypot(b.x - from.x, b.y - from.y) - (b.type === 'towncenter' ? 6 : 0) + (BUILDING_DEFS[b.type].line ? 40 : 0);
       if (d < bestD) {
         bestD = d;
         best = b;

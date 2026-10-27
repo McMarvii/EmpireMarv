@@ -5,9 +5,9 @@ import type { Role } from './data/units';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
 import { Renderer, type Marker, type OrderPreview, type Placement } from './render/renderer';
-import { AIController } from './sim/ai';
 import type { Building, Entity, Unit } from './sim/entities';
 import { formationSlots, type Formation } from './sim/formation';
+import { createWorld } from './sim/setup';
 import { DT, MAX_LINE, World, type GameSettings } from './sim/world';
 import { Hud } from './ui/hud';
 import { Input } from './ui/input';
@@ -55,10 +55,7 @@ export class Game {
     settings: Partial<GameSettings>,
     private onExit: () => void,
   ) {
-    this.world = new World(settings);
-    this.world.settings.players.forEach((p, id) => {
-      if (p.isAI) this.world.controllers.push(new AIController(id, this.world.settings.aiDifficulty, this.world));
-    });
+    this.world = createWorld(settings);
     this.audio = new GameAudio(this);
     const canvas = root.querySelector<HTMLCanvasElement>('#game')!;
     this.renderer = new Renderer(canvas, this.world, this.camera, this.me);

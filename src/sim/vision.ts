@@ -53,11 +53,30 @@ export function updateVision(w: World): void {
     const sight = b.built ? BUILDING_DEFS[b.type].sight + b.size / 2 : b.size;
     reveal(w, w.players[b.owner].vis, b.x, b.y, sight);
   }
+  shareWithAllies(w);
   for (const b of w.buildings) {
     if (b.dead) continue;
     for (const p of w.players) {
       if (b.seenBy & (1 << p.id)) continue;
       if (w.inSight(p.id, b)) b.seenBy |= 1 << p.id;
+    }
+  }
+}
+
+/** Players of one team see and remember what any of them sees, the fallen included. */
+function shareWithAllies(w: World): void {
+  const teams = new Map<number, Uint8Array[]>();
+  for (const p of w.players) {
+    const list = teams.get(p.team);
+    if (list) list.push(p.vis);
+    else teams.set(p.team, [p.vis]);
+  }
+  for (const list of teams.values()) {
+    if (list.length < 2) continue;
+    for (let i = 0; i < list[0].length; i++) {
+      let v = 0;
+      for (const vis of list) if (vis[i] > v) v = vis[i];
+      for (const vis of list) vis[i] = v;
     }
   }
 }
