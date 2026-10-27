@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { ABILITIES } from '../src/data/abilities';
 import { BUILDING_DEFS, BUILDABLE, type BuildingType } from '../src/data/buildings';
 import { damageMultiplier } from '../src/data/combat';
 import { epochNumeral, EPOCHS, EPOCH_COUNT, toRoman } from '../src/data/epochs';
-import { bestTier, COMBAT_ROLES, ROLE_DEFS, unitStats } from '../src/data/units';
+import { baseMods } from '../src/data/techs';
+import { bestTier, COMBAT_ROLES, HERO_ROLES, ROLE_DEFS, unitStats } from '../src/data/units';
+import { WONDERS } from '../src/data/wonders';
 
 describe('epochs', () => {
   it('has 18 epochs from the stone age to space', () => {
@@ -81,3 +84,30 @@ describe('buildings', () => {
     for (const def of Object.values(BUILDING_DEFS)) for (const role of def.trains) expect(ROLE_DEFS[role]).toBeDefined();
   });
 });
+
+describe('heroes, faith and wonders', () => {
+  it('give heroes a stronger tier for every epoch from II on', () => {
+    for (const role of HERO_ROLES) {
+      const tiers = ROLE_DEFS[role].tiers;
+      expect(tiers[0].epoch).toBe(1);
+      expect(tiers.map((t) => t.epoch)).toEqual(Array.from({ length: 17 }, (_, i) => i + 1));
+      expect(new Set(tiers.map((t) => t.name)).size).toBeGreaterThanOrEqual(5);
+      expect(unitStats(role, tiers.length - 1).hp).toBeGreaterThan(unitStats(role, 0).hp);
+    }
+  });
+
+  it('gives every ability its own key, apart from the unit commands', () => {
+    const keys = ABILITIES.map((a) => a.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const k of keys) expect('AREXNOVP').not.toContain(k);
+  });
+
+  it('knows tech bonuses for every role', () => {
+    expect(Object.keys(baseMods().unit).sort()).toEqual(Object.keys(ROLE_DEFS).sort());
+  });
+
+  it('names the wonder of every era', () => {
+    expect(BUILDING_DEFS.wonder.names.map(([, n]) => n)).toEqual(Object.values(WONDERS).map((d) => d.name));
+  });
+});
+

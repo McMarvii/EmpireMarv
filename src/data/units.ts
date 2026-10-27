@@ -101,6 +101,20 @@ export interface RoleDef {
 
 export const MELEE_RANGE = 0.9;
 
+/**
+ * Heroes get a tier for every epoch from their first title on, so each
+ * advance makes them stronger; the title (and weapons) change by era.
+ */
+function heroTiers(look: Look, titles: Array<[number, string, Pick<UnitTier, 'projectile' | 'range'>?]>): UnitTier[] {
+  const tiers: UnitTier[] = [];
+  for (let epoch = titles[0][0]; epoch <= 17; epoch++) {
+    let title = titles[0];
+    for (const t of titles) if (t[0] <= epoch) title = t;
+    tiers.push({ epoch, name: title[1], look, ...title[2] });
+  }
+  return tiers;
+}
+
 export const ROLE_DEFS: Record<Role, RoleDef> = {
   citizen: {
     role: 'citizen',
@@ -320,14 +334,14 @@ export const ROLE_DEFS: Record<Role, RoleDef> = {
     trainTime: 45,
     strongVs: 'Führt: Einheiten in der Nähe heilen und kämpfen mutiger',
     weakVs: 'Fernkampf, Übermacht',
-    tiers: [
-      { epoch: 0, name: 'Häuptling', look: 'strategist' },
-      { epoch: 3, name: 'Heerführer', look: 'strategist' },
-      { epoch: 6, name: 'Feldherr', look: 'strategist' },
-      { epoch: 9, name: 'Marschall', look: 'strategist' },
-      { epoch: 12, name: 'General', look: 'strategist' },
-      { epoch: 15, name: 'Kommandant', look: 'strategist' },
-    ],
+    tiers: heroTiers('strategist', [
+      [1, 'Häuptling'],
+      [3, 'Heerführer'],
+      [6, 'Feldherr'],
+      [9, 'Marschall'],
+      [12, 'General'],
+      [15, 'Kommandant'],
+    ]),
   },
   warrior: {
     role: 'warrior',
@@ -345,14 +359,14 @@ export const ROLE_DEFS: Record<Role, RoleDef> = {
     trainTime: 50,
     strongVs: 'Allen Fußtruppen; feuert Einheiten in der Nähe an',
     weakVs: 'Übermacht, Belagerung aus der Ferne',
-    tiers: [
-      { epoch: 0, name: 'Recke', look: 'warrior' },
-      { epoch: 3, name: 'Kriegsheld', look: 'warrior' },
-      { epoch: 6, name: 'Bannerritter', look: 'warrior' },
-      { epoch: 9, name: 'Haudegen', look: 'warrior' },
-      { epoch: 12, name: 'Kommandosoldat', look: 'warrior', projectile: 'bullet', range: 4 },
-      { epoch: 16, name: 'Elitekämpfer', look: 'warrior', projectile: 'laser', range: 4.5 },
-    ],
+    tiers: heroTiers('warrior', [
+      [1, 'Recke'],
+      [3, 'Kriegsheld'],
+      [6, 'Bannerritter'],
+      [9, 'Haudegen'],
+      [12, 'Kommandosoldat', { projectile: 'bullet', range: 4 }],
+      [16, 'Elitekämpfer', { projectile: 'laser', range: 4.5 }],
+    ]),
   },
   priest: {
     role: 'priest',

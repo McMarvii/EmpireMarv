@@ -1,5 +1,6 @@
 import type { Cost } from './resources';
 import type { Role } from './units';
+import { wonderCost, WONDERS, type WonderDef } from './wonders';
 
 export type BuildingType =
   | 'towncenter'
@@ -311,19 +312,13 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
   wonder: {
     type: 'wonder',
     // Each era has its own wonder; a wonder keeps the era it was founded in (see data/wonders.ts).
-    names: [
-      [0, 'Steinkreis'],
-      [3, 'Große Bibliothek'],
-      [6, 'Kathedrale'],
-      [9, 'Kaiserpalast'],
-      [12, 'Sendeturm'],
-      [15, 'Weltraumlift'],
-    ],
+    names: (Object.values(WONDERS) as WonderDef[]).map((d, i) => [i * 3, d.name] as [number, string]),
     size: 5,
     hp: 8000,
-    cost: { food: 1000, wood: 1000, stone: 1000, gold: 1000 },
-    buildTime: 480,
-    minEpoch: 0,
+    // The real price grows with the era, see buildingCost().
+    cost: { food: 800, wood: 700, stone: 400 },
+    buildTime: 600,
+    minEpoch: 2,
     trains: [],
     dropoff: false,
     walkable: false,
@@ -350,6 +345,11 @@ export const BUILDABLE: BuildingType[] = [
   'towncenter',
 ];
 
+/** What founding a building costs in an epoch: wonders grow with the era, everything else stays. */
+export function buildingCost(type: BuildingType, epoch: number): Cost {
+  return type === 'wonder' ? wonderCost(epoch) : BUILDING_DEFS[type].cost;
+}
+
 export function buildingName(type: BuildingType, epoch: number): string {
   const names = BUILDING_DEFS[type].names;
   let name = names[0][1];
@@ -373,3 +373,5 @@ export const FARM_CAPACITY = 2;
 export const MORALE_RADIUS = 8;
 export const MORALE_PER_HOUSE = 0.04;
 export const MORALE_MAX_HOUSES = 5;
+/** Morale from houses, the strategist and the Sendeturm together is capped here. */
+export const MORALE_MAX = 7;

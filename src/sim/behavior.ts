@@ -1,8 +1,8 @@
-import { ABILITY_BY_ID, CONVERT_RANGE, CONVERT_SETBACK, CONVERT_TIME, HEAL_RANGE, PRIEST_HEAL } from '../data/abilities';
+import { ABILITY_BY_ID, CONVERT_CLASS, CONVERT_RANGE, CONVERT_SETBACK, CONVERT_TIME, HEAL_RANGE, PRIEST_HEAL } from '../data/abilities';
 import { BUILDING_DEFS, buildingName, FARM_CAPACITY } from '../data/buildings';
 import { epochLabel, EPOCHS } from '../data/epochs';
 import { TECH_BY_ID } from '../data/techs';
-import { bestTier, BUILD_RATE, gatherRate, isFaithful, isHero, isPeaceful, MAX_FAITH, ROLE_DEFS } from '../data/units';
+import { bestTier, BUILD_RATE, gatherRate, isHero, isPeaceful, MAX_FAITH, ROLE_DEFS } from '../data/units';
 import { WONDER_GATHER, WONDER_RESEARCH, WONDER_TRAIN } from '../data/wonders';
 import { fire } from './combat';
 import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type Order, type PatrolOrder, type Plan, type ResourceNode, type Unit } from './entities';
@@ -405,7 +405,7 @@ function updateConvert(w: World, u: Unit): void {
   o.progress += DT;
   u.attackAnim = Math.max(u.attackAnim, 0.2);
   const resist = 1 + w.players[t.owner].mods.convertResist;
-  const need = CONVERT_TIME * resist * (isFaithful(t.role) ? 1.5 : 1);
+  const need = CONVERT_TIME * resist * (CONVERT_CLASS[t.role] ?? 1);
   if (o.progress < need) return;
   w.convertUnit(t, u.owner);
   u.faith = 0;
@@ -910,7 +910,7 @@ function sendToRally(w: World, u: Unit, points: Point[]): void {
         return;
       }
     }
-    w.issue({ type: 'move', player: u.owner, ids: [u.id], x, y, attackMove: u.role !== 'citizen' && u.role !== 'scout', queue });
+    w.issue({ type: 'move', player: u.owner, ids: [u.id], x, y, attackMove: !isPeaceful(u.role), queue });
   });
 }
 

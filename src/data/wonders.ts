@@ -1,4 +1,5 @@
-import { epochStyle, type EraStyle } from './epochs';
+import { epochStyle, EPOCHS, type EraStyle } from './epochs';
+import type { Cost } from './resources';
 
 /** What a standing wonder does for its owner. */
 export type WonderEffect = 'gather' | 'reveal' | 'heal' | 'train' | 'morale' | 'research';
@@ -23,6 +24,14 @@ export const WONDERS: Record<EraStyle, WonderDef> = {
   modern: { era: 'modern', name: 'Sendeturm', effect: 'morale', text: 'Alle eigenen Einheiten haben überall +2 Moral.' },
   future: { era: 'future', name: 'Weltraumlift', effect: 'research', text: 'Forschung und Aufstieg gehen 30 % schneller.' },
 };
+
+/** Twice the price of the era's last advance: a wonder is a whole era's work. */
+export function wonderCost(epoch: number): Cost {
+  const last = Math.min(EPOCHS.length - 1, Math.floor(epoch / 3) * 3 + 2);
+  const cost: Cost = {};
+  for (const [r, v] of Object.entries(EPOCHS[last].advanceCost)) cost[r as keyof Cost] = (v ?? 0) * 2;
+  return cost;
+}
 
 /** The wonder a player in this epoch can found. */
 export function wonderOf(epoch: number): WonderDef {

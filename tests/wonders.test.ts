@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING_DEFS } from '../src/data/buildings';
+import { buildingCost, BUILDING_DEFS } from '../src/data/buildings';
 import { WONDER_GATHER } from '../src/data/wonders';
 import type { World } from '../src/sim/world';
 import { TICK_RATE } from '../src/sim/world';
@@ -35,15 +35,31 @@ describe('wonders', () => {
     expect(BUILDING_DEFS.wonder.size).toBe(5);
   });
 
+  it('cost more in every era and are seen by everyone once finished', () => {
+    const totals = [2, 5, 8, 11, 14, 17].map((e) => Object.values(buildingCost('wonder', e)).reduce((a, b) => a + (b ?? 0), 0));
+    for (let i = 1; i < totals.length; i++) expect(totals[i]).toBeGreaterThan(totals[i - 1]);
+    const w = emptyWorld({ startEpoch: 2, revealMap: false });
+    rich(w);
+    const b = finishWonder(w, 5, 0);
+    expect(w.isVisibleTo(1, b)).toBe(true);
+    // Wonders shrug off calamities (builders off, or they would repair it meanwhile).
+    w.issue({ type: 'stop', player: 0, ids: w.unitsOf(0).map((u) => u.id) });
+    const hp = b.hp;
+    w.addHazard('quake', b.x, b.y, 5, 1, 3);
+    run(w, 4);
+    expect(b.hp).toBe(hp);
+  });
+
   it('keep their era when their owner advances', () => {
-    const w = emptyWorld({ startEpoch: 0 });
+    const w = emptyWorld({ startEpoch: 2 });
     rich(w);
     const b = finishWonder(w);
+    expect(b.built).toBe(true);
     const tc = w.buildingsOf(0, 'towncenter')[0];
     tc.research = { targetEpoch: 3, progress: 0, total: 1 };
     run(w, 2);
     expect(w.players[0].epoch).toBe(3);
-    expect(b.epoch).toBe(0);
+    expect(b.epoch).toBe(2);
     expect(w.wonderEffect(0, 'gather')).toBe(true);
     expect(w.wonderEffect(0, 'reveal')).toBe(false);
   });
@@ -64,7 +80,7 @@ describe('wonders', () => {
   });
 
   it('win the match when held long enough', () => {
-    const w = emptyWorld({ wonderVictory: 5 });
+    const w = emptyWorld({ startEpoch: 2, wonderVictory: 5 });
     rich(w);
     const b = finishWonder(w);
     expect(b.countdown).toBeGreaterThan(4 * 60 * TICK_RATE);
@@ -72,11 +88,12 @@ describe('wonders', () => {
     run(w, 5 * 60);
     expect(w.over).toBe(true);
     expect(w.victory).toBe('wonder');
+    expect(w.victoryNote).toMatch(/Steinkreis von A/);
     expect(w.winnerTeam).toBe(w.players[0].team);
   });
 
   it('stop the countdown when destroyed, and do nothing with wonder victory off', () => {
-    const w = emptyWorld({ wonderVictory: 5 });
+    const w = emptyWorld({ startEpoch: 2, wonderVictory: 5 });
     rich(w);
     const b = finishWonder(w);
     run(w, 60);
@@ -84,7 +101,7 @@ describe('wonders', () => {
     run(w, 5 * 60);
     expect(w.over).toBe(false);
 
-    const off = emptyWorld({ wonderVictory: 0 });
+    const off = emptyWorld({ startEpoch: 2, wonderVictory: 0 });
     rich(off);
     const c = finishWonder(off);
     expect(c.countdown).toBe(0);

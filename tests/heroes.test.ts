@@ -15,8 +15,8 @@ function rich(w: World): void {
 }
 
 describe('heroes', () => {
-  it('are trained at the town centre, each kind only once', () => {
-    const w = emptyWorld();
+  it('are trained at the town centre from epoch II, each kind only once', () => {
+    const w = emptyWorld({ startEpoch: 1 });
     rich(w);
     const tc = w.buildingsOf(0, 'towncenter')[0];
     w.issue({ type: 'train', player: 0, buildingId: tc.id, role: 'strategist' });

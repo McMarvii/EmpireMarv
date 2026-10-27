@@ -2,6 +2,7 @@ import {
   ABILITY_BY_ID,
   CALAMITY_DAMAGE,
   FIELDHEAL_SHARE,
+  HAZARD_TIME,
   HERO_REGEN,
   STATUS_TIME,
   STRATEGIST_AURA,
@@ -105,7 +106,10 @@ export function useAbility(w: World, u: Unit, id: AbilityId): boolean {
       break;
     case 'fieldheal': {
       const k = FIELDHEAL_SHARE * healFactor(w, u.owner);
-      allies((o) => (o.hp = Math.min(o.maxHp, o.hp + o.maxHp * k)));
+      allies((o) => {
+        o.hp = Math.min(o.maxHp, o.hp + o.maxHp * k);
+        delete o.status.plague;
+      });
       break;
     }
     case 'warcry':
@@ -136,14 +140,27 @@ export function castCalamity(w: World, u: Unit, id: AbilityId, x: number, y: num
   if (a.target !== 'ground' || !abilityReady(w, u, id)) return false;
   u.faith -= a.faith;
   const kind = id as Hazard['kind'];
-  w.addHazard(kind, x, y, a.radius, u.owner, STATUS_TIME[id]);
+  w.addHazard(kind, x, y, a.radius, u.owner, HAZARD_TIME[kind]);
   w.cue({ kind: 'calamity', x, y, owner: u.owner, epoch: u.stats.epoch, ability: id });
   u.attackAnim = 0.35;
   return true;
 }
 
-/** Every tick: calamities wear down the enemies of whoever called them. */
+/** Town centres take calamities only half as hard; wonders not at all. */
+const BUILDING_CALAMITY: Partial<Record<string, number>> = { towncenter: 0.5, wonder: 0 };
+
+/**
+ * Every tick: calamities wear down the enemies of whoever called them.
+ * Two calamities of one kind on the same spot do not add up.
+ */
 export function updateHazards(w: World): void {
+  const done = new Set<string>();
+  const once = (kind: string, id: number) => {
+    const key = `${kind}:${id}`;
+    if (done.has(key)) return false;
+    done.add(key);
+    return true;
+  };
   for (const hz of w.hazards) {
     if (hz.until <= w.tick) continue;
     const ticks = (hz.until - hz.start) || 1;
@@ -153,7 +170,7 @@ export function updateHazards(w: World): void {
       if (!o.dead && w.areEnemies(hz.owner, o.owner) && hypot(o.x - hz.x, o.y - hz.y) <= hz.r) hitUnits.push(o);
     });
     for (const o of hitUnits) {
-      if (o.dead) continue;
+      if (o.dead || !once(hz.kind, o.id)) continue;
       const resist = w.players[o.owner].mods.calamityResist;
       if (hz.kind === 'plague') {
         // Catching the plague once is enough; the illness does the rest.
@@ -169,9 +186,10 @@ export function updateHazards(w: World): void {
     if (share.buildings > 0) {
       for (const b of w.buildings) {
         if (b.dead || !w.areEnemies(hz.owner, b.owner)) continue;
-        if (distToRect(hz.x, hz.y, rectOf(b)) > hz.r) continue;
+        if (distToRect(hz.x, hz.y, rectOf(b)) > hz.r || !once(hz.kind, b.id)) continue;
         const resist = w.players[b.owner].mods.calamityResist;
-        harm(w, b, ((b.maxHp * share.buildings) / ticks) * (1 - resist), hz.owner);
+        const k = BUILDING_CALAMITY[b.type] ?? 1;
+        harm(w, b, ((b.maxHp * share.buildings * k) / ticks) * (1 - resist), hz.owner);
       }
     }
   }

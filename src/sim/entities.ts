@@ -182,6 +182,8 @@ export interface PlayerStats {
   kills: number;
   buildingsBuilt: number;
   buildingsLost: number;
+  /** Enemy units won over by priests. */
+  converted: number;
 }
 
 export interface Player {

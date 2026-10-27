@@ -1,5 +1,15 @@
-import { ABILITY_BY_ID, type AbilityId } from '../data/abilities';
-import { buildingAttack, BUILDING_DEFS, buildingMaxHp, buildingName, MORALE_MAX_HOUSES, MORALE_RADIUS, type BuildingType } from '../data/buildings';
+import { ABILITIES, ABILITY_BY_ID, STATUSES, type AbilityId } from '../data/abilities';
+import {
+  buildingAttack,
+  buildingCost,
+  BUILDING_DEFS,
+  buildingMaxHp,
+  buildingName,
+  MORALE_MAX,
+  MORALE_MAX_HOUSES,
+  MORALE_RADIUS,
+  type BuildingType,
+} from '../data/buildings';
 import { epochStyle, EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
 import { modsFor, TECH_BY_ID, TECHS, TECHS_FOR_ADVANCE, type Tech } from '../data/techs';
@@ -204,6 +214,8 @@ export class World {
   hazards: Hazard[] = [];
   /** How the match was won, once it is over. */
   victory: 'conquest' | 'wonder' | null = null;
+  /** Wonder victory: which wonder of whom. */
+  victoryNote = '';
   /** Builds the computer player that takes over an empire whose human left. */
   makeAI: ((player: number) => Controller) | null = null;
   over = false;
@@ -250,6 +262,7 @@ export class World {
           unitsLost: 0,
           kills: 0,
           buildingsBuilt: 0,
+          converted: 0,
           buildingsLost: 0,
         },
         gatherBonus: 1,
@@ -956,7 +969,7 @@ export class World {
           const e = this.get(id);
           if (!e || e.kind === 'resource' || e.owner !== cmd.player) continue;
           // Construction sites give back what has not been built yet.
-          if (e.kind === 'building' && !e.built) refund(player.stock, multiplyCost(BUILDING_DEFS[e.type].cost, 1 - e.progress));
+          if (e.kind === 'building' && !e.built) refund(player.stock, multiplyCost(buildingCost(e.type, e.epoch), 1 - e.progress));
           this.kill(e, -1);
         }
         break;
@@ -1089,7 +1102,6 @@ export class World {
 
   private commandPlace(player: number, ids: number[], type: BuildingType, tx: number, ty: number, queue: boolean): void {
     const p = this.players[player];
-    const def = BUILDING_DEFS[type];
     if (!this.buildingUnlocked(player, type)) return;
     const wonder = type === 'wonder' ? this.wonderProblem(player) : null;
     if (wonder) {
@@ -1100,11 +1112,12 @@ export class World {
       this.emit({ type: 'warn', player, text: 'Hier kann nicht gebaut werden.' });
       return;
     }
-    if (!canAfford(p.stock, def.cost)) {
-      this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, def.cost)}` });
+    const cost = buildingCost(type, p.epoch);
+    if (!canAfford(p.stock, cost)) {
+      this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, cost)}` });
       return;
     }
-    pay(p.stock, def.cost);
+    pay(p.stock, cost);
     const b = this.addBuilding(player, type, tx, ty, false);
     this.issue({ type: 'construct', player, ids, targetId: b.id, queue });
   }
@@ -1216,7 +1229,7 @@ export class World {
     u.status = {};
     u.aura = 0;
     this.players[old].stats.unitsLost++;
-    this.players[owner].stats.kills++;
+    this.players[owner].stats.converted++;
     this.effects.push({ kind: 'convert', x: u.x, y: u.y, t: 0, dur: 1.2, size: 1 });
     this.cue({ kind: 'convert', x: u.x, y: u.y, owner, epoch: u.stats.epoch });
     this.emit({ type: 'warn', player: old, text: `${u.stats.name} wurde bekehrt und kämpft jetzt für ${this.players[owner].name}!`, x: u.x, y: u.y });
@@ -1258,9 +1271,10 @@ export class World {
     return has ? `${WONDERS[era].name} steht schon – jedes Ära-Wunder nur einmal.` : null;
   }
 
-  /** A wonder was finished: with wonder victory on, the countdown starts. */
+  /** A wonder was finished: with wonder victory on, the countdown starts. Everyone sees it. */
   wonderFinished(b: Building): void {
     this.refreshWonders();
+    for (const p of this.players) b.seenBy |= 1 << p.id;
     const name = buildingName(b.type, b.epoch);
     const owner = this.players[b.owner];
     const minutes = this.settings.wonderVictory ?? 0;
@@ -1281,6 +1295,7 @@ export class World {
         for (const p of this.players) this.emit({ type: 'wonder', player: p.id, text: `Noch 1 Minute bis zum Wundersieg von ${this.players[b.owner].name}!`, x: b.x, y: b.y });
       }
       if (b.countdown === 0) {
+        this.victoryNote = `${buildingName(b.type, b.epoch)} von ${this.players[b.owner].name}`;
         this.finish(this.players[b.owner].team, 'wonder');
         return;
       }
@@ -1372,6 +1387,7 @@ export class World {
         u.aura = 0;
       }
       updateAuras(this);
+      for (const u of this.units) u.morale = Math.min(MORALE_MAX, u.morale);
       if (!this.over) this.checkVictory();
     }
     this.compact();
@@ -1460,6 +1476,11 @@ export class World {
       h.add(u.queue.length);
       h.add(u.owner);
       h.add(u.faith);
+      h.add(u.tier);
+      h.add(u.aura);
+      for (const st of STATUSES) h.add(u.status[st] ?? 0);
+      for (const a of ABILITIES) h.add(u.ready[a.id] ?? 0);
+      if (u.order.kind === 'convert') h.add(u.order.progress);
     }
     for (const b of this.buildings) {
       if (b.dead) continue;
@@ -1472,7 +1493,10 @@ export class World {
     for (const hz of this.hazards) {
       h.add(hz.id);
       h.add(hz.until);
+      h.add(hz.x);
+      h.add(hz.y);
     }
+    h.add(this.victory === 'wonder' ? 2 : this.victory === 'conquest' ? 1 : 0);
     for (const n of this.resources) {
       if (n.dead) continue;
       h.add(n.id);

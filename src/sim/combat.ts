@@ -96,14 +96,15 @@ export function updateProjectiles(w: World): void {
       continue;
     }
     if (p.splash > 0) {
-      // Direct hit if the target is still at the impact point, area damage around it.
-      if (target && target.kind !== 'resource' && hitsPoint(target, p.x1, p.y1, 0.6)) {
+      // Direct hit if the target is still at the impact point (and still an enemy), area damage around it.
+      if (target && target.kind !== 'resource' && w.areEnemies(p.owner, target.owner) && hitsPoint(target, p.x1, p.y1, 0.6)) {
         applyDamage(w, target, p.dmg, p.attackerRole, p.owner, p.attackerId);
       }
       splashDamage(w, p.x1, p.y1, p.splash, p.dmg * 0.5, p.attackerRole, p.owner, p.attackerId, p.targetId);
       w.effects.push({ kind: p.kind === 'laser' ? 'laserhit' : 'explosion', x: p.x1, y: p.y1, t: 0, dur: 0.6, size: p.splash });
       w.cue({ kind: 'blast', x: p.x1, y: p.y1, owner: p.owner, projectile: p.kind, size: p.splash });
-    } else if (target && target.kind !== 'resource') {
+    } else if (target && target.kind !== 'resource' && w.areEnemies(p.owner, target.owner)) {
+      // A unit converted while the shot was in the air is spared.
       w.cue({ kind: 'impact', x: p.x1, y: p.y1, owner: p.owner, projectile: p.kind, size: target.kind === 'building' ? target.size : 0 });
       applyDamage(w, target, p.dmg, p.attackerRole, p.owner, p.attackerId);
       w.effects.push({ kind: p.kind === 'laser' ? 'laserhit' : 'hit', x: p.x1, y: p.y1, t: 0, dur: 0.25, size: 0.3 });

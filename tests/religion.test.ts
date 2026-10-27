@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CALAMITY_DAMAGE, CONVERT_SETBACK, CONVERT_TIME } from '../src/data/abilities';
+import { CALAMITY_DAMAGE, CONVERT_CLASS, CONVERT_SETBACK, CONVERT_TIME } from '../src/data/abilities';
 import { MAX_FAITH } from '../src/data/units';
 import { hasStatus } from '../src/sim/status';
 import type { World } from '../src/sim/world';
@@ -36,8 +36,9 @@ describe('priests', () => {
 
   it('convert an enemy unit after channelling, spending their faith', () => {
     const { w, priest, target } = setup();
+    const time = CONVERT_TIME * CONVERT_CLASS.citizen!;
     w.issue({ type: 'convert', player: 0, ids: [priest.id], targetId: target.id });
-    run(w, CONVERT_TIME - 1);
+    run(w, time - 1);
     expect(target.owner).toBe(1);
     run(w, 2);
     expect(target.owner).toBe(0);
@@ -49,7 +50,7 @@ describe('priests', () => {
   it('are thrown back by hits and cannot convert heroes', () => {
     const { w, priest, target } = setup();
     w.issue({ type: 'convert', player: 0, ids: [priest.id], targetId: target.id });
-    run(w, CONVERT_TIME - 1);
+    run(w, CONVERT_TIME * CONVERT_CLASS.citizen! - 1.5);
     // Two stones hit the priest: the prayer loses ground.
     priest.lastHitTick = w.tick;
     run(w, 0.5);
@@ -71,9 +72,10 @@ describe('priests', () => {
     w.completeTech(1, 'glaubensschutz-0');
     w.completeTech(1, 'glaubensschutz-1');
     w.issue({ type: 'convert', player: 0, ids: [priest.id], targetId: target.id });
-    run(w, CONVERT_TIME + 1);
+    const time = CONVERT_TIME * CONVERT_CLASS.citizen!;
+    run(w, time + 1);
     expect(target.owner).toBe(1);
-    run(w, CONVERT_TIME * 0.8 + 1);
+    run(w, time * 0.8 + 1);
     expect(target.owner).toBe(0);
   });
 
