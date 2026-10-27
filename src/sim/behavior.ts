@@ -4,6 +4,7 @@ import { TECH_BY_ID } from '../data/techs';
 import { BUILD_RATE, gatherRate, ROLE_DEFS } from '../data/units';
 import { fire } from './combat';
 import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type Order, type PatrolOrder, type Plan, type ResourceNode, type Unit } from './entities';
+import { atan2, cos, hypot, sin } from './fmath';
 import { distToRect, type PathGoal, type Point, type Rect } from './pathfinding';
 import { DT, TICK_RATE, type World } from './world';
 
@@ -20,14 +21,14 @@ export function setPathTo(w: World, u: Unit, goal: PathGoal): void {
 
 /** Distance from a unit to the edge of an entity (0 when touching). */
 export function distTo(u: { x: number; y: number }, e: Entity): number {
-  if (e.kind === 'unit') return Math.max(0, Math.hypot(e.x - u.x, e.y - u.y) - UNIT_RADIUS);
+  if (e.kind === 'unit') return Math.max(0, hypot(e.x - u.x, e.y - u.y) - UNIT_RADIUS);
   return distToRect(u.x, u.y, rectOf(e));
 }
 
 /** Whether a unit can walk straight to a point without crossing a blocked tile. */
 function straightClear(w: World, u: Unit, tx: number, ty: number): boolean {
   const team = w.teamOf(u.owner);
-  const steps = Math.max(1, Math.ceil(Math.hypot(tx - u.x, ty - u.y) / 0.25));
+  const steps = Math.max(1, Math.ceil(hypot(tx - u.x, ty - u.y) / 0.25));
   for (let s = 1; s <= steps; s++) {
     const t = s / steps;
     if (!w.map.passableFor(Math.floor(u.x + (tx - u.x) * t), Math.floor(u.y + (ty - u.y) * t), team)) return false;
@@ -45,7 +46,7 @@ function approach(w: World, u: Unit, rect: Rect, reach: number): boolean {
   if (u.path.length > 0) return true;
   const px = Math.max(rect.x, Math.min(rect.x + rect.w, u.x));
   const py = Math.max(rect.y, Math.min(rect.y + rect.h, u.y));
-  const d = Math.hypot(u.x - px, u.y - py);
+  const d = hypot(u.x - px, u.y - py);
   if (d > reach + 1.5) return false;
   if (reach <= 0.3) {
     // Walkable targets (farms): step onto the edge.
@@ -75,12 +76,12 @@ function followPath(w: World, u: Unit): void {
   }
   const dx = next.x - u.x;
   const dy = next.y - u.y;
-  const dist = Math.hypot(dx, dy);
+  const dist = hypot(dx, dy);
   const o = u.order;
   const speed = o.kind === 'move' && o.pace ? Math.min(u.stats.speed, o.pace) : u.stats.speed;
   const step = speed * DT;
   u.moving = true;
-  if (dist > 1e-6) u.facing = Math.atan2(dy, dx);
+  if (dist > 1e-6) u.facing = atan2(dy, dx);
   if (dist <= step) {
     u.x = next.x;
     u.y = next.y;
@@ -92,7 +93,7 @@ function followPath(w: World, u: Unit): void {
 }
 
 function face(u: Unit, e: Entity): void {
-  u.facing = Math.atan2(e.y - u.y, e.x - u.x);
+  u.facing = atan2(e.y - u.y, e.x - u.x);
 }
 
 function goIdle(u: Unit): void {
@@ -106,7 +107,7 @@ export function findTarget(w: World, owner: number, x: number, y: number, radius
   let bestScore = Infinity;
   w.forUnitsNear(x, y, radius, (o) => {
     if (!w.areEnemies(owner, o.owner) || !w.inSight(owner, o)) return;
-    const d = Math.hypot(o.x - x, o.y - y);
+    const d = hypot(o.x - x, o.y - y);
     if (d > radius) return;
     const score = d + (o.role === 'citizen' ? 3 : 0) + (siege ? 6 : 0);
     if (score < bestScore) {
@@ -244,7 +245,7 @@ function updatePatrol(w: World, u: Unit): void {
   if (u.path.length > 0) return;
   const p = o.points[o.index];
   // Arrived (or the point can't be reached): on to the next one.
-  if (Math.hypot(p.x - u.x, p.y - u.y) <= 0.8 || w.tick - u.repathTick < TICK_RATE) {
+  if (hypot(p.x - u.x, p.y - u.y) <= 0.8 || w.tick - u.repathTick < TICK_RATE) {
     o.index = (o.index + 1) % o.points.length;
   }
   if (w.tick - u.repathTick >= TICK_RATE / 2) routeTo(w, u);
@@ -276,7 +277,7 @@ function updateMove(w: World, u: Unit): void {
     }
   }
   if (u.path.length > 0) return;
-  const remaining = Math.hypot(o.x - u.x, o.y - u.y);
+  const remaining = hypot(o.x - u.x, o.y - u.y);
   if (remaining > 0.6 && u.repathTick < 0) {
     setPathTo(w, u, { kind: 'point', x: o.x, y: o.y });
     if (u.path.length > 0) return;
@@ -301,7 +302,7 @@ function updateAttack(w: World, u: Unit): void {
   const t = w.get(o.targetId);
   if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner)) return endAttack(w, u);
   if (t.kind === 'unit' && !w.inSight(u.owner, t)) return endAttack(w, u);
-  if (o.leash && Math.hypot(u.x - o.leash.x, u.y - o.leash.y) > u.stats.sight + 6) {
+  if (o.leash && hypot(u.x - o.leash.x, u.y - o.leash.y) > u.stats.sight + 6) {
     const back = o.leash;
     u.order = { kind: 'move', x: back.x, y: back.y, attackMove: false };
     setPathTo(w, u, { kind: 'point', x: back.x, y: back.y });
@@ -497,8 +498,8 @@ function frontierTile(w: World, u: Unit, skip: number[]): { x: number; y: number
   const vis = w.players[u.owner].vis;
   const ux = Math.floor(u.x);
   const uy = Math.floor(u.y);
-  const fx = Math.cos(u.facing);
-  const fy = Math.sin(u.facing);
+  const fx = cos(u.facing);
+  const fy = sin(u.facing);
   let best: { x: number; y: number } | null = null;
   let bestScore = Infinity;
   let foundRing = -1;
@@ -520,7 +521,7 @@ function frontierTile(w: World, u: Unit, skip: number[]): { x: number; y: number
           (map.inBounds(x, y - 1) && vis[i - map.width] !== 0 && map.passable(x, y - 1));
         if (!edge) continue;
         if (foundRing < 0) foundRing = r;
-        const d = Math.hypot(dx, dy);
+        const d = hypot(dx, dy);
         // Ground behind the unit counts up to twice as far, so it keeps a heading.
         const score = d * (1.5 - (0.5 * (dx * fx + dy * fy)) / d);
         if (score < bestScore) {
@@ -552,7 +553,7 @@ function snugUp(w: World, u: Unit, node: Building | ResourceNode): boolean {
   const r = rectOf(node);
   const px = Math.max(r.x, Math.min(r.x + r.w, u.x));
   const py = Math.max(r.y, Math.min(r.y + r.h, u.y));
-  const d = Math.hypot(u.x - px, u.y - py);
+  const d = hypot(u.x - px, u.y - py);
   if (d < 1e-6) return false;
   const nx = (u.x - px) / d;
   const ny = (u.y - py) / d;
@@ -651,7 +652,7 @@ function afterBuild(w: World, u: Unit, b: Building): void {
   let siteD = 8;
   for (const other of w.buildings) {
     if (other.dead || other.built || other.owner !== u.owner) continue;
-    const d = Math.hypot(other.x - u.x, other.y - u.y);
+    const d = hypot(other.x - u.x, other.y - u.y);
     if (d < siteD) {
       siteD = d;
       site = other;
@@ -788,7 +789,7 @@ export function separateUnits(w: World): void {
       if (o === u) return;
       const dx = u.x - o.x;
       const dy = u.y - o.y;
-      const d = Math.hypot(dx, dy);
+      const d = hypot(dx, dy);
       if (d >= minDist) return;
       if (d < 1e-4) {
         // Exactly stacked: split deterministically by id.

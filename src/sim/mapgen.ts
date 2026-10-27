@@ -1,4 +1,5 @@
 import type { NodeType } from './entities';
+import { cos, hypot, sin } from './fmath';
 import { Terrain } from './map';
 import type { Point } from './pathfinding';
 import { valueNoise } from './rng';
@@ -33,7 +34,7 @@ export function generateMap(w: World): Point[] {
     x: c.x + rng.int(-2, 3) + 0.5,
     y: c.y + rng.int(-2, 3) + 0.5,
   }));
-  const distStart = (x: number, y: number) => Math.min(...starts.map((s) => Math.hypot(s.x - x, s.y - y)));
+  const distStart = (x: number, y: number) => Math.min(...starts.map((s) => hypot(s.x - x, s.y - y)));
 
   const water1 = valueNoise(seed * 7 + 1, 14);
   const water2 = valueNoise(seed * 7 + 2, 5);
@@ -79,13 +80,13 @@ export function generateMap(w: World): Point[] {
     for (let attempt = 0; attempt < 40; attempt++) {
       const a = angle + rng.range(-0.5, 0.5) * (1 + attempt / 10);
       const d = dist + rng.range(-1.5, 1.5);
-      if (placeNode(type, Math.floor(s.x + Math.cos(a) * d) - 1, Math.floor(s.y + Math.sin(a) * d) - 1, 2)) return;
+      if (placeNode(type, Math.floor(s.x + cos(a) * d) - 1, Math.floor(s.y + sin(a) * d) - 1, 2)) return;
     }
   };
 
   const placeCluster = (type: NodeType, s: Point, dist: number, angle: number, count: number): void => {
-    const cx = s.x + Math.cos(angle) * dist;
-    const cy = s.y + Math.sin(angle) * dist;
+    const cx = s.x + cos(angle) * dist;
+    const cy = s.y + sin(angle) * dist;
     let placed = 0;
     for (let attempt = 0; attempt < 60 && placed < count; attempt++) {
       if (placeNode(type, Math.floor(cx + rng.range(-2, 2)), Math.floor(cy + rng.range(-2, 2)), 1)) placed++;
@@ -93,11 +94,11 @@ export function generateMap(w: World): Point[] {
   };
 
   const placeForest = (s: Point, dist: number, angle: number, radius: number): void => {
-    const cx = s.x + Math.cos(angle) * dist;
-    const cy = s.y + Math.sin(angle) * dist;
+    const cx = s.x + cos(angle) * dist;
+    const cy = s.y + sin(angle) * dist;
     for (let y = Math.floor(cy - radius); y <= cy + radius; y++) {
       for (let x = Math.floor(cx - radius); x <= cx + radius; x++) {
-        if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) > radius || rng.next() > 0.85) continue;
+        if (hypot(x + 0.5 - cx, y + 0.5 - cy) > radius || rng.next() > 0.85) continue;
         if (placeNode('tree', x, y, 1)) map.terrain[map.idx(x, y)] = Terrain.Forest;
       }
     }
@@ -182,7 +183,7 @@ function ensureConnected(w: World, starts: Point[]): void {
     const target = starts[i];
     if (seen[map.idx(Math.floor(target.x), Math.floor(target.y))]) continue;
     const a = starts[0];
-    const len = Math.hypot(target.x - a.x, target.y - a.y);
+    const len = hypot(target.x - a.x, target.y - a.y);
     for (let s = 0; s <= len; s += 0.5) {
       const px = a.x + ((target.x - a.x) * s) / len;
       const py = a.y + ((target.y - a.y) * s) / len;

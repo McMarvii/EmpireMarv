@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.4).** Wirtschaft, Kampf, 18 Epochen, 165 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen funktionieren. Mehrspieler fehlt noch – siehe [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.5).** Wirtschaft, Kampf, 18 Epochen, 165 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, **Mehrspieler per Link** und **Wiedergaben** funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -16,6 +16,8 @@ npm run dev
 ```
 
 Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel starten** klicken.
+
+Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5173/?signal=local> öffnen. Im einen ein Spiel erstellen, den Einladungslink im anderen öffnen. Die Tabs finden sich dann über den Browser statt über den Vermittlungsserver.
 
 | Befehl              | Zweck                                   |
 | ------------------- | --------------------------------------- |
@@ -42,7 +44,9 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 - **Befehlsketten** mit Umschalt: Wegpunkte, Angriffe, Sammeln und mehrere Bauaufträge nacheinander. Die Wegpunkte sind als Linien sichtbar. Dazu **Patrouille** und **Sammelpunkt-Ketten**.
 - **Gebäude-Hotkeys und Produktionsleiste**: `Tab` plus Bau-Taste springt zu Kaserne, Stall & Co. (untätige zuerst). Eine Leiste zeigt jedes Produktionsgebäude mit laufendem Auftrag, Warteschlange und untätigem Zustand. Mehrere Gebäude eines Typs bilden gemeinsam aus, Forschung und Aufstieg lassen sich einreihen.
 - **Fog of War**, Minimap, Sammelpunkte, Kontrollgruppen mit Gruppenleiste, Angriffsbewegung, Anzeige untätiger Bürger.
-- **Deterministische Simulation**: Gleicher Seed und gleiche Befehle ergeben dieselbe Partie. Das ist die Grundlage für Replays und Mehrspieler.
+- **Mehrspieler per Link** für bis zu 4 Plätze, Menschen und KI gemischt, Teams frei wählbar (1 gegen 1, 2 gegen 2, zu zweit gegen die KI). Gastgeber erstellt das Spiel und teilt den Link, die Browser verbinden sich direkt. Verbündete teilen die Sicht. Dazu Chat (an alle oder ans Team), Kartenmarkierungen, gemeinsame Pause. Verliert jemand die Verbindung, wartet die Partie bis zu 60 s, dann übernimmt der Computer. Wer den Tab neu lädt, steigt über denselben Link wieder ein.
+- **Wiedergaben**: Jede Partie wird automatisch mitgeschnitten (nur Einstellungen und Befehle, wenige Kilobyte). Ansehen im Menü unter „Wiedergaben“ oder als Datei speichern und weitergeben. Beim Ansehen: Tempo bis 16×, vor- und zurückspringen, Sicht jedes Spielers oder alles aufgedeckt.
+- **Deterministische Simulation**: Gleicher Seed und gleiche Befehle ergeben dieselbe Partie, auch über Chrome, Firefox und Safari hinweg (eigene Trigonometrie statt `Math.sin` & Co.). Darauf bauen Mehrspieler und Wiedergaben auf.
 
 ![Architektur der Epochen](docs/screenshots/epochen-architektur.jpg)
 
@@ -76,7 +80,9 @@ Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel star
 | Leertaste                       | Zum letzten Angriff springen                        |
 | Pfeiltasten, Bildschirmrand, Mausrad | Kamera bewegen und zoomen                      |
 | `+` / `−`                       | Spielgeschwindigkeit                                |
-| `P` / `Esc` / `F1`              | Pause / Menü / Hilfe                                |
+| `P` / `Esc` / `F1`              | Pause / Menü / Hilfe (im Mehrspieler pausiert `P` für alle) |
+| `Enter` / Umschalt + `Enter`    | Mehrspieler: Chat an alle / ans Team (`Tab` wechselt beim Schreiben) |
+| `Alt` + Klick                   | Mehrspieler: Stelle für Verbündete markieren (auch auf der Minikarte) |
 | `Strg`+`M` oder 🔊              | Ton ein/aus; Lautstärke unter Menü → Ton & Musik    |
 
 ![Schlacht in den Weltkriegen](docs/screenshots/schlacht.jpg)
@@ -89,8 +95,11 @@ src/
   sim/       Deterministische Simulation: Welt, Befehle, Verhalten, Kampf, Wegfindung, KI
   render/    Isometrische Darstellung, prozedurale Sprites, Minimap
   audio/     Prozedurale Klänge, generative Musik je Ära, Mischpult
-  ui/        HUD, Eingabe, Startmenü
-tests/       Vitest: Daten, Wegfindung, Wirtschaft, Kampf, KI-gegen-KI, Klänge und Musik
+  net/       Mehrspieler: Lockstep-Sitzungen, Protokoll, WebRTC, Vermittlung
+  ui/        HUD, Eingabe, Startmenü, Lobby, Chat, Wiedergabe-Leiste
+  session.ts Woher Befehle kommen: Einzelspiel, Netz oder Wiedergabe
+  replay.ts  Aufzeichnen, Speichern und Laden von Wiedergaben
+tests/       Vitest: Daten, Wegfindung, Wirtschaft, Kampf, KI-gegen-KI, Klänge, Determinismus, Lockstep mit Latenz, Wiedergaben
 docs/        Game Design und Screenshots
 ```
 
@@ -103,6 +112,14 @@ Das Design, die Epochen-Tabelle und die Roadmap stehen in [docs/GAME_DESIGN.md](
 Der Workflow `.github/workflows/pages.yml` baut das Spiel bei jedem Push auf den Standard-Branch und veröffentlicht den Ordner `dist/`.
 
 Einmalig nötig: unter *Settings → Pages → Build and deployment → Source* **GitHub Actions** auswählen. Mit „Deploy from a branch“ liefert GitHub den Quellcode aus, die `.ts`-Dateien laufen im Browser nicht, und die Seite bleibt leer.
+
+## Mehrspieler: was man wissen sollte
+
+- **Verbindungsaufbau**: Nur der Handschlag läuft über den kostenlosen öffentlichen [PeerJS](https://peerjs.com)-Server (`0.peerjs.com`). Spieldaten gehen direkt von Browser zu Browser. Ist der Server nicht erreichbar, gibt es in der Lobby „Einladung per Code“: Der Gastgeber schickt einen Code, der Mitspieler schickt einen Antwortcode zurück.
+- **Nicht jedes Netz klappt**: Ohne Relay-Server (TURN) können strenge Firewalls, manche Firmen- und Mobilfunknetze keine direkte Verbindung aufbauen. Dann erscheint ein Hinweis statt endlosem Warten.
+- **Der Gastgeber ist der Taktgeber**: Verlässt er das Spiel, endet es für alle (die Partie lässt sich als Wiedergabe speichern).
+- **Gleiche Version**: Alle Spieler brauchen dieselbe Spielversion. Weicht ein Spielstand trotzdem ab, meldet das Spiel es (Prüfsumme jede Sekunde).
+- **Datenschutz**: Beim Verbindungsaufbau sehen sich die Browser gegenseitig ihre IP-Adressen, der PeerJS-Server sieht sie ebenfalls.
 
 ## Rechtliches
 

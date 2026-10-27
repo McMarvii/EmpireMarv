@@ -12,6 +12,7 @@ import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/r
 import { bestTier, GATHER_LABEL, ROLE_DEFS, type Role } from '../data/units';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
+import { downloadReplay } from '../replay';
 import { buildingIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
 import type { Building, Entity, Unit } from '../sim/entities';
@@ -160,8 +161,9 @@ export class Hud {
 
   setPaused(paused: boolean): void {
     this.els.pauseBtn.textContent = paused ? '▶' : '❚❚';
+    // In a network match someone else may resume; that must not close this player's menu.
     const kind = this.els.overlay.dataset.kind;
-    if (!paused && (kind === 'pause' || kind === 'sound')) this.closeOverlay();
+    if (!paused && !this.game.net && (kind === 'pause' || kind === 'sound')) this.closeOverlay();
   }
 
   update(): void {
@@ -540,6 +542,7 @@ export class Hud {
 
   private buildCommands(ents: Entity[]): CommandButton[] {
     const game = this.game;
+    if (game.viewer) return [];
     const { world, me } = game;
     const player = world.players[me];
     const color = player.color;
@@ -863,23 +866,42 @@ export class Hud {
   }
 
   showPauseMenu(): void {
-    this.game.togglePause(true);
+    const { game } = this;
+    game.menuPause(true);
+    const quit = game.viewer ? 'Wiedergabe beenden' : game.net ? 'Spiel verlassen' : 'Aufgeben &amp; Hauptmenü';
+    const note = game.net
+      ? `<p class="dim">Mehrspieler: Das Spiel läuft weiter. Verlässt du es, übernimmt der Computer dein Reich${game.net.kind === 'host' ? ' – als Gastgeber beendest du die Partie für alle' : ''}.</p>`
+      : '';
     this.openOverlay(
       'pause',
-      `<h2>Pause</h2>
+      `<h2>${game.net ? 'Menü' : 'Pause'}</h2>${note}
        <div class="dialog-buttons">
          <button data-act="resume" class="primary">Weiterspielen</button>
          <button data-act="help">Steuerung</button>
          <button data-act="sound">Ton &amp; Musik</button>
-         <button data-act="quit">Aufgeben &amp; Hauptmenü</button>
+         ${game.recorder ? '<button data-act="save">Wiedergabe speichern</button>' : ''}
+         <button data-act="quit">${quit}</button>
        </div>`,
     );
     this.bindOverlay({
-      resume: () => this.game.togglePause(false),
+      resume: () => game.menuPause(false),
       help: () => this.showHelp(),
       sound: () => this.showSound(),
-      quit: () => this.game.exitToMenu(),
+      save: () => game.recorder && downloadReplay(game.recorder.replay),
+      quit: () => game.exitToMenu(),
     });
+  }
+
+  /** The network match is over for this player (host gone, connection lost). */
+  showNetLost(reason: string, save: () => void): void {
+    this.openOverlay(
+      'gameover',
+      `<h2>Verbindung beendet</h2>
+       <p>${esc(reason)}</p>
+       <p class="dim">Die Partie bis hierher lässt sich als Wiedergabe speichern und später ansehen.</p>
+       <div class="dialog-buttons"><button data-act="save">Wiedergabe speichern</button><button data-act="quit" class="primary">Hauptmenü</button></div>`,
+    );
+    this.bindOverlay({ save, quit: () => this.game.exitToMenu() });
   }
 
   toggleMute(): void {
@@ -895,7 +917,7 @@ export class Hud {
 
   /** Volume sliders; changes apply (and are remembered) right away. */
   showSound(): void {
-    this.game.togglePause(true);
+    this.game.menuPause(true);
     const s = audio.settings;
     const slider = (key: 'master' | 'sfx' | 'music', label: string) =>
       `<label class="vol"><span>${label}</span><input type="range" min="0" max="100" step="5" value="${Math.round(s[key] * 100)}" data-vol="${key}"><output>${Math.round(s[key] * 100)} %</output></label>`;
@@ -926,11 +948,11 @@ export class Hud {
       audio.setSettings({ muted: mute.checked });
       this.updateSoundBtn();
     };
-    this.bindOverlay({ back: () => this.showPauseMenu(), resume: () => this.game.togglePause(false) });
+    this.bindOverlay({ back: () => this.showPauseMenu(), resume: () => this.game.menuPause(false) });
   }
 
   showHelp(): void {
-    this.game.togglePause(true);
+    this.game.menuPause(true);
     this.openOverlay(
       'pause',
       `<h2>Steuerung</h2>
@@ -960,13 +982,15 @@ export class Hud {
         <tr><td>+ / −</td><td>Spielgeschwindigkeit</td></tr>
         <tr><td>F2</td><td>Technologiebaum</td></tr>
         <tr><td>Strg + M</td><td>Ton ein/aus (Lautstärke: Menü → Ton &amp; Musik)</td></tr>
-        <tr><td>P / Esc</td><td>Pause / Menü</td></tr>
+        <tr><td>P / Esc</td><td>Pause / Menü (im Mehrspieler pausiert P für alle)</td></tr>
+        <tr><td>Enter / Umschalt + Enter</td><td>Mehrspieler: Chat an alle / ans Team (Tab wechselt beim Schreiben)</td></tr>
+        <tr><td>Alt + Klick</td><td>Mehrspieler: Stelle für Verbündete markieren (auch auf der Minikarte)</td></tr>
       </table>
       <h3>Kampfdreieck</h3>
       <p>Sturminfanterie › Abwehrinfanterie › Kavallerie &amp; Fahrzeuge › Fernkampf › Sturminfanterie. Belagerung zerstört Gebäude.</p>
       <div class="dialog-buttons"><button data-act="resume" class="primary">Weiterspielen</button></div>`,
     );
-    this.bindOverlay({ resume: () => this.game.togglePause(false) });
+    this.bindOverlay({ resume: () => this.game.menuPause(false) });
   }
 
   /** Overlay with the whole tree: one tab per research building, one row per branch. */
@@ -974,7 +998,7 @@ export class Hud {
     const { world, me } = this.game;
     const player = world.players[me];
     this.techTab = tab;
-    this.game.togglePause(true);
+    this.game.menuPause(true);
     const gap = world.missingTechs(me);
     const done = player.techs.size;
     const tabs = RESEARCH_BUILDINGS.map((t) => {
@@ -1020,7 +1044,7 @@ export class Hud {
        <div class="dialog-buttons"><button data-act="resume" class="primary">Weiterspielen</button></div>`,
     );
     this.els.overlay.querySelector('.dialog')?.classList.add('wide');
-    this.bindOverlay({ resume: () => this.game.togglePause(false) });
+    this.bindOverlay({ resume: () => this.game.menuPause(false) });
     this.els.overlay.querySelectorAll<HTMLElement>('[data-tab]').forEach((el) => {
       el.onclick = () => this.showTechTree(el.dataset.tab as BuildingType);
     });
@@ -1058,9 +1082,13 @@ export class Hud {
       `<h2 class="${won ? 'win' : 'lose'}">${won ? 'Sieg!' : 'Niederlage'}</h2>
        <p>Spielzeit ${fmtTime(world.time)}</p>
        <table class="stats-table"><tr><th>Spieler</th><th>Epoche</th><th>Gesammelt</th><th>Ausgebildet</th><th>Getötet</th><th>Verluste</th><th>Gebäude verloren</th></tr>${rows}</table>
-       <div class="dialog-buttons"><button data-act="watch">Weiter ansehen</button><button data-act="quit" class="primary">Hauptmenü</button></div>`,
+       <div class="dialog-buttons"><button data-act="watch">Weiter ansehen</button>${this.game.recorder ? '<button data-act="save">Wiedergabe speichern</button>' : ''}<button data-act="quit" class="primary">Hauptmenü</button></div>`,
     );
-    this.bindOverlay({ watch: () => this.closeOverlay(), quit: () => this.game.exitToMenu() });
+    this.bindOverlay({
+      watch: () => this.closeOverlay(),
+      save: () => this.game.recorder && downloadReplay(this.game.recorder.replay),
+      quit: () => this.game.exitToMenu(),
+    });
   }
 
   private bindOverlay(actions: Record<string, () => void>): void {

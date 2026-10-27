@@ -1,3 +1,4 @@
+import { hypot } from './fmath';
 import type { GameMap } from './map';
 
 export interface Point {
@@ -18,7 +19,7 @@ export type PathGoal = { kind: 'point'; x: number; y: number } | { kind: 'rect';
 export function distToRect(px: number, py: number, r: Rect): number {
   const dx = Math.max(r.x - px, 0, px - (r.x + r.w));
   const dy = Math.max(r.y - py, 0, py - (r.y + r.h));
-  return Math.hypot(dx, dy);
+  return hypot(dx, dy);
 }
 
 const SQRT2 = Math.SQRT2;
@@ -180,7 +181,7 @@ export class Pathfinder {
   }
 
   lineClear(a: Point, b: Point, team = -1): boolean {
-    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    const dist = hypot(b.x - a.x, b.y - a.y);
     const steps = Math.ceil(dist / 0.2);
     // Sample the line and a slightly widened corridor so units don't clip corners.
     for (let s = 1; s <= steps; s++) {

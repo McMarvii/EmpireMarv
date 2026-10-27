@@ -10,6 +10,11 @@ export class Rng {
     this.state = seed >>> 0;
   }
 
+  /** Current position in the sequence, for state checksums. */
+  get position(): number {
+    return this.state;
+  }
+
   next(): number {
     let t = (this.state = (this.state + 0x6d2b79f5) >>> 0);
     t = Math.imul(t ^ (t >>> 15), t | 1);

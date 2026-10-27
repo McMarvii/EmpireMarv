@@ -173,6 +173,44 @@ Alles wird mit der Web Audio API zur Laufzeit erzeugt: Oszillatoren, gefiltertes
 
 Lautstärke für Gesamt, Effekte und Musik sowie Stumm (`Strg`+`M`) stehen im Menü unter „Ton & Musik“ und werden im Browser gespeichert. Wegen der Autoplay-Regeln der Browser startet der Ton erst mit dem ersten Klick.
 
+## Mehrspieler und Wiedergaben
+
+### Lobby und Verbindung
+
+- **Spiel erstellen**: Der Gastgeber bekommt einen Link (`#join=em-…`) und stellt die Partie ein. Vier Plätze, jeder ist *Offen (Mensch)*, *Computer* oder *Geschlossen*, dazu Team 1–4. Wer den Link öffnet, landet auf dem ersten offenen Platz. Gestartet wird ab zwei Spielern in zwei Teams. Offene Plätze ohne Spieler fallen weg.
+- **Vermittlung**: WebRTC braucht einen Handschlag. Ihn übernimmt der öffentliche PeerJS-Server. Das Spiel spricht dessen Protokoll direkt (WebSocket mit JSON) und braucht keine Bibliothek. Danach laufen die Daten direkt über einen Datenkanal (zuverlässig, geordnet, große Nachrichten in Stücken). STUN-Server von Google und Cloudflare ermitteln die öffentliche Adresse; ein TURN-Relay gibt es nicht.
+- **Code-Notlösung**: Ohne Server tauschen Gastgeber und Mitspieler je einen Code aus. Das ist die komplette, komprimierte Sitzungsbeschreibung, etwa 600 Zeichen.
+- **Lokal**: `?signal=local` vermittelt zwischen Tabs desselben Browsers (BroadcastChannel), für Tests ohne Internet.
+
+### Lockstep mit Relay
+
+Jeder Browser rechnet die ganze Simulation selbst. Ausgetauscht werden nur Befehle.
+
+- Gäste schicken ihre Befehle an den Gastgeber. Der setzt den Absender selbst ein, ein Gast kann also nur sein eigenes Reich steuern. Dann packt er die Befehle in einen **Frame** für einen Tick wenige Ticks in der Zukunft und schickt jeden Frame an alle, auch leere. Ein Frame ist die Erlaubnis, diesen Tick zu rechnen.
+- **Eingabeverzögerung**: 2–8 Ticks (100–400 ms), angepasst an die gemessene Umlaufzeit (`delayFor`). Auch die Befehle des Gastgebers nehmen diesen Weg, das hält es fair.
+- **Takt**: Gäste melden alle 5 Ticks ihren Stand. Fällt einer mehr als 2 s zurück, wartet der Gastgeber. Gäste, die hinterherhinken, rechnen ein paar Ticks pro Bild mehr. Versteckte Tabs rechnen über einen Timer weiter, damit niemand auf sie wartet.
+- **Desync-Erkennung**: Jede Sekunde vergleicht der Gastgeber die Prüfsumme der Gäste (Positionen, Lebenspunkte, Vorräte, Zufallsgenerator) mit seiner eigenen. Weicht eine ab, sehen alle eine Warnung.
+- **Bitgleich über Browser hinweg**: `Math.sin`, `cos`, `atan2`, `hypot` und `**` rechnen in Chrome, Firefox und Safari im letzten Bit verschieden. Die Simulation nutzt deshalb eigene Versionen aus exakten Grundrechenarten (`src/sim/fmath.ts`). Ein Test verbietet die Originale in Simulation und Daten. Jeder Befehl wird vor der Ausführung durch JSON geschickt, auch lokal. So bekommt jeder Rechner exakt dieselben Zahlen (kein `-0`, kein `undefined`).
+
+### Pause, Abbruch, Wiedereinstieg
+
+- **Pause** (`P`) gilt für alle, das Banner zeigt, wer pausiert hat. Menüs und Technologiebaum pausieren im Mehrspieler nicht. Die Geschwindigkeit stellt nur der Gastgeber ein.
+- **Verbindung verloren**: Die Partie wartet bis zu 60 s mit Countdown. Der Gastgeber kann vorher „Nicht warten“ wählen. Danach übernimmt der Computer das Reich (Befehl `control`, ohne KI-Sammelbonus). Wer über das Menü geht, wird sofort ersetzt.
+- **Wiedereinstieg**: Der Platz ist an ein Kennwort im Tab gebunden. Lädt jemand den Tab neu oder fliegt raus, bringt ihn derselbe Link zurück, auch nachdem der Computer übernommen hat. Der Gastgeber schickt die Befehle der ganzen Partie, der Browser rechnet sie im Schnelldurchlauf nach (Fortschritt für alle sichtbar), dann geht es synchron weiter. Eine 15-Minuten-Partie mit vier Reichen ist in wenigen Sekunden nachgerechnet.
+- **Gastgeber weg**: Das Spiel endet für alle; die Partie lässt sich als Wiedergabe speichern.
+
+### Chat und Markierungen
+
+`Enter` öffnet die Chatzeile an alle, Umschalt+`Enter` ans Team (`Tab` wechselt beim Schreiben). `Alt`+Klick auf Karte oder Minikarte setzt eine Markierung mit Fähnchen und Ringen, die nur Verbündete sehen und hören. Der Chat landet auch in der Wiedergabe.
+
+### Wiedergaben
+
+Weil die Simulation deterministisch ist, reichen Einstellungen (mit Seed) und jeder Befehl mit seinem Tick. Computerspieler entscheiden beim Abspielen genauso wie im Spiel. Eine Partie braucht nur einige Kilobyte.
+
+- **Aufnahme**: immer, im Einzel- wie im Mehrspieler. Die letzte Partie bleibt im Browser („Letzte Partie ansehen“); speichern als `.json` über das Menü, den Sieg- oder Niederlagendialog und den Dialog „Verbindung beendet“.
+- **Abspielen**: Tempo ½× bis 16×, ±30 s, Zeitleiste zum Springen. Vorwärts wird schnell gerechnet, rückwärts startet die Partie neu und spult vor. Wählbar ist die Sicht jedes Spielers (mit seinem Nebel) oder „Alles zeigen“.
+- **Prüfung**: Alle 5 s speichert die Aufnahme eine Prüfsumme. Läuft die Wiedergabe anders, zum Beispiel unter einer anderen Spielversion, zeigt die Leiste ab wann.
+
 ## KI
 
 Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Menschen. Sie kennt allerdings die Lage gegnerischer Gebäude, wie in klassischen RTS-KIs üblich.
@@ -188,8 +226,8 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
 ## Technische Architektur
 
 - **TypeScript + Vite**, keine Spiel-Engine, keine Laufzeit-Abhängigkeiten.
-- **Simulation** (`src/sim`) mit festen 20 Ticks pro Sekunde und eigenem Zufallsgenerator (kein `Math.random`). Sie ist vollständig von Darstellung und Eingabe getrennt, läuft headless in Tests und ist bereit für Lockstep-Mehrspieler.
-- **Befehle** (`world.issue`) sind die einzige Schnittstelle für Spieler und KI. Für Replays reicht es, sie aufzuzeichnen.
+- **Simulation** (`src/sim`) mit festen 20 Ticks pro Sekunde, eigenem Zufallsgenerator (kein `Math.random`) und eigener Trigonometrie (`fmath`). Sie ist vollständig von Darstellung und Eingabe getrennt, läuft headless in Tests und rechnet in jedem Browser bitgleich.
+- **Befehle** (`world.issue`) sind die einzige Schnittstelle für Spieler und KI. Das Spiel gibt sie nie direkt hinein, sondern über eine **Sitzung** (`src/session.ts`): Einzelspiel wendet sie sofort an, Lockstep-Sitzungen (`src/net`) verteilen sie in Frames, die Wiedergabe liest sie aus der Aufnahme.
 - **Darstellung** mit Canvas 2D, isometrisch, alle Sprites prozedural. Gebäude und Einheiten werden pro Epoche umgefärbt und umgebaut, Positionen zwischen Ticks interpoliert.
 - **Wegfindung**: A* auf 8er-Nachbarschaft mit wiederverwendeten Puffern und String-Pulling-Glättung.
 - **Audio** (`src/audio`): Synthese-Bausteine, Instrumente, Klangrezepte, reiner Musik-Komponist (testbar ohne Browser) und ein Mischpult mit Bussen für Effekte, Oberfläche und Musik.
@@ -203,8 +241,8 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | 0.1 | 18 Epochen, 5 Rollen, 8 Gebäude, Wirtschaft, KI, Fog of War, Minimap |
 | 0.2 | Mauern und Tore (auch für die KI), Späher und Erkundenmodus, Aufstieg mit Gebäude-Voraussetzungen, Epochen-Embleme, Gruppenleiste, sichtbare Moral, Durchsicht hinter Gebäuden, Karte per Rechts-Ziehen verschieben, Einlagern per Rechtsklick, Abriss mit Entf |
 | 0.3 | ✔ **Großer Technologiebaum** (165 Techniken, 24 Zweige, Schmiede und Akademie, Forschung als Aufstiegsvoraussetzung). ✔ **Ton und Musik** (Befehlsrückmeldungen, Kampf- und Arbeitsgeräusche, Alarm und Fanfaren je Ära, generative Musik je Ära mit Kampfvariante) |
-| **0.4** (jetzt) | ✔ **Befehlsketten** mit Umschalt (Wegpunkte, Ziele, Bauaufträge, Mauerlinien), ✔ **Formationen** (Linie, Block, Keil; Fernkampf hinten; Gleichschritt; Blickrichtung per Rechts-Ziehen), ✔ **Patrouille**, ✔ **Sammelpunkt-Ketten**, ✔ Wegpunkt-Anzeige, ✔ **Gebäude-Hotkeys** (`Tab` + Bau-Taste), ✔ **Produktionsleiste**, ✔ Ausbilden über mehrere Gebäude, ✔ Forschungs- und Aufstiegs-Warteschlangen |
-| 0.5 | **Mehrspieler per Link** (Spiel erstellen, Link teilen, direkt über WebRTC verbunden; Lockstep auf der deterministischen Simulation), Replays |
+| 0.4 | ✔ **Befehlsketten** mit Umschalt (Wegpunkte, Ziele, Bauaufträge, Mauerlinien), ✔ **Formationen** (Linie, Block, Keil; Fernkampf hinten; Gleichschritt; Blickrichtung per Rechts-Ziehen), ✔ **Patrouille**, ✔ **Sammelpunkt-Ketten**, ✔ Wegpunkt-Anzeige, ✔ **Gebäude-Hotkeys** (`Tab` + Bau-Taste), ✔ **Produktionsleiste**, ✔ Ausbilden über mehrere Gebäude, ✔ Forschungs- und Aufstiegs-Warteschlangen |
+| **0.5** (jetzt) | ✔ **Mehrspieler per Link** (bis 4 Plätze, Menschen und KI, Teams mit geteilter Sicht; WebRTC direkt, Handschlag über PeerJS oder Codes; Lockstep mit Relay und Desync-Erkennung; Warten und KI-Übernahme bei Abbruch; Wiedereinstieg per Link), ✔ **Chat** und **Kartenmarkierungen**, ✔ **Wiedergaben** (automatisch, als Datei, Tempo, Springen, Sicht wählbar), ✔ browserübergreifend bitgleiche Simulation |
 | 0.6 | Helden (Stratege, Krieger), Priester und Propheten, Wunder mit Wundersieg |
 | 0.7 | Seekrieg und Luftkrieg, Kartentypen, Speichern & Laden, Tutorial |
 | 1.0 | Kampagne und Szenario-Editor, Balancing, WebGL-Renderer für große Schlachten, Lokalisierung |
@@ -215,7 +253,7 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | --- | --- | --- |
 | Inhalte | Technologien & Upgrades (großer Baum), Sound & Musik | Helden, See- und Luftkrieg |
 | Bedienung | Befehlsketten, Formationen, globale Gebäude-Hotkeys | Kampfhaltung |
-| Rahmen | Mehrspieler per Link (P2P) | Speichern & Laden, Tutorial, Kartentypen |
+| Rahmen | Mehrspieler per Link (P2P) – in 0.5 umgesetzt | Speichern & Laden, Tutorial, Kartentypen |
 | Spielgefühl | Lesbarkeit: „Sachen hinter Gebäuden sind komplett verborgen“ – in 0.2 behoben | Partielänge, KI-Stärke, Mikromanagement wurden nicht bemängelt |
 
 ## Offene Entscheidungen

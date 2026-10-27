@@ -6,6 +6,7 @@ import { bestTier, CARRY_CAPACITY, ROLE_DEFS, unitStats, type Look, type Project
 import { isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { updateProjectiles } from './combat';
 import { rectOf, type Building, type Entity, type NodeType, type Plan, type Player, type ResourceNode, type Unit } from './entities';
+import { hypot } from './fmath';
 import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
 import { GameMap } from './map';
 import { generateMap } from './mapgen';
@@ -142,7 +143,9 @@ export type Command =
   | { type: 'deposit'; player: number; ids: number[]; targetId: number; queue?: boolean }
   | { type: 'explore'; player: number; ids: number[]; queue?: boolean }
   | { type: 'stop'; player: number; ids: number[] }
-  | { type: 'destroy'; player: number; ids: number[] };
+  | { type: 'destroy'; player: number; ids: number[] }
+  /** The computer takes over a player's empire (they left) or hands it back. */
+  | { type: 'control'; player: number; ai: boolean };
 
 const START_STOCK: Record<StartResources, Record<Res, number>> = {
   low: { food: 200, wood: 200, stone: 100, gold: 100, iron: 50 },
@@ -182,6 +185,8 @@ export class World {
   events: GameEvent[] = [];
   cues: SoundCue[] = [];
   controllers: Controller[] = [];
+  /** Builds the computer player that takes over an empire whose human left. */
+  makeAI: ((player: number) => Controller) | null = null;
   over = false;
   winnerTeam: number | null = null;
 
@@ -644,7 +649,7 @@ export class World {
     for (const n of this.resources) {
       if (n.dead || n.res !== res || n.id === excludeId || n.blockedUntil > this.tick) continue;
       if (player >= 0 && !this.isVisibleTo(player, n)) continue;
-      const d = Math.hypot(n.x - x, n.y - y);
+      const d = hypot(n.x - x, n.y - y);
       if (d < bestD) {
         bestD = d;
         best = n;
@@ -682,7 +687,7 @@ export class World {
     let n = 0;
     for (const b of this.buildings) {
       if (b.dead || b.owner !== owner || b.type !== 'house' || !b.built) continue;
-      if (Math.hypot(b.x - x, b.y - y) <= MORALE_RADIUS) n++;
+      if (hypot(b.x - x, b.y - y) <= MORALE_RADIUS) n++;
       if (n >= MORALE_MAX_HOUSES) break;
     }
     return n;
@@ -696,7 +701,7 @@ export class World {
         for (let x = b.tx - ring; x < b.tx + b.size + ring; x++) {
           const onRing = x === b.tx - ring || y === b.ty - ring || x === b.tx + b.size + ring - 1 || y === b.ty + b.size + ring - 1;
           if (!onRing || !this.map.passable(x, y)) continue;
-          candidates.push({ x: x + 0.5, y: y + 0.5, d: Math.hypot(x + 0.5 - towards.x, y + 0.5 - towards.y) });
+          candidates.push({ x: x + 0.5, y: y + 0.5, d: hypot(x + 0.5 - towards.x, y + 0.5 - towards.y) });
         }
       }
     }
@@ -900,6 +905,26 @@ export class World {
           this.kill(e, -1);
         }
         break;
+      case 'control':
+        this.setControl(cmd.player, cmd.ai);
+        break;
+    }
+  }
+
+  private setControl(player: number, ai: boolean): void {
+    const p = this.players[player];
+    if (p.isAI === ai || (ai && !this.makeAI)) return;
+    p.isAI = ai;
+    if (ai) {
+      // The stand-in plays without the bonus computer opponents get.
+      const bonus = p.gatherBonus;
+      this.controllers.push(this.makeAI!(player));
+      p.gatherBonus = bonus;
+    } else {
+      this.controllers = this.controllers.filter((c) => c.playerId !== player);
+    }
+    for (const q of this.players) {
+      this.emit({ type: 'info', player: q.id, text: ai ? `Der Computer übernimmt das Reich von ${p.name}.` : `${p.name} übernimmt wieder selbst.` });
     }
   }
 
@@ -1209,9 +1234,66 @@ export class World {
     }
   }
 
+  /**
+   * Fingerprint of the game state. Lockstep peers compare it to notice a
+   * desync, replays to notice they no longer match the recorded match.
+   */
+  checksum(): number {
+    const h = new Hasher();
+    h.add(this.tick);
+    h.add(this.rng.position);
+    for (const p of this.players) {
+      h.add(p.epoch);
+      h.add(p.alive ? 1 : 0);
+      for (const r of RESOURCES) h.add(p.stock[r]);
+    }
+    for (const u of this.units) {
+      if (u.dead) continue;
+      h.add(u.id);
+      h.add(u.x);
+      h.add(u.y);
+      h.add(u.hp);
+      h.add(u.carryAmount);
+      h.add(u.queue.length);
+    }
+    for (const b of this.buildings) {
+      if (b.dead) continue;
+      h.add(b.id);
+      h.add(b.hp);
+      h.add(b.progress);
+      h.add(b.queue.length);
+    }
+    for (const n of this.resources) {
+      if (n.dead) continue;
+      h.add(n.id);
+      h.add(n.amount);
+    }
+    return h.value;
+  }
+
   /** Name of a unit role's current tier for a player (for buttons). */
   roleName(player: number, role: Role): string | null {
     const tier = bestTier(role, this.players[player].epoch);
     return tier < 0 ? null : ROLE_DEFS[role].tiers[tier].name;
+  }
+}
+
+const f64 = new Float64Array(1);
+const u32 = new Uint32Array(f64.buffer);
+
+/** FNV-1a over the exact bits of numbers. */
+class Hasher {
+  value = 0x811c9dc5;
+
+  add(n: number): void {
+    f64[0] = n;
+    this.mix(u32[0]);
+    this.mix(u32[1]);
+  }
+
+  private mix(word: number): void {
+    for (let i = 0; i < 4; i++) {
+      this.value = Math.imul(this.value ^ ((word >>> (i * 8)) & 0xff), 0x01000193) >>> 0;
+    }
   }
 }
