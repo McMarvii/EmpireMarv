@@ -130,6 +130,42 @@ Jede Ära hat ein Wunder. Ein Spieler kann jedes Ära-Wunder einmal bauen, also 
 
 **Wundersieg** (Spieleinstellung aus/5/10/15 min, Standard 10): Ist ein Wunder fertig, sehen es alle Spieler, und ein Countdown läuft in der Topbar. Steht es bis zum Ende, gewinnt das Team des Erbauers. Wird es zerstört, endet der Countdown. Während er läuft, leuchtet das Wunder golden, auch auf der Minikarte.
 
+## Karten und Seekrieg
+
+### Kartentypen
+
+| Kartentyp | Aufbau |
+| --- | --- |
+| Kontinent | Weites Land mit Seen und Wäldern (die Karte bis 0.6, bitgleich) |
+| Küste | Ein Ozean umschließt das Land; jede Basis liegt nahe der Küste (auf der mittleren Karte 9–14 Felder), gekämpft wird in der Mitte |
+| Binnenmeer | Ein großes Meer in der Mitte, die Basen in den Ecken an seinen Ufern; Landwege führen außen herum |
+| Inseln | Eine Insel je Spieler, getrennt durch mindestens 7 Felder Meerenge; in der Mitte eine kleine Insel mit Gold, Eisen und Stein. Angriffe nur per Transportschiff |
+| Flüsse | Zwei gewundene Flüsse kreuzen sich und trennen die Basen; jeder Arm hat eine Furt |
+| Steppe | Offenes Grasland mit wenig Wald, dafür 60 % mehr Minen und Beeren und kleine Seen |
+| Zufall | Einer der sechs, ausgewürfelt mit der Kartennummer (alle Mitspieler bekommen dieselbe Karte) |
+
+Die Startausstattung bleibt überall gleich. Liegt Wasser im Weg, weichen Minen, Wald und Beeren aus, statt verloren zu gehen. Auf Wasserkarten hat jede Basis in Reichweite einen Hafenplatz und zwei Fischgründe (bei Flüssen einen); weitere Fische liegen auf offener See.
+
+### Seekrieg
+
+Der **Hafen** (Taste `Q` wie Quai, ab I, Holz 150) steht im Wasser am Ufer: an einer Seite Land für die Bauarbeiter, an einer anderen offenes Wasser für die Schiffe. Beim Platzieren rastet er am nächsten freien Uferplatz ein. Er bildet die vier Schiffe aus (`Q W E R`), nimmt den Fang der Fischer an und erforscht **Schiffbau** und **Fischerei**.
+
+| Schiff | Ab | Stufen | Aufgabe |
+| --- | --- | --- | --- |
+| Fischerboot | I | Einbaum → Fischerboot (IV) → Fischkutter (VII) → Fangschiff (X) → Trawler (XIII) → Fangdrohne (XVI) | Fängt bis 15 Nahrung je Fahrt und bringt sie zum Hafen; ein Fischgrund hat 400 |
+| Transportschiff | I | Floß → Lastkahn (IV) → Kogge (VII) → Galeone (X) → Landungsschiff (XIII) → Hover-Transporter (XVI) | 10 Plätze, kein Angriff |
+| Kriegsschiff | II | Kriegskanu → Trireme (IV) → Langschiff (VII) → Fregatte (X) → Zerstörer (XIII) → Plasma-Korvette (XVI) | Reichweite 6, ×1,2 gegen Kriegsschiffe, ×1,5–1,8 gegen alle anderen Schiffe |
+| Belagerungsschiff | VI | Katapultschiff → Linienschiff (X) → Schlachtschiff (XIII) → Raketenkreuzer (XV) → Ionen-Schlachtschiff (XVII) | Reichweite 9, Flächenschaden, ×3 gegen Gebäude, ×0,5 gegen Kriegsschiffe |
+
+- **Zwei Ebenen**: Schiffe fahren nur auf Wasser, alle anderen nur an Land. Wer an Land geschickt wird, hält am nächsten Wasser, und umgekehrt.
+- **Land gegen See** nur auf Distanz: Nahkämpfer greifen keine Schiffe an. Fernkampf, Belagerung, Türme und Dorfzentren schießen auf Schiffe, Türme mit ×1,2–1,3. Schiffe schießen ihrerseits auf die Küste.
+- **Fischen**: Rechtsklick mit Fischerbooten auf einen Fischgrund. Bürger fischen nicht.
+- **Transport**:
+  - Einsteigen: Landeinheiten wählen, Rechtsklick auf das eigene Transportschiff. Das Schiff fährt an die Küste nächst der Gruppe.
+  - Entladen: Rechtsklick an Land. Das Schiff fährt an die Küste seines eigenen Meeres nächst dem Punkt, die Ladung geht von Bord und läuft hin.
+  - `Y` setzt alle an der nächsten Küste ab.
+  - Wird ein beladenes Schiff versenkt, gehen alle mit unter. Wird es bekehrt, wechselt die Ladung mit die Seite.
+
 ## Befehle und Formationen
 
 - **Formationen**: Linie (breite Front, wenige Reihen), Block (kompaktes Quadrat, Standard) und Keil (Spitze voran). Unabhängig von der Formation steht die Infanterie vorn, dahinter Reiter, dann Bürger und Späher, dann Fernkampf, ganz hinten Belagerung. Jede Rang-Gruppe füllt eigene Reihen. Einheiten behalten ihre Seite, damit sich ihre Wege nicht kreuzen. Ein Klick auf eine Formation (`N`, `O`, `V`) ordnet eine stehende Gruppe sofort neu.
@@ -163,12 +199,13 @@ Jede Ära hat ein Wunder. Ein Spieler kann jedes Ära-Wunder einmal bauen, also 
 | Stall / Fahrzeugwerk / Mech-Hangar | 4 | Kavallerie, Fahrzeuge, Mechs |
 | Schrein → Tempel → Kloster → Kirche → Andachtshaus → Meditationszentrum | 2 | Priester, Propheten, Glaubensforschung |
 | Wunder (Steinkreis … Weltraumlift) | 3 | Je Ära eines, eigene Wirkung, Wundersieg |
+| Anlegestelle → Hafen → Werft → Marinewerft → Seehafen → Schwebedock | 1 | Steht im Wasser am Ufer: Schiffe, Abgabe für Fisch |
 
 ## Technologien
 
-Der Technologiebaum umfasst **189 Techniken in 28 Zweigen**. Jeder Zweig hat eine Wirkung, die jede seiner Stufen erneut hinzufügt, und Stufen, die Epoche für Epoche freigeschaltet werden. Jede Stufe verlangt die vorige, einige zusätzlich eine Stufe eines anderen Zweigs (z. B. Luntenschloss → Schwarzpulver, Verbrennungsmotor → Dampfpumpe). So entwickelt sich die Zivilisation mit jeder Epoche weiter, statt einmal fertig erforscht zu sein.
+Der Technologiebaum umfasst **201 Techniken in 30 Zweigen**. Jeder Zweig hat eine Wirkung, die jede seiner Stufen erneut hinzufügt, und Stufen, die Epoche für Epoche freigeschaltet werden. Jede Stufe verlangt die vorige, einige zusätzlich eine Stufe eines anderen Zweigs (z. B. Luntenschloss → Schwarzpulver, Verbrennungsmotor → Dampfpumpe). So entwickelt sich die Zivilisation mit jeder Epoche weiter, statt einmal fertig erforscht zu sein.
 
-- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung), Tempel (Glaube) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, parallel zur Ausbildung.
+- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung), Tempel (Glaube), Hafen (Schiffe) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, parallel zur Ausbildung.
 - **Kosten**: Grundpreis des Zweigs × (1 + 0,3 × Epoche). Vor der Kupferzeit wird statt Gold Holz bezahlt, vor der Eisenzeit statt Eisen Stein. Dauer 18 s + 2 s je Epoche.
 - **Aufstieg**: Pro Epoche müssen zwei ihrer Techniken erforscht sein. Jede Epoche bietet 5–14 Techniken aus mindestens zwei Gebäuden.
 - **Bedienung**: Im Gebäude zeigt je Zweig ein Knopf die nächste Stufe (Tasten A, S, D …). Der Technologiebaum (Knopf „Forschung“ oder F2) zeigt alle Zweige mit Zustand und startet Forschung per Klick im nächsten freien Gebäude.
@@ -203,6 +240,8 @@ Der Technologiebaum umfasst **189 Techniken in 28 Zweigen**. Jeder Zweig hat ein
 | Tempel | Heilkunst | Heilung durch Priester, Strategen und Kathedrale +25 % | Kräuterkunde (II) → Heilbäder (V) → Hospitäler (VIII) → Feldlazarette (XI) → Antibiotika (XIV) → Nanomedizin (XVII) |
 | Tempel | Katastrophenschutz | −15 % Schaden durch Katastrophen (höchstens −75 %) | Opfergaben (III) → Deiche (VI) → Brandwachen (IX) → Quarantäne (XII) → Zivilschutz (XV) → Kraftfelder (XVIII) |
 | Tempel | Glaubenseifer | Glauben 20 % schneller | Rituale (III) → Orakelstätten (VI) → Pilgerfahrten (IX) → Missionen (XII) → Massenmedien (XV) → Neuronale Netze (XVIII) |
+| Hafen | Schiffbau | Schiffe +12 % LP und +0,5 Rüstung | Kalfatern (II) → Kiel (V) → Klinkerbau (VIII) → Kupferbeschlag (XI) → Stahlrumpf (XIV) → Verbundpanzerung (XVII) |
+| Hafen | Fischerei | Fischerboote fangen 15 % mehr | Netze (II) → Schleppnetz (V) → Salzfisch (VIII) → Seekarten (XI) → Echolot (XIV) → Schwarmortung (XVII) |
 
 ## Ton und Musik
 
@@ -265,6 +304,25 @@ Weil die Simulation deterministisch ist, reichen Einstellungen (mit Seed) und je
 - **Abspielen**: Tempo ½× bis 16×, ±30 s, Zeitleiste zum Springen. Vorwärts wird schnell gerechnet, rückwärts startet die Partie neu und spult vor. Wählbar ist die Sicht jedes Spielers (mit seinem Nebel) oder „Alles zeigen“.
 - **Prüfung**: Alle 5 s speichert die Aufnahme eine Prüfsumme. Läuft die Wiedergabe anders, zum Beispiel unter einer anderen Spielversion, zeigt die Leiste ab wann.
 
+## Spielstände
+
+Gespeichert wird ein **Schnappschuss** der ganzen Simulation, nicht die Befehlsliste. Zum Vergleich: Eine 40-Minuten-Partie mit vier KI-Gegnern vorzuspulen dauert rund 32 Sekunden. Ein Schnappschuss lädt sofort.
+
+- **Inhalt**:
+  - die Welt mit Karte, Sicht, Einheiten (auch an Bord und in der Zuflucht), Gebäuden, Geschossen, Katastrophen, Techniken und Zufallszahlen-Position;
+  - die Pläne der KI: Wellen, Mauerring, Landungen;
+  - Kameraposition und die bisherige Aufzeichnung, damit die Wiedergabe einer geladenen Partie weiterhin ab Minute 0 läuft.
+- **Kodierung**: JSON mit Ergänzungen für Typed Arrays, Sets, Maps sowie `-0`, Unendlich und `NaN`. Die Reihenfolge aller Listen bleibt erhalten. Ein geladener Stand rechnet bitgleich weiter, das prüfen Tests mit zwei parallel laufenden Welten.
+- **Ablage**:
+  - im Browser (IndexedDB, gzip-gepackt) oder als `.json`-Datei;
+  - `Strg+S` speichert in einen Schnellspeicher-Platz;
+  - alle 5 Spielminuten wird automatisch gespeichert;
+  - das Spielmenü bietet „Spiel speichern“ mit Namen;
+  - geladen wird im Hauptmenü unter „Spielstände“.
+- **Grenzen**:
+  - Nur Partien gegen den Computer; im Mehrspieler gibt es den Wiedereinstieg per Link.
+  - Ein Spielstand gehört zu seiner Spielversion, denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt.
+
 ## KI
 
 Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Menschen. Sie kennt allerdings die Lage gegnerischer Gebäude, wie in klassischen RTS-KIs üblich.
@@ -277,6 +335,14 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
 - **Militär**: Rollenmix, der auf die sichtbare gegnerische Armee kontert. Verteidigt die Basis und greift in wachsenden Wellen an.
 - **Helden**: zuerst der Krieger, dann der Stratege. Fähigkeiten nach Lage: Kampfschrei ab 3 Gegnern im Radius, Wirbelschlag ab 2 direkt daneben, Blutrausch im Nahkampf; Feldlazarett ab 3 Verwundeten, Schildwall ab 4 Gegnern in der Nähe, Sammelruf mit mindestens 5 eigenen Einheiten um sich und 3 Gegnern im Umkreis von 12 Feldern.
 - **Glaube**: Tempel ab II mit mindestens 16 Bürgern und 4 Soldaten. Ein Prophet zuerst, dazu ein Priester und je 10 Soldaten einer mehr, höchstens 3. Priester bekehren wertvolle Ziele, sobald ihr Glaube voll ist. Propheten werfen Feuersturm, Seuche oder Sturm auf Haufen ab 4 Gegnern, sonst ein Erdbeben auf Gebäude.
+- **Seefahrt**:
+  - Ein Hafen kommt, wenn ein Gegner nur übers Wasser erreichbar ist oder Fisch in einem echten Meer (ab 120 Wasserfeldern) nahe der Basis liegt.
+  - Fischerboote nach der Zahl der Fischgründe, anfangs höchstens 3, später 6.
+  - Kriegsschiffe gegen feindliche Schiffe und als Geleitschutz, Belagerungsschiffe ab VI gegen Gebäude in Küstennähe.
+- **Landungen**:
+  - Liegt das Angriffsziel auf anderem Land, sammelt sich die Welle am Hafen, geht an Bord und segelt mit Geleit zur Küste nächst dem Ziel. Dort geht sie an Land und kämpft sich weiter, Ziel für Ziel auf derselben Insel.
+  - Wer das Boot verpasst, bleibt daheim; scheitert die Landung, kehren die Truppen um.
+  - Im Test (Inseln, 2 KI ab Epoche V) landet die erste Welle nach gut sechs Minuten.
 - **Wunder**: baut das Wunder der aktuellen Ära aus dem Überschuss. Mit Wundersieg spart sie gezielt dafür und schiebt den Aufstieg auf. Fremde Wunder sind bevorzugte Angriffsziele; läuft ein gegnerischer Countdown, greift sie sofort an.
 - **Schwierigkeit**: Leicht, Mittel, Schwer. Unterschiede bei Reaktionszeit, Sammelrate und Angriffszeitpunkt.
 
@@ -286,7 +352,9 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
 - **Simulation** (`src/sim`) mit festen 20 Ticks pro Sekunde, eigenem Zufallsgenerator (kein `Math.random`) und eigener Trigonometrie (`fmath`). Sie ist vollständig von Darstellung und Eingabe getrennt, läuft headless in Tests und rechnet in jedem Browser bitgleich.
 - **Befehle** (`world.issue`) sind die einzige Schnittstelle für Spieler und KI. Das Spiel gibt sie nie direkt hinein, sondern über eine **Sitzung** (`src/session.ts`): Einzelspiel wendet sie sofort an, Lockstep-Sitzungen (`src/net`) verteilen sie in Frames, die Wiedergabe liest sie aus der Aufnahme.
 - **Darstellung** mit Canvas 2D, isometrisch, alle Sprites prozedural. Gebäude und Einheiten werden pro Epoche umgefärbt und umgebaut, Positionen zwischen Ticks interpoliert.
-- **Wegfindung**: A* auf 8er-Nachbarschaft mit wiederverwendeten Puffern und String-Pulling-Glättung.
+- **Wegfindung**:
+  - A* auf 8er-Nachbarschaft mit wiederverwendeten Puffern und String-Pulling-Glättung, getrennt für Land und Wasser.
+  - Zusammenhängende Land- und Wasserregionen sind nach der Kartenerzeugung per Flutfüllung bekannt; so prüfen KI und Transporte ohne Suche, ob etwas zu Land erreichbar ist.
 - **Audio** (`src/audio`): Synthese-Bausteine, Instrumente, Klangrezepte, reiner Musik-Komponist (testbar ohne Browser) und ein Mischpult mit Bussen für Effekte, Oberfläche und Musik.
 
 ## Roadmap
@@ -300,8 +368,9 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | 0.3 | ✔ **Großer Technologiebaum** (165 Techniken, 24 Zweige, Schmiede und Akademie, Forschung als Aufstiegsvoraussetzung). ✔ **Ton und Musik** (Befehlsrückmeldungen, Kampf- und Arbeitsgeräusche, Alarm und Fanfaren je Ära, generative Musik je Ära mit Kampfvariante) |
 | 0.4 | ✔ **Befehlsketten** mit Umschalt (Wegpunkte, Ziele, Bauaufträge, Mauerlinien), ✔ **Formationen** (Linie, Block, Keil; Fernkampf hinten; Gleichschritt; Blickrichtung per Rechts-Ziehen), ✔ **Patrouille**, ✔ **Sammelpunkt-Ketten**, ✔ Wegpunkt-Anzeige, ✔ **Gebäude-Hotkeys** (`Tab` + Bau-Taste), ✔ **Produktionsleiste**, ✔ Ausbilden über mehrere Gebäude, ✔ Forschungs- und Aufstiegs-Warteschlangen |
 | 0.5 | ✔ **Mehrspieler per Link** (bis 4 Plätze, Menschen und KI, Teams mit geteilter Sicht; WebRTC direkt, Handschlag über PeerJS oder Codes; Lockstep mit Relay und Desync-Erkennung; Warten und KI-Übernahme bei Abbruch; Wiedereinstieg per Link), ✔ **Chat** und **Kartenmarkierungen**, ✔ **Wiedergaben** (automatisch, als Datei, Tempo, Springen, Sicht wählbar), ✔ browserübergreifend bitgleiche Simulation |
-| **0.6** (jetzt) | ✔ **Helden** (Stratege und Krieger mit Auren, je 3 Fähigkeiten, Titel je Epoche), ✔ **Tempel, Priester und Propheten** (Bekehren, Heilen, vier Katastrophen nur gegen Gegner, Gegenmittel-Techniken), ✔ **Wunder** (eines je Ära mit eigener Wirkung) mit einstellbarem **Wundersieg**, ✔ KI nutzt alles davon |
-| 0.7 | Seekrieg und Luftkrieg, Kartentypen, Speichern & Laden, Tutorial |
+| 0.6 | ✔ **Helden** (Stratege und Krieger mit Auren, je 3 Fähigkeiten, Titel je Epoche), ✔ **Tempel, Priester und Propheten** (Bekehren, Heilen, vier Katastrophen nur gegen Gegner, Gegenmittel-Techniken), ✔ **Wunder** (eines je Ära mit eigener Wirkung) mit einstellbarem **Wundersieg**, ✔ KI nutzt alles davon |
+| **0.7** (jetzt) | ✔ **Kartentypen** (Kontinent, Küste, Binnenmeer, Inseln, Flüsse, Steppe, Zufall; Fischgründe), ✔ **Seekrieg** (Hafen, Fischerboot, Transport-, Kriegs- und Belagerungsschiff je Ära; Einsteigen und Entladen; Land gegen See nur auf Distanz), ✔ KI fischt, kämpft zur See und **landet auf fremden Inseln**, ✔ **Speichern & Laden** (Schnappschuss, Strg+S, automatisch, als Datei) |
+| 0.8 | **Luftkrieg**: Flugplatz ab XIV, Jäger und Bomber fliegen frei über alles hinweg, nur Flugabwehr trifft sie (Jäger, Abwehrinfanterie und Türme ab XIV); dazu ein Ballon-Späher ab XII. **Geführtes Tutorial**: Übungspartie mit 12–15 geprüften Schritten und einem kleinen Gefecht |
 | 1.0 | Kampagne und Szenario-Editor, Balancing, WebGL-Renderer für große Schlachten, Lokalisierung |
 
 ### Interview-Ergebnisse (Oktober 2026)
