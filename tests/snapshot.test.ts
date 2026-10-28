@@ -39,6 +39,26 @@ describe('saved games', () => {
     expect(back.n.slice(1)).toEqual([Infinity, -Infinity, 0.1]);
   });
 
+  it('continue an air war exactly as if it had never stopped', () => {
+    const w = createWorld({
+      seed: 5,
+      mapSize: 96,
+      startEpoch: 13,
+      startResources: 'high',
+      aiDifficulty: 'hard',
+      players: [
+        { name: 'A', color: '#2f7de1', isAI: true, team: 0 },
+        { name: 'B', color: '#d9412b', isAI: true, team: 1 },
+      ],
+    });
+    // Five minutes in: airfields up, the first planes in the air.
+    run(w, 5 * 60);
+    expect(w.units.some((u) => u.role === 'fighter' || u.role === 'bomber')).toBe(true);
+    const copy = reload(w);
+    expect(copy.checksum()).toBe(w.checksum());
+    runTwin(w, copy, 2 * 60);
+  }, 60000);
+
   it('continue an AI match exactly as if it had never stopped', () => {
     const w = createWorld({
       seed: 7,

@@ -171,6 +171,55 @@ describe('simulation', () => {
     expect(play().w.checksum()).toBe(w.checksum());
   }, 120000);
 
+  it('lets the AI fight in the air: airfields, fighters, bombing raids and flak', () => {
+    const play = (mapType: 'continent' | 'islands') => {
+      const w = createWorld({
+        seed: 7,
+        mapSize: 96,
+        mapType,
+        startEpoch: 13,
+        startResources: 'high',
+        aiDifficulty: 'hard',
+        players: [
+          { name: 'A', color: '#2f7de1', isAI: true, team: 0 },
+          { name: 'B', color: '#d9412b', isAI: true, team: 1 },
+        ],
+      });
+      const home = w.startPositions.map((p) => w.map.landRegion[w.map.idx(Math.floor(p.x), Math.floor(p.y))]);
+      const trained = new Set<string>();
+      let bombs = 0;
+      let overseas = 0;
+      let downed = 0;
+      for (let i = 0; i < 10 * 60 * 20 && !w.over; i++) {
+        w.step();
+        for (const c of w.cues) {
+          if (c.kind === 'blast' && c.projectile === 'bomb') {
+            bombs++;
+            const r = w.map.landRegion[w.map.idx(Math.floor(c.x), Math.floor(c.y))];
+            if (r && r === home[1 - c.owner]) overseas++;
+          }
+          if (c.kind === 'death' && (c.look === 'fighter' || c.look === 'bomber')) downed++;
+        }
+        for (const u of w.units) if (u.role === 'fighter' || u.role === 'bomber') trained.add(`${u.owner}:${u.role}`);
+        w.cues.length = 0;
+        w.events.length = 0;
+      }
+      return { w, trained, bombs, overseas, downed };
+    };
+    const land = play('continent');
+    for (const p of [0, 1]) {
+      expect(land.w.buildings.some((b) => b.owner === p && b.type === 'airfield' && b.built)).toBe(true);
+      expect(land.trained.has(`${p}:fighter`)).toBe(true);
+      expect(land.trained.has(`${p}:bomber`)).toBe(true);
+    }
+    expect(land.bombs).toBeGreaterThan(5);
+    expect(land.downed).toBeGreaterThan(3);
+    expect(play('continent').w.checksum()).toBe(land.w.checksum());
+    // No landing needed: bombers reach the other island on their own.
+    const sea = play('islands');
+    expect(sea.overseas).toBeGreaterThan(3);
+  }, 180000);
+
   it('lets the AI use heroes, faith and wonders', () => {
     const play = () => {
       const w = createWorld({
