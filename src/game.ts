@@ -23,6 +23,7 @@ import { Hud } from './ui/hud';
 import { Input } from './ui/input';
 import { NetUi } from './ui/netui';
 import { ReplayBar } from './ui/replaybar';
+import { TutorialPanel } from './ui/tutorial';
 
 export type Mode = 'normal' | 'place' | 'attackMove' | 'patrol' | 'cast';
 
@@ -41,6 +42,8 @@ export interface GameOptions {
   startAt?: number;
   /** Go on with a saved game. */
   save?: SaveGame;
+  /** The guided practice match: the tutorial panel watches and explains (not recorded, not saved). */
+  tutorial?: boolean;
 }
 
 /** Steps run per frame at most, so a slow frame cannot snowball. */
@@ -68,6 +71,7 @@ export class Game {
   readonly recorder: Recorder | null;
   readonly netUi: NetUi | null;
   readonly replayBar: ReplayBar | null;
+  readonly tutorial: TutorialPanel | null;
   marks: Mark[] = [];
   selection = new Set<number>();
   /** Control groups (Strg+1–9), shown in the group bar. */
@@ -116,7 +120,8 @@ export class Game {
     this.net = options.net ?? null;
     this.replay = options.replay ? new ReplaySession(options.replay) : null;
     this.session = this.net ?? this.replay ?? new LocalSession((cmd) => this.apply(cmd));
-    this.recorder = this.replay ? null : new Recorder(this.world.settings, this.me, options.save?.replay);
+    // The tutorial is no match to keep: the last real one stays the "Letzte Partie".
+    this.recorder = this.replay || options.tutorial ? null : new Recorder(this.world.settings, this.me, options.save?.replay);
     if (this.replay) this.speed = 2;
     this.audio = new GameAudio(this);
     const canvas = root.querySelector<HTMLCanvasElement>('#game')!;
@@ -126,6 +131,7 @@ export class Game {
     this.input = new Input(this, canvas);
     this.netUi = this.net ? new NetUi(this, this.net) : null;
     this.replayBar = this.replay ? new ReplayBar(this) : null;
+    this.tutorial = options.tutorial ? new TutorialPanel(this) : null;
     if (this.net) {
       this.net.attach(this.netUi!);
       this.speed = this.net.speed;
@@ -144,7 +150,7 @@ export class Game {
       if (tc && !this.replay) this.select([tc.id]);
     }
     if (options.startAt) this.catchUpTo = options.startAt;
-    if (!this.replay && !options.startAt && !options.save) {
+    if (!this.replay && !options.startAt && !options.save && !options.tutorial) {
       this.hud.message('info', 'Willkommen! Bürger sammeln Rohstoffe – steige im Dorfzentrum in neue Epochen auf.');
     }
   }
@@ -182,6 +188,7 @@ export class Game {
     this.hud.destroy();
     this.netUi?.destroy();
     this.replayBar?.destroy();
+    this.tutorial?.destroy();
   }
 
   resize(): void {
@@ -225,6 +232,7 @@ export class Game {
     if (this.lastAlert && this.animTime - this.lastAlert.time < 4) {
       this.minimap.ping(this.lastAlert.x, this.lastAlert.y, this.animTime);
     }
+    this.tutorial?.update(dt);
     this.hud.update();
     if (this.replay) {
       for (const [, from, text] of this.replay.chatUntil(this.world.tick)) {

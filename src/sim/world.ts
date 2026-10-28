@@ -74,6 +74,8 @@ export interface GameSettings {
   wonderVictory?: number;
   /** Land and water layout; missing: continent (the only layout before 0.7). */
   mapType?: MapChoice;
+  /** A prepared match instead of the usual start: the tutorial gives the second player a robbers' camp. */
+  scenario?: 'tutorial';
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -439,6 +441,10 @@ export class World {
     const s = this.settings;
     this.players.forEach((p, i) => {
       const start = this.startPositions[i];
+      if (s.scenario === 'tutorial' && i > 0) {
+        this.setupCamp(p.id, start);
+        return;
+      }
       const tc = this.addBuilding(p.id, 'towncenter', Math.floor(start.x) - 2, Math.floor(start.y) - 2, true);
       const citizens = 5 + Math.min(4, s.startEpoch);
       for (let n = 0; n < citizens; n++) {
@@ -457,6 +463,34 @@ export class World {
         });
       }
     });
+  }
+
+  /**
+   * Tutorial: two huts and a handful of club fighters and stone throwers in
+   * the corner, no town center and no citizens. Burn the huts and the camp
+   * is beaten.
+   */
+  private setupCamp(owner: number, start: Point): void {
+    const x = Math.floor(start.x);
+    const y = Math.floor(start.y);
+    for (const [dx, dy] of [
+      [-2, -2],
+      [1, -1],
+    ]) {
+      if (this.canPlaceAt('house', x + dx, y + dy)) this.addBuilding(owner, 'house', x + dx, y + dy, true);
+    }
+    const roles: Role[] = ['assault', 'assault', 'assault', 'ranged'];
+    roles.forEach((role, n) => {
+      const spot = this.map.nearestPassable(x + 0.5 + (n % 3) - 1, y + 2.5 + Math.floor(n / 3), 6);
+      if (spot) this.spawnUnit(owner, role, spot.x + 0.5, spot.y + 0.5, 0);
+    });
+  }
+
+  /** Free dry ground for a building's footprint (no visibility rules: for setting up scenarios). */
+  private canPlaceAt(type: BuildingType, tx: number, ty: number): boolean {
+    const size = BUILDING_DEFS[type].size;
+    for (let yy = ty; yy < ty + size; yy++) for (let xx = tx; xx < tx + size; xx++) if (!this.map.buildable(xx, yy)) return false;
+    return true;
   }
 
   // ---------------------------------------------------------------- entities

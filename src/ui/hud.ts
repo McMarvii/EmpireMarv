@@ -100,6 +100,8 @@ function fmtTime(sec: number): string {
 /** DOM overlay: resource bar, messages, selection panel, command card and dialogs. */
 export class Hud {
   commands: CommandButton[] = [];
+  /** Tutorial: the command button (by hotkey) that pulses to show where to click. */
+  hintKey: string | null = null;
   private root: HTMLElement;
   private els: Record<string, HTMLElement>;
   private resEls: Record<string, HTMLElement> = {};
@@ -398,6 +400,7 @@ export class Hud {
       commands
         .map((c) => `${c.key}${c.title}${c.enabled ? 1 : 0}${c.locked ? 1 : 0}${c.active ? 1 : 0}${c.badge ?? ''}${c.text ?? ''}${c.progress === undefined ? '' : Math.floor(c.progress * 40)}`)
         .join(''),
+      this.hintKey ?? '',
       this.dynamicSig(ents),
       ents.reduce((s, e) => s + (e.kind === 'unit' ? e.morale : 0), 0),
     ];
@@ -1034,7 +1037,7 @@ export class Hud {
     el.innerHTML = this.commands
       .map(
         (c, i) =>
-          `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}${c.active ? ' active' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
+          `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}${c.active ? ' active' : ''}${c.key === this.hintKey ? ' hint' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
           (c.icon ? `<img src="${c.icon}" alt="">` : `<span class="cmd-text">${esc(c.text ?? '')}</span>`) +
           `<span class="hk">${c.key}</span>${c.badge ? `<span class="badge">${c.badge}</span>` : ''}` +
           (c.progress !== undefined ? `<i class="cmd-progress" style="width:${Math.round(c.progress * 100)}%"></i>` : '') +

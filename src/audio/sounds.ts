@@ -333,8 +333,8 @@ export function workSound(o: Out, work: Res | 'build' | 'fish', style: EraStyle,
 
 // --------------------------------------------------------------- interface
 
-export type UiSound = 'click' | 'error' | 'place' | 'built' | 'trained' | 'tech' | 'epoch' | 'alarm' | 'victory' | 'defeat' | 'wonder';
-export const UI_SOUNDS: UiSound[] = ['click', 'error', 'place', 'built', 'trained', 'tech', 'epoch', 'alarm', 'victory', 'defeat', 'wonder'];
+export type UiSound = 'click' | 'error' | 'place' | 'built' | 'trained' | 'tech' | 'epoch' | 'alarm' | 'victory' | 'defeat' | 'wonder' | 'step';
+export const UI_SOUNDS: UiSound[] = ['click', 'error', 'place', 'built', 'trained', 'tech', 'epoch', 'alarm', 'victory', 'defeat', 'wonder', 'step'];
 
 /** Plays notes given as [offset in s, semitones over `root`, length in s]. */
 function phrase(o: Out, inst: Inst, root: number, notes: Array<[number, number, number]>, vel = 1): void {
@@ -387,6 +387,10 @@ export function uiSound(o: Out, id: UiSound, style: EraStyle): void {
     case 'defeat':
       phrase(o, 'strings', 57, [[0, 12, 0.5], [0.5, 10, 0.5], [1, 7, 0.5], [1.5, 3, 0.5], [2, 0, 1.6]], 0.9);
       phrase(o, 'horn', 45, [[0, 0, 1.4], [1.5, -5, 2]], 0.7);
+      break;
+    case 'step':
+      // A tutorial step done: two bright notes up a fifth.
+      phrase(o, 'bell', 76, [[0, 0, 0.25], [0.12, 7, 0.45]], 0.6);
       break;
   }
 }

@@ -494,6 +494,15 @@ function updateAttack(w: World, u: Unit): void {
   const t = w.get(o.targetId);
   if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner) || !canHit(u, t)) return endAttack(w, u);
   if (t.kind === 'unit' && !w.inSight(u.owner, t)) return endAttack(w, u);
+  // Hacking at a building while enemy troops close in: turn to fight them first (siege keeps shelling).
+  if (t.kind === 'building' && !isSiege(u) && scanDue(w, u)) {
+    const foe = findTarget(w, u.owner, u.x, u.y, u.stats.sight, false, u);
+    if (foe && foe.kind === 'unit') {
+      o.targetId = foe.id;
+      u.path = [];
+      return;
+    }
+  }
   if (o.leash && hypot(u.x - o.leash.x, u.y - o.leash.y) > u.stats.sight + 6) {
     const back = o.leash;
     u.order = { kind: 'move', x: back.x, y: back.y, attackMove: false };
