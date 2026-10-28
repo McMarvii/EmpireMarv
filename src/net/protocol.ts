@@ -1,3 +1,4 @@
+import type { MapChoice } from '../data/maps';
 import type { Command, Difficulty, GameSettings, StartResources } from '../sim/world';
 
 /**
@@ -9,6 +10,8 @@ import type { Command, Difficulty, GameSettings, StartResources } from '../sim/w
 /** Settings the host picks in the lobby (the players come from the slots). */
 export interface MatchOptions {
   mapSize: number;
+  /** Missing from hosts before 0.7: the continent. */
+  mapType?: MapChoice;
   difficulty: Difficulty;
   startEpoch: number;
   maxEpoch: number;
@@ -138,6 +141,7 @@ export function matchSettings(slots: LobbySlot[], o: MatchOptions): { settings: 
       // Decided once by the host; the guests get the number with the settings.
       seed: o.seed || Math.floor(Math.random() * 1e9),
       mapSize: o.mapSize,
+      mapType: o.mapType ?? 'continent',
       startEpoch: o.startEpoch,
       maxEpoch: Math.max(o.startEpoch, o.maxEpoch),
       popLimit: o.popLimit,

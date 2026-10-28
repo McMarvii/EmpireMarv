@@ -1868,6 +1868,47 @@ export function drawNode(ctx: Ctx, project: Project, scale: number, n: NodeLook,
       }
       break;
     }
+    case 'fish': {
+      // A shoal under the surface: rings on the water, dark backs circling, now and then one jumps.
+      const phase = time * 0.9 + n.variant * 1.7;
+      ctx.lineWidth = Math.max(1, 0.8 * k);
+      for (let i = 0; i < 2; i++) {
+        const t = (phase * 0.5 + i * 0.5) % 1;
+        ctx.strokeStyle = `rgba(220,240,255,${(0.55 * (1 - t)).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, (3 + t * 10) * k, (1.5 + t * 5) * k, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      const count = Math.max(1, Math.ceil(3 * n.ratio));
+      for (let i = 0; i < count; i++) {
+        const a = phase * 0.8 + (i * Math.PI * 2) / count;
+        const fx = x + Math.cos(a) * 5 * k;
+        const fy = y + Math.sin(a) * 2.5 * k;
+        const dir = Math.cos(a + Math.PI / 2) >= 0 ? 1 : -1;
+        poly(
+          ctx,
+          [
+            [fx - 3 * k * dir, fy],
+            [fx, fy - 1 * k],
+            [fx + 2.5 * k * dir, fy],
+            [fx + 4 * k * dir, fy - 1.2 * k],
+            [fx + 4 * k * dir, fy + 1.2 * k],
+            [fx + 2.5 * k * dir, fy],
+            [fx, fy + 1 * k],
+          ],
+          'rgba(24,52,74,0.55)',
+        );
+      }
+      // The jump: an arc every few seconds.
+      const jump = (time * 0.35 + n.variant * 0.29) % 1;
+      if (jump < 0.12) {
+        const t = jump / 0.12;
+        const jx = x + (t - 0.5) * 10 * k;
+        const jy = y - 3 * k - Math.sin(t * Math.PI) * 9 * k;
+        poly(ctx, [[jx - 3 * k, jy + 1 * k], [jx, jy - 1.3 * k], [jx + 3 * k, jy], [jx + 4.5 * k, jy - 1.5 * k], [jx + 4.5 * k, jy + 1.5 * k], [jx + 3 * k, jy + 0.6 * k], [jx, jy + 1.6 * k]], '#c9d7df', '#5d7a8c', 0.6);
+      }
+      break;
+    }
     default: {
       const base = n.nodeType === 'gold' ? '#8d8576' : n.nodeType === 'iron' ? '#6e6a68' : '#a3a29b';
       const fleck = n.nodeType === 'gold' ? '#f2c84b' : n.nodeType === 'iron' ? '#b5603a' : '#d9d8d2';

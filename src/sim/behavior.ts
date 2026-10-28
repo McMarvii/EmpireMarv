@@ -965,7 +965,7 @@ function sendToRally(w: World, u: Unit, points: Point[]): void {
   points.forEach(({ x, y }, i) => {
     const queue = i > 0;
     if (u.role === 'citizen' && i === points.length - 1) {
-      const node = w.resources.find((n) => !n.dead && x >= n.tx && x < n.tx + n.size && y >= n.ty && y < n.ty + n.size);
+      const node = w.resources.find((n) => !n.dead && n.nodeType !== 'fish' && x >= n.tx && x < n.tx + n.size && y >= n.ty && y < n.ty + n.size);
       if (node) {
         w.issue({ type: 'gather', player: u.owner, ids: [u.id], targetId: node.id, queue });
         return;

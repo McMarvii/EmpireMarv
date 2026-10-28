@@ -14,6 +14,7 @@ import { epochStyle, EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
 import { modsFor, TECH_BY_ID, TECHS, TECHS_FOR_ADVANCE, type Tech } from '../data/techs';
 import { bestTier, CARRY_CAPACITY, isHero, MAX_FAITH, ROLE_DEFS, unitStats, type Look, type Projectile, type Role, type UnitStats } from '../data/units';
+import { resolveMapType, type MapChoice } from '../data/maps';
 import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
 import { isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { updateProjectiles } from './combat';
@@ -52,6 +53,8 @@ export interface GameSettings {
   revealMap?: boolean;
   /** Minutes a finished wonder must stand to win (0 or missing: no wonder victory). */
   wonderVictory?: number;
+  /** Land and water layout; missing: continent (the only layout before 0.7). */
+  mapType?: MapChoice;
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -240,6 +243,7 @@ export class World {
     const s = this.settings;
     s.startEpoch = Math.max(0, Math.min(LAST_EPOCH, s.startEpoch));
     s.maxEpoch = Math.max(s.startEpoch, Math.min(LAST_EPOCH, s.maxEpoch));
+    s.mapType = resolveMapType(s.mapType, s.seed);
     this.rng = new Rng(s.seed);
     this.map = new GameMap(s.mapSize, s.mapSize);
     this.pathfinder = new Pathfinder(this.map);
@@ -547,7 +551,7 @@ export class World {
   }
 
   addResource(nodeType: NodeType, tx: number, ty: number, size: number, amount: number): ResourceNode {
-    const res: Res = nodeType === 'tree' ? 'wood' : nodeType === 'berries' ? 'food' : nodeType;
+    const res: Res = nodeType === 'tree' ? 'wood' : nodeType === 'berries' || nodeType === 'fish' ? 'food' : nodeType;
     const n: ResourceNode = {
       kind: 'resource',
       id: this.nextId++,
@@ -694,11 +698,12 @@ export class World {
     return best;
   }
 
-  nearestResource(res: Res, x: number, y: number, maxDist: number, player = -1, excludeId = 0): ResourceNode | null {
+  /** `water`: fishing grounds (for boats) instead of deposits on land. */
+  nearestResource(res: Res, x: number, y: number, maxDist: number, player = -1, excludeId = 0, water = false): ResourceNode | null {
     let best: ResourceNode | null = null;
     let bestD = maxDist;
     for (const n of this.resources) {
-      if (n.dead || n.res !== res || n.id === excludeId || n.blockedUntil > this.tick) continue;
+      if (n.dead || n.res !== res || n.id === excludeId || n.blockedUntil > this.tick || (n.nodeType === 'fish') !== water) continue;
       if (player >= 0 && !this.isVisibleTo(player, n)) continue;
       const d = hypot(n.x - x, n.y - y);
       if (d < bestD) {
@@ -714,7 +719,7 @@ export class World {
     let best: ResourceNode | null = null;
     let bestD = maxDist;
     for (const n of this.resources) {
-      if (n.dead || n.blockedUntil > this.tick || !this.isVisibleTo(player, n)) continue;
+      if (n.dead || n.nodeType === 'fish' || n.blockedUntil > this.tick || !this.isVisibleTo(player, n)) continue;
       const d = distToRect(x, y, rectOf(n));
       if (d < bestD) {
         bestD = d;
@@ -878,6 +883,8 @@ export class World {
         if (!target) return;
         const isFarm = target.kind === 'building' && target.type === 'farm' && target.owner === cmd.player;
         if (target.kind !== 'resource' && !isFarm) return;
+        // Fish only take boats.
+        if (target.kind === 'resource' && target.nodeType === 'fish') return;
         if (isFarm && !(target as Building).built) {
           this.issue({ type: 'construct', player: cmd.player, ids: cmd.ids, targetId: target.id, queue: cmd.queue });
           return;

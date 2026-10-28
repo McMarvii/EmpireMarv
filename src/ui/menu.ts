@@ -1,6 +1,7 @@
 import { epochNumeral, EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { ROLE_DEFS, type CombatRole } from '../data/units';
 import { epochIcon, unitIcon } from '../render/icons';
+import { MAP_TYPES, type MapChoice } from '../data/maps';
 import { WONDER_VICTORY_OPTIONS } from '../data/wonders';
 import { PLAYER_COLORS, type MatchOptions } from '../net/protocol';
 import { loadLastReplay, parseReplay, type Replay } from '../replay';
@@ -14,6 +15,7 @@ const TAB_KEY = 'empiremarv.menuTab';
 
 export interface MenuValues {
   mapSize: number;
+  mapType: MapChoice;
   opponents: number;
   difficulty: Difficulty;
   startEpoch: number;
@@ -28,6 +30,7 @@ export interface MenuValues {
 
 const DEFAULTS: MenuValues = {
   mapSize: 96,
+  mapType: 'continent',
   opponents: 1,
   difficulty: 'normal',
   startEpoch: 0,
@@ -89,6 +92,7 @@ export function toSettings(v: MenuValues): Partial<GameSettings> {
   return {
     seed: v.seed || Math.floor(Math.random() * 1e9),
     mapSize: v.mapSize,
+    mapType: v.mapType,
     startEpoch: v.startEpoch,
     maxEpoch: Math.max(v.startEpoch, v.maxEpoch),
     popLimit: v.popLimit,
@@ -115,6 +119,9 @@ function signatureRole(epoch: number): CombatRole {
 export function settingsFields(v: MenuValues, single: boolean): string {
   const epochOpts = EPOCHS.map((e) => [e.index, `${epochNumeral(e.index)}. ${e.name}`] as [number, string]);
   return `
+    <label>Kartentyp<select name="mapType">${MAP_TYPES.map(
+      (m) => `<option value="${m.id}" title="${esc(m.text)}"${m.id === v.mapType ? ' selected' : ''}>${m.name}</option>`,
+    ).join('')}<option value="random" title="Einer der Kartentypen, ausgewürfelt mit der Kartennummer."${v.mapType === 'random' ? ' selected' : ''}>Zufall</option></select></label>
     <label>Kartengröße<select name="mapSize">${options(
       [
         [64, 'Klein (64×64)'],
@@ -174,6 +181,7 @@ export function readValues(form: HTMLFormElement, base: MenuValues): MenuValues 
   const num = (k: string, d: number) => (data.has(k) ? Number(data.get(k)) || 0 : d);
   return {
     mapSize: num('mapSize', base.mapSize),
+    mapType: (data.get('mapType') as MapChoice) ?? base.mapType,
     opponents: num('opponents', base.opponents),
     difficulty: (data.get('difficulty') as Difficulty) ?? base.difficulty,
     startEpoch: num('startEpoch', base.startEpoch),

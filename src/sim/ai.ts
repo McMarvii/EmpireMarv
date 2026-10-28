@@ -253,7 +253,7 @@ export class AIController implements Controller {
     let best: ResourceNode | null = null;
     let bestD = 80;
     for (const n of w.resources) {
-      if (n.dead || n.res !== res || n.blockedUntil > w.tick || !w.isVisibleTo(this.playerId, n)) continue;
+      if (n.dead || n.res !== res || n.nodeType === 'fish' || n.blockedUntil > w.tick || !w.isVisibleTo(this.playerId, n)) continue;
       let d = hypot(n.x - s.base.x, n.y - s.base.y);
       for (const b of drops) d = Math.min(d, hypot(n.x - b.x, n.y - b.y));
       if (d < bestD) {

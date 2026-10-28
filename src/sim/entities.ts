@@ -166,7 +166,8 @@ export interface Hazard {
   until: number;
 }
 
-export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron';
+/** Fish lie on water and only boats can catch them. */
+export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron' | 'fish';
 
 export interface ResourceNode extends BaseEntity {
   kind: 'resource';

@@ -4,6 +4,7 @@ import { codec } from '../src/net/rtc';
 
 const OPTIONS: MatchOptions = {
   mapSize: 96,
+  mapType: 'islands',
   difficulty: 'hard',
   startEpoch: 2,
   maxEpoch: 1,
@@ -36,6 +37,8 @@ describe('lobby rules', () => {
     expect(settings.aiDifficulty).toBe('hard');
     expect(settings.revealMap).toBe(true);
     expect(settings.wonderVictory).toBe(5);
+    expect(settings.mapType).toBe('islands');
+    expect(matchSettings([slot('host', 1, 'A'), slot('ai', 2, 'KI')], { ...OPTIONS, mapType: undefined }).settings.mapType).toBe('continent');
   });
 
   it('picks an input delay from the round trip', () => {
