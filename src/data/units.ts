@@ -9,14 +9,28 @@ import type { BuildingType } from './buildings';
 export type CombatRole = 'assault' | 'pike' | 'ranged' | 'mounted' | 'siege';
 /** Heroes lead and the faithful heal, convert and curse – also outside the counter loop. */
 export type SpecialRole = 'strategist' | 'warrior' | 'priest' | 'prophet';
+/** Ships: they sail on water only and come from the harbour. */
+export type NavalRole = 'fisher' | 'transport' | 'warship' | 'bombard';
 /** Scouts sit outside the counter loop: fast, far-sighted and nearly harmless. */
-export type Role = 'citizen' | 'scout' | CombatRole | SpecialRole;
+export type Role = 'citizen' | 'scout' | CombatRole | SpecialRole | NavalRole;
 
 export const COMBAT_ROLES: CombatRole[] = ['assault', 'pike', 'ranged', 'mounted', 'siege'];
 /** One of each per player at a time; they grow with every epoch. */
 export const HERO_ROLES: Role[] = ['strategist', 'warrior'];
 /** Units that live on faith points instead of weapons. */
 export const FAITH_ROLES: Role[] = ['priest', 'prophet'];
+
+export const NAVAL_ROLES: NavalRole[] = ['fisher', 'transport', 'warship', 'bombard'];
+
+/** Ships move on water and nowhere else. */
+export function isNaval(role: Role): boolean {
+  return role === 'fisher' || role === 'transport' || role === 'warship' || role === 'bombard';
+}
+
+/** Places on a transport ship. */
+export const TRANSPORT_CAPACITY = 10;
+/** A fishing boat's hold. */
+export const FISHER_CAPACITY = 15;
 
 export function isHero(role: Role): boolean {
   return role === 'strategist' || role === 'warrior';
@@ -28,7 +42,7 @@ export function isFaithful(role: Role): boolean {
 
 /** Roles that never pick a fight on their own. */
 export function isPeaceful(role: Role): boolean {
-  return role === 'citizen' || role === 'scout' || role === 'priest' || role === 'prophet';
+  return role === 'citizen' || role === 'scout' || role === 'priest' || role === 'prophet' || role === 'fisher' || role === 'transport';
 }
 
 /** Faith points: priests convert with a full store, prophets pay for calamities. */
@@ -67,7 +81,11 @@ export type Look =
   | 'strategist'
   | 'warrior'
   | 'priest'
-  | 'prophet';
+  | 'prophet'
+  | 'fishingboat'
+  | 'transportship'
+  | 'warship'
+  | 'bombardship';
 
 export type Projectile = 'none' | 'stone' | 'arrow' | 'bullet' | 'shell' | 'boulder' | 'laser';
 
@@ -83,6 +101,8 @@ export interface UnitTier {
 export interface RoleDef {
   role: Role;
   label: string;
+  /** Where it moves; missing means on land. */
+  domain?: 'water';
   producedAt: BuildingType;
   hp: number;
   dmg: number;
@@ -418,6 +438,109 @@ export const ROLE_DEFS: Record<Role, RoleDef> = {
       { epoch: 16, name: 'Technoprophet', look: 'prophet' },
     ],
   },
+  fisher: {
+    role: 'fisher',
+    label: 'Fischerboot',
+    producedAt: 'dock',
+    domain: 'water',
+    hp: 60,
+    dmg: 0,
+    armor: 0,
+    range: MELEE_RANGE,
+    sight: 6,
+    speed: 2,
+    cooldown: 1.5,
+    splash: 0,
+    cost: { wood: 60 },
+    trainTime: 14,
+    strongVs: 'Fängt Fisch und bringt ihn zum Hafen',
+    weakVs: 'Allem',
+    tiers: [
+      { epoch: 0, name: 'Einbaum', look: 'fishingboat' },
+      { epoch: 3, name: 'Fischerboot', look: 'fishingboat' },
+      { epoch: 6, name: 'Fischkutter', look: 'fishingboat' },
+      { epoch: 9, name: 'Fangschiff', look: 'fishingboat' },
+      { epoch: 12, name: 'Trawler', look: 'fishingboat' },
+      { epoch: 15, name: 'Fangdrohne', look: 'fishingboat' },
+    ],
+  },
+  transport: {
+    role: 'transport',
+    label: 'Transportschiff',
+    producedAt: 'dock',
+    domain: 'water',
+    hp: 200,
+    dmg: 0,
+    armor: 2,
+    range: MELEE_RANGE,
+    sight: 7,
+    speed: 2.3,
+    cooldown: 1.5,
+    splash: 0,
+    cost: { wood: 100 },
+    trainTime: 20,
+    strongVs: `Bringt bis zu ${TRANSPORT_CAPACITY} Einheiten über das Wasser`,
+    weakVs: 'Kriegsschiffen, Türmen – geht es unter, sinkt die Ladung mit',
+    tiers: [
+      { epoch: 0, name: 'Floß', look: 'transportship' },
+      { epoch: 3, name: 'Lastkahn', look: 'transportship' },
+      { epoch: 6, name: 'Kogge', look: 'transportship' },
+      { epoch: 9, name: 'Galeone', look: 'transportship' },
+      { epoch: 12, name: 'Landungsschiff', look: 'transportship' },
+      { epoch: 15, name: 'Hover-Transporter', look: 'transportship' },
+    ],
+  },
+  warship: {
+    role: 'warship',
+    label: 'Kriegsschiff',
+    producedAt: 'dock',
+    domain: 'water',
+    hp: 150,
+    dmg: 9,
+    armor: 2,
+    range: 6,
+    sight: 8,
+    speed: 2.2,
+    cooldown: 1.6,
+    splash: 0,
+    cost: { wood: 110, gold: 40 },
+    trainTime: 22,
+    strongVs: 'Schiffen',
+    weakVs: 'Türmen, Fernkampf an der Küste',
+    tiers: [
+      { epoch: 1, name: 'Kriegskanu', look: 'warship', projectile: 'arrow' },
+      { epoch: 3, name: 'Trireme', look: 'warship', projectile: 'arrow' },
+      { epoch: 6, name: 'Langschiff', look: 'warship', projectile: 'arrow' },
+      { epoch: 9, name: 'Fregatte', look: 'warship', projectile: 'shell' },
+      { epoch: 12, name: 'Zerstörer', look: 'warship', projectile: 'shell' },
+      { epoch: 15, name: 'Plasma-Korvette', look: 'warship', projectile: 'laser' },
+    ],
+  },
+  bombard: {
+    role: 'bombard',
+    label: 'Belagerungsschiff',
+    producedAt: 'dock',
+    domain: 'water',
+    hp: 200,
+    dmg: 26,
+    armor: 1,
+    range: 9,
+    sight: 10,
+    speed: 1.6,
+    cooldown: 3.2,
+    splash: 1,
+    cost: { wood: 150, gold: 100, iron: 50 },
+    trainTime: 30,
+    strongVs: 'Gebäuden und Truppen an der Küste',
+    weakVs: 'Kriegsschiffen',
+    tiers: [
+      { epoch: 5, name: 'Katapultschiff', look: 'bombardship', projectile: 'boulder' },
+      { epoch: 9, name: 'Linienschiff', look: 'bombardship', projectile: 'shell' },
+      { epoch: 12, name: 'Schlachtschiff', look: 'bombardship', projectile: 'shell' },
+      { epoch: 14, name: 'Raketenkreuzer', look: 'bombardship', projectile: 'shell' },
+      { epoch: 16, name: 'Ionen-Schlachtschiff', look: 'bombardship', projectile: 'laser' },
+    ],
+  },
 };
 
 export interface UnitStats {
@@ -467,7 +590,8 @@ export function unitStats(role: Role, tier: number): UnitStats {
   const def = ROLE_DEFS[role];
   const t = def.tiers[tier];
   const e = t.epoch;
-  const isCitizen = role === 'citizen';
+  // Workers (citizens, fishing boats) only get a little better with the epochs.
+  const isCitizen = role === 'citizen' || role === 'fisher';
   const power = isCitizen ? 1 + 0.05 * e : 1 + 0.22 * e;
   const vehicle = t.look === 'tank' || t.look === 'mech' || t.look === 'armoredcar';
   const stats: UnitStats = {

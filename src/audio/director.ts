@@ -11,6 +11,7 @@ import {
   collapseSound,
   convertSound,
   deathSound,
+  boardSound,
   healSound,
   impactSound,
   meleeSound,
@@ -82,6 +83,7 @@ const CUE_GAP: Record<CueKind, number> = {
   calamity: 400,
   convert: 300,
   heal: 250,
+  board: 300,
 };
 const CUE_GAIN: Record<CueKind, number> = {
   shot: 0.8,
@@ -95,6 +97,7 @@ const CUE_GAIN: Record<CueKind, number> = {
   calamity: 1.1,
   convert: 0.9,
   heal: 0.6,
+  board: 0.7,
 };
 const CUE_LEN: Record<CueKind, number> = {
   shot: 0.6,
@@ -108,6 +111,7 @@ const CUE_LEN: Record<CueKind, number> = {
   calamity: 2.8,
   convert: 1.5,
   heal: 0.5,
+  board: 0.5,
 };
 /** Heat per visible cue; work and healing are not fighting. */
 const CUE_HEAT: Record<CueKind, number> = {
@@ -122,6 +126,7 @@ const CUE_HEAT: Record<CueKind, number> = {
   calamity: 4,
   convert: 1,
   heal: 0,
+  board: 0,
 };
 
 /**
@@ -266,6 +271,8 @@ export class GameAudio {
             return convertSound(o, epochStyle(epoch));
           case 'heal':
             return healSound(o, r);
+          case 'board':
+            return boardSound(o, epochStyle(epoch), r);
         }
       },
       { gain: gain * CUE_GAIN[c.kind] * zoom, pan, length: CUE_LEN[c.kind] },

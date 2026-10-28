@@ -203,7 +203,18 @@ export const HERO_REGEN = 0.01;
 export const CONVERT_RANGE = 5;
 export const CONVERT_TIME = 6;
 /** How hard a unit is to win over, by role (heroes cannot be converted at all). */
-export const CONVERT_CLASS: Partial<Record<Role, number>> = { citizen: 0.75, scout: 0.75, mounted: 1.5, siege: 2, priest: 1.5, prophet: 1.5 };
+export const CONVERT_CLASS: Partial<Record<Role, number>> = {
+  citizen: 0.75,
+  scout: 0.75,
+  mounted: 1.5,
+  siege: 2,
+  priest: 1.5,
+  prophet: 1.5,
+  fisher: 0.75,
+  transport: 1.5,
+  warship: 2,
+  bombard: 2,
+};
 /** A hit on a converting priest throws the prayer back this many seconds. */
 export const CONVERT_SETBACK = 1.5;
 export const HEAL_RANGE = 4;

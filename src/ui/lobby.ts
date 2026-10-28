@@ -1,3 +1,4 @@
+import { MAP_TYPE_BY_ID } from '../data/maps';
 import { MAX_PLAYERS, parseInvite, type LobbySlot, type MatchOptions } from '../net/protocol';
 import { answerInvite, createInvite, dial, listen } from '../net/rtc';
 import { GuestSession, HostSession } from '../net/session';
@@ -87,7 +88,8 @@ function optionsSummary(o: MatchOptions): string {
   const res = { low: 'wenig', standard: 'Standard', high: 'viel' }[o.startResources];
   const ki = { easy: 'leicht', normal: 'mittel', hard: 'schwer' }[o.difficulty];
   const wonder = o.wonderVictory ? ` · Wundersieg ${o.wonderVictory} min` : ' · kein Wundersieg';
-  return `Karte ${o.mapSize}×${o.mapSize} · Epochen ${o.startEpoch + 1}–${o.maxEpoch + 1} · Bevölkerung ${o.popLimit} · Rohstoffe ${res} · KI ${ki}${o.reveal ? ' · aufgedeckt' : ''}${wonder}`;
+  const type = o.mapType === 'random' ? 'Zufallskarte' : (MAP_TYPE_BY_ID.get(o.mapType ?? 'continent')?.name ?? 'Kontinent');
+  return `${type} ${o.mapSize}×${o.mapSize} · Epochen ${o.startEpoch + 1}–${o.maxEpoch + 1} · Bevölkerung ${o.popLimit} · Rohstoffe ${res} · KI ${ki}${o.reveal ? ' · aufgedeckt' : ''}${wonder}`;
 }
 
 // ------------------------------------------------------------------- host

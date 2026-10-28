@@ -26,7 +26,9 @@ export type Effect =
   /** Calamities hurt own units and buildings this much less (fraction, capped). */
   | { kind: 'calamityResist'; add: number }
   /** Faith regenerates this much faster. */
-  | { kind: 'faith'; add: number };
+  | { kind: 'faith'; add: number }
+  /** Fishing boats catch this much more. */
+  | { kind: 'fishing'; mul: number };
 
 /** Glyph drawn on the tech icon. */
 export type TechGlyph =
@@ -53,7 +55,9 @@ export type TechGlyph =
   | 'tower'
   | 'axe'
   | 'ore'
-  | 'wheat';
+  | 'wheat'
+  | 'anchor'
+  | 'fish';
 
 export interface Branch {
   id: string;
@@ -83,7 +87,8 @@ export interface Tech {
 
 const INFANTRY: Role[] = ['assault', 'pike'];
 const FOOT: Role[] = ['assault', 'pike', 'ranged'];
-const ALL_UNITS: Role[] = ['citizen', 'scout', 'assault', 'pike', 'ranged', 'mounted', 'siege', 'strategist', 'warrior', 'priest', 'prophet'];
+const SHIPS: Role[] = ['fisher', 'transport', 'warship', 'bombard'];
+const ALL_UNITS: Role[] = ['citizen', 'scout', 'assault', 'pike', 'ranged', 'mounted', 'siege', 'strategist', 'warrior', 'priest', 'prophet', ...SHIPS];
 
 export const BRANCHES: Branch[] = [
   // ------------------------------------------------------------ Schmiede
@@ -595,6 +600,41 @@ export const BRANCHES: Branch[] = [
       [17, 'Neuronale Netze'],
     ],
   },
+  // ------------------------------------------------------------ Hafen
+  {
+    id: 'schiffbau',
+    name: 'Schiffbau',
+    building: 'dock',
+    glyph: 'anchor',
+    text: 'Schiffe +12 % LP und +0,5 Rüstung',
+    effects: [{ kind: 'unit', roles: SHIPS, hp: 1.12, armor: 0.5 }],
+    base: { wood: 70, gold: 30 },
+    levels: [
+      [1, 'Kalfatern'],
+      [4, 'Kiel'],
+      [7, 'Klinkerbau'],
+      [10, 'Kupferbeschlag'],
+      [13, 'Stahlrumpf'],
+      [16, 'Verbundpanzerung'],
+    ],
+  },
+  {
+    id: 'fischerei',
+    name: 'Fischerei',
+    building: 'dock',
+    glyph: 'fish',
+    text: 'Fischerboote fangen 15 % mehr',
+    effects: [{ kind: 'fishing', mul: 1.15 }],
+    base: { food: 40, wood: 50 },
+    levels: [
+      [1, 'Netze'],
+      [4, 'Schleppnetz'],
+      [7, 'Salzfisch'],
+      [10, 'Seekarten'],
+      [13, 'Echolot'],
+      [16, 'Schwarmortung'],
+    ],
+  },
 ];
 
 /** Finished techs of the current epoch a player needs before advancing. */
@@ -662,6 +702,7 @@ export interface Mods {
   heal: number;
   calamityResist: number;
   faith: number;
+  fishing: number;
 }
 
 export function baseMods(): Mods {
@@ -684,6 +725,7 @@ export function baseMods(): Mods {
     heal: 0,
     calamityResist: 0,
     faith: 0,
+    fishing: 1,
   };
 }
 
@@ -746,6 +788,9 @@ export function modsFor(techs: Iterable<string>): Mods {
           break;
         case 'faith':
           m.faith += e.add;
+          break;
+        case 'fishing':
+          m.fishing *= e.mul;
           break;
       }
     }

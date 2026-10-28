@@ -35,6 +35,7 @@ function startMenu(): void {
     host: (name) => hostLobby(root, name, lobbyExit),
     join: (invite) => joinGame(root, invite, lobbyExit),
     replay: (replay) => startGame({ settings: replay.settings, replay }),
+    load: (save) => startGame({ settings: save.settings, save }),
   });
 }
 

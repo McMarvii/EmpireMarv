@@ -1,8 +1,9 @@
 import { GameAudio } from './audio/director';
 import { ABILITY_BY_ID, CONVERT_RANGE, HEAL_RANGE, type AbilityId } from './data/abilities';
 import { BUILDING_DEFS, buildingName, type BuildingType } from './data/buildings';
+import { EPOCHS } from './data/epochs';
 import { canAfford, type Stock } from './data/resources';
-import { isHero, type Role } from './data/units';
+import { isHero, isNaval, type Role } from './data/units';
 import type { NetSession } from './net/session';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
@@ -11,9 +12,12 @@ import { MARK_TIME, Renderer, type CastPreview, type Mark, type Marker, type Ord
 import { View } from './render/view';
 import { normalize, Recorder, storeLastReplay, type Replay } from './replay';
 import { LocalSession, ReplaySession, type Session } from './session';
+import { canGather } from './sim/behavior';
 import type { Building, Entity, Unit } from './sim/entities';
 import { formationSlots, type Formation } from './sim/formation';
-import { createWorld } from './sim/setup';
+import { Terrain } from './sim/map';
+import { AUTO_SAVE, AUTOSAVE_TICKS, downloadSaveText, makeSave, newSaveId, QUICK_SAVE, serializeSave, storeSave, type SaveGame } from './saves';
+import { createWorld, restoreWorld } from './sim/setup';
 import { DT, MAX_LINE, World, type Command, type GameSettings } from './sim/world';
 import { Hud } from './ui/hud';
 import { Input } from './ui/input';
@@ -35,6 +39,8 @@ export interface GameOptions {
   replay?: Replay;
   /** Fast-forward to this tick before showing the match (replay seek, rejoin). */
   startAt?: number;
+  /** Go on with a saved game. */
+  save?: SaveGame;
 }
 
 /** Steps run per frame at most, so a slow frame cannot snowball. */
@@ -102,15 +108,15 @@ export class Game {
     readonly options: GameOptions,
     private onExit: () => void,
   ) {
-    const settings = options.replay?.settings ?? options.settings;
-    this.world = createWorld(settings);
-    this.view = new View(this.world, options.me ?? options.replay?.me ?? 0);
+    const settings = options.save?.settings ?? options.replay?.settings ?? options.settings;
+    this.world = options.save ? restoreWorld(options.save.settings, options.save.world) : createWorld(settings);
+    this.view = new View(this.world, options.me ?? options.save?.me ?? options.replay?.me ?? 0);
     // Replays usually want to see what everybody did.
     this.view.revealAll = Boolean(options.replay);
     this.net = options.net ?? null;
     this.replay = options.replay ? new ReplaySession(options.replay) : null;
     this.session = this.net ?? this.replay ?? new LocalSession((cmd) => this.apply(cmd));
-    this.recorder = this.replay ? null : new Recorder(this.world.settings, this.me);
+    this.recorder = this.replay ? null : new Recorder(this.world.settings, this.me, options.save?.replay);
     if (this.replay) this.speed = 2;
     this.audio = new GameAudio(this);
     const canvas = root.querySelector<HTMLCanvasElement>('#game')!;
@@ -126,12 +132,19 @@ export class Game {
       if (this.net.paused) this.setPaused(true);
     }
     this.resize();
-    const start = this.world.startPositions[this.me];
-    this.camera.centerOn(start.x + 2, start.y + 2);
-    const tc = this.world.buildingsOf(this.me, 'towncenter')[0];
-    if (tc && !this.replay) this.select([tc.id]);
+    if (options.save) {
+      this.camera.x = options.save.camera.x;
+      this.camera.y = options.save.camera.y;
+      this.camera.zoom = options.save.camera.zoom;
+      this.hud.message('info', `Spielstand „${options.save.summary.name}“ geladen.`);
+    } else {
+      const start = this.world.startPositions[this.me];
+      this.camera.centerOn(start.x + 2, start.y + 2);
+      const tc = this.world.buildingsOf(this.me, 'towncenter')[0];
+      if (tc && !this.replay) this.select([tc.id]);
+    }
     if (options.startAt) this.catchUpTo = options.startAt;
-    if (!this.replay && !options.startAt) {
+    if (!this.replay && !options.startAt && !options.save) {
       this.hud.message('info', 'Willkommen! Bürger sammeln Rohstoffe – steige im Dorfzentrum in neue Epochen auf.');
     }
   }
@@ -256,6 +269,7 @@ export class Game {
     for (const cmd of cmds) this.apply(cmd);
     this.world.step();
     this.recorder?.stepped(this.world);
+    if (this.world.tick % AUTOSAVE_TICKS === 0 && this.catchUpTo === null && this.canSave()) void this.saveGame(AUTO_SAVE, 'Automatisch', true);
     this.session.stepped(this.world);
     return true;
   }
@@ -424,15 +438,39 @@ export class Game {
       this.audio.ack('work', units);
       return;
     }
+    // Walkers onto an own transport ship: go aboard.
+    const walkers = units.filter((u) => !isNaval(u.role)).map((u) => u.id);
+    if (target && target.kind === 'unit' && target.owner === this.me && target.role === 'transport' && walkers.length) {
+      this.issue({ type: 'board', player: this.me, ids: walkers, targetId: target.id, queue });
+      const rest = units.filter((u) => isNaval(u.role) && u.id !== target.id).map((u) => u.id);
+      if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
+      this.setMarker(target.x, target.y, '#8dff5a');
+      this.audio.ack('move', units);
+      return;
+    }
+    // Loaded transports sent ashore: put the passengers on land there.
+    const loaded = units.filter((u) => u.role === 'transport' && u.cargo.length > 0).map((u) => u.id);
+    const ashore = world.map.inBounds(Math.floor(pos.x), Math.floor(pos.y)) && world.map.terrainAt(Math.floor(pos.x), Math.floor(pos.y)) !== Terrain.Water;
+    if (loaded.length && ashore && !(target && target.kind !== 'resource' && world.areEnemies(this.me, target.owner))) {
+      this.issue({ type: 'unload', player: this.me, ids: loaded, x: pos.x, y: pos.y, queue });
+      const rest = ids.filter((id) => !loaded.includes(id));
+      if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
+      this.setMarker(pos.x, pos.y, '#8dff5a');
+      this.audio.ack('move', units);
+      return;
+    }
     if (target && target.kind !== 'resource' && world.areEnemies(this.me, target.owner)) {
       this.issue({ type: 'attack', player: this.me, ids, targetId: target.id, queue });
       this.setMarker(target.x, target.y, '#ff5a4d');
       this.audio.ack('attack', units);
       return;
     }
-    if (target && target.kind === 'resource' && citizens.length) {
-      this.issue({ type: 'gather', player: this.me, ids: citizens, targetId: target.id, queue });
-      if (others.length) this.issue({ type: 'move', player: this.me, ids: others, x: pos.x, y: pos.y, queue });
+    // Citizens to deposits on land, fishing boats to the fish.
+    const gatherers = target && target.kind === 'resource' ? units.filter((u) => canGather(u, target)).map((u) => u.id) : [];
+    if (target && target.kind === 'resource' && gatherers.length) {
+      this.issue({ type: 'gather', player: this.me, ids: gatherers, targetId: target.id, queue });
+      const rest = ids.filter((id) => !gatherers.includes(id));
+      if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
       this.setMarker(target.x, target.y, '#ffd24d');
       this.audio.ack('work', units);
       return;
@@ -615,6 +653,25 @@ export class Game {
     const size = BUILDING_DEFS[this.placement.type].size;
     this.placement.tx = Math.round(pos.x - size / 2);
     this.placement.ty = Math.round(pos.y - size / 2);
+    // Harbours snap to the nearest free shore site under the cursor.
+    if (BUILDING_DEFS[this.placement.type].shore && !this.world.canPlace(this.me, this.placement.type, this.placement.tx, this.placement.ty)) {
+      let best: { tx: number; ty: number } | null = null;
+      let bestD = Infinity;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const tx = this.placement.tx + dx;
+          const ty = this.placement.ty + dy;
+          if (dx * dx + dy * dy < bestD && this.world.canPlace(this.me, this.placement.type, tx, ty)) {
+            bestD = dx * dx + dy * dy;
+            best = { tx, ty };
+          }
+        }
+      }
+      if (best) {
+        this.placement.tx = best.tx;
+        this.placement.ty = best.ty;
+      }
+    }
     this.refreshPlacement();
   }
 
@@ -741,6 +798,65 @@ export class Game {
   sheltering(): boolean {
     const { world, me } = this;
     return world.buildings.some((b) => b.owner === me && b.garrison.length > 0) || world.units.some((u) => u.owner === me && !u.dead && u.order.kind === 'garrison');
+  }
+
+  /** Only single player matches against the computer can be saved; multiplayer has the rejoin. */
+  canSave(): boolean {
+    return !this.net && !this.replay && !this.world.over && this.recorder !== null;
+  }
+
+  /** The match as it is now, as save-game text (taken at once, so later ticks do not leak in). */
+  private saveText(name: string): { text: string; save: SaveGame } {
+    const save = makeSave(this.world, this.me, this.recorder!.replay, { x: this.camera.x, y: this.camera.y, zoom: this.camera.zoom }, name);
+    return { text: serializeSave(save), save };
+  }
+
+  /** Stores the match in the browser; `quiet` for the automatic saves. */
+  async saveGame(id: string, name: string, quiet = false): Promise<boolean> {
+    if (!this.canSave()) {
+      if (!quiet) this.hud.message('warn', 'Mehrspieler-Partien und Wiedergaben lassen sich nicht speichern.');
+      return false;
+    }
+    const { text, save } = this.saveText(name);
+    try {
+      await storeSave(id, text, save.summary);
+      if (!quiet) this.hud.message('info', `Gespeichert: ${name}.`);
+      return true;
+    } catch (e) {
+      this.hud.message('warn', `Speichern im Browser fehlgeschlagen (${(e as Error).message}). Im Menü geht es auch als Datei.`);
+      return false;
+    }
+  }
+
+  /** Strg+S: the quick save slot. */
+  quickSave(): void {
+    void this.saveGame(QUICK_SAVE, 'Schnellspeicherung');
+  }
+
+  /** A new named slot. */
+  saveAs(name: string): Promise<boolean> {
+    return this.saveGame(newSaveId(), name.trim() || this.defaultSaveName());
+  }
+
+  saveToFile(): void {
+    if (!this.canSave()) return;
+    const { text, save } = this.saveText(this.defaultSaveName());
+    downloadSaveText(text, save.summary);
+  }
+
+  defaultSaveName(): string {
+    const s = Math.floor(this.world.tick / 20);
+    return `${this.world.players[this.me].name}, ${EPOCHS[this.world.players[this.me].epoch].name}, ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  /** Loaded transports put their passengers ashore at the nearest coast. */
+  unloadNearest(): void {
+    const ships = this.selectedOwnUnits().filter((u) => u.role === 'transport' && u.cargo.length > 0);
+    for (const ship of ships) {
+      const land = this.world.map.nearestPassable(ship.x, ship.y, 30);
+      if (land) this.issue({ type: 'unload', player: this.me, ids: [ship.id], x: land.x + 0.5, y: land.y + 0.5 });
+    }
+    if (ships.length) this.audio.ack('move', ships);
   }
 
   explore(): void {

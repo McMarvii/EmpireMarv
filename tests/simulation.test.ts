@@ -129,6 +129,48 @@ describe('simulation', () => {
     expect(w.players.reduce((s, p) => s + p.stats.kills, 0)).toBeGreaterThan(0);
   }, 60000);
 
+  it('lets the AI fish, build a fleet and land armies on other islands', () => {
+    const play = () => {
+      const w = createWorld({
+        seed: 7,
+        mapSize: 96,
+        mapType: 'islands',
+        startEpoch: 4,
+        startResources: 'high',
+        aiDifficulty: 'hard',
+        players: [
+          { name: 'A', color: '#2f7de1', isAI: true, team: 0 },
+          { name: 'B', color: '#d9412b', isAI: true, team: 1 },
+        ],
+      });
+      const home = w.startPositions.map((p) => w.map.landRegion[w.map.idx(Math.floor(p.x), Math.floor(p.y))]);
+      let landed = 0;
+      for (let i = 0; i < 9 * 60 * 20 && !w.over; i++) {
+        w.step();
+        w.cues.length = 0;
+        w.events.length = 0;
+        if (i % 100 !== 0) continue;
+        let n = 0;
+        for (const u of w.units) {
+          const r = w.map.landRegion[w.map.idx(Math.floor(u.x), Math.floor(u.y))];
+          if (r && r === home[1 - u.owner]) n++;
+        }
+        landed = Math.max(landed, n);
+      }
+      return { w, landed };
+    };
+    const { w, landed } = play();
+    for (const p of [0, 1]) {
+      expect(w.buildings.some((b) => b.owner === p && b.type === 'dock' && b.built)).toBe(true);
+      expect(w.units.filter((u) => u.owner === p && u.role === 'fisher').length).toBeGreaterThanOrEqual(3);
+      expect(w.players[p].stats.gathered.food).toBeGreaterThan(1000);
+    }
+    // Armies went ashore on the other island and fought there.
+    expect(landed).toBeGreaterThanOrEqual(5);
+    expect(w.players[0].stats.kills + w.players[1].stats.kills).toBeGreaterThan(10);
+    expect(play().w.checksum()).toBe(w.checksum());
+  }, 120000);
+
   it('lets the AI use heroes, faith and wonders', () => {
     const play = () => {
       const w = createWorld({

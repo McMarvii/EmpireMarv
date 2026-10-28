@@ -13,10 +13,11 @@ import {
 import { epochStyle, EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
 import { modsFor, TECH_BY_ID, TECHS, TECHS_FOR_ADVANCE, type Tech } from '../data/techs';
-import { bestTier, CARRY_CAPACITY, isHero, MAX_FAITH, ROLE_DEFS, unitStats, type Look, type Projectile, type Role, type UnitStats } from '../data/units';
+import { bestTier, CARRY_CAPACITY, isHero, isNaval, MAX_FAITH, ROLE_DEFS, TRANSPORT_CAPACITY, unitStats, type Look, type Projectile, type Role, type UnitStats } from '../data/units';
+import { resolveMapType, type MapChoice } from '../data/maps';
 import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
-import { isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
-import { updateProjectiles } from './combat';
+import { canGather, isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
+import { canHit, updateProjectiles } from './combat';
 import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Order, type Plan, type Player, type ResourceNode, type Unit } from './entities';
 import { hypot } from './fmath';
 import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
@@ -29,6 +30,8 @@ import { updateVision } from './vision';
 
 export const TICK_RATE = 20;
 export const DT = 1 / TICK_RATE;
+/** How far from a ship its passengers can step ashore. */
+export const LANDING_REACH = 2.6;
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type StartResources = 'low' | 'standard' | 'high';
@@ -52,6 +55,8 @@ export interface GameSettings {
   revealMap?: boolean;
   /** Minutes a finished wonder must stand to win (0 or missing: no wonder victory). */
   wonderVictory?: number;
+  /** Land and water layout; missing: continent (the only layout before 0.7). */
+  mapType?: MapChoice;
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -102,7 +107,7 @@ export interface ProjectileFx {
  * simulation never reads them back, so they cannot affect determinism.
  */
 export interface SoundCue {
-  kind: 'shot' | 'melee' | 'impact' | 'blast' | 'death' | 'collapse' | 'work' | 'ability' | 'calamity' | 'convert' | 'heal';
+  kind: 'shot' | 'melee' | 'impact' | 'blast' | 'death' | 'collapse' | 'work' | 'ability' | 'calamity' | 'convert' | 'heal' | 'board';
   x: number;
   y: number;
   owner: number;
@@ -111,7 +116,7 @@ export interface SoundCue {
   look?: Look;
   projectile?: Projectile;
   /** Work cues: what is being worked on. */
-  work?: Res | 'build';
+  work?: Res | 'build' | 'fish';
   size?: number;
   /** Ability and calamity cues: which one. */
   ability?: AbilityId;
@@ -121,7 +126,7 @@ export interface SoundCue {
 const MAX_CUES = 256;
 
 export interface Effect {
-  kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit' | 'ring' | 'convert' | 'heal';
+  kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit' | 'ring' | 'convert' | 'heal' | 'sink';
   x: number;
   y: number;
   t: number;
@@ -134,6 +139,37 @@ export interface Effect {
 export interface Controller {
   readonly playerId: number;
   update(world: World): void;
+  /** Saved games: what the controller has in mind, as plain data. */
+  saveState?(): unknown;
+  loadState?(state: unknown): void;
+}
+
+/**
+ * Everything a saved game needs to continue the match exactly where it
+ * stopped. Units on board or in shelter are saved with their hosts as ids.
+ */
+export interface WorldSnapshot {
+  tick: number;
+  nextId: number;
+  nextHazard: number;
+  rng: number;
+  map: { terrain: Uint8Array; blocked: Uint16Array; occupied: Uint16Array; shade: Uint8Array; gateTeam: Int16Array; version: number };
+  players: Player[];
+  startPositions: Point[];
+  /** In the order of `entities`, with cargo and garrison as ids. */
+  entities: unknown[];
+  units: number[];
+  buildings: number[];
+  resources: number[];
+  projectiles: ProjectileFx[];
+  hazards: Hazard[];
+  victory: World['victory'];
+  victoryWonder: World['victoryWonder'];
+  over: boolean;
+  winnerTeam: number | null;
+  lastAlertTick: number[];
+  wonderFx: WonderEffect[][];
+  controllers: Array<{ playerId: number; state: unknown }>;
 }
 
 /**
@@ -156,6 +192,10 @@ export type Command =
   | { type: 'lockstep'; player: number; ids: number[]; on: boolean }
   /** Citizens take shelter in town centers and towers (on), or come out and go back to work (off). */
   | { type: 'shelter'; player: number; on: boolean }
+  /** Land units go aboard a transport ship, which comes to the shore for them. */
+  | { type: 'board'; player: number; ids: number[]; targetId: number; queue?: boolean }
+  /** Transport ships sail to the coast near a point and put their passengers ashore. */
+  | { type: 'unload'; player: number; ids: number[]; x: number; y: number; queue?: boolean }
   | { type: 'train'; player: number; buildingId: number; role: Role; count?: number }
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
@@ -235,11 +275,13 @@ export class World {
   /** Effects of each player's standing wonders. */
   private wonderFx: Array<Set<WonderEffect>> = [];
 
-  constructor(settings: Partial<GameSettings> = {}) {
+  /** `generate`: false builds an empty world for a saved game to be poured into. */
+  constructor(settings: Partial<GameSettings> = {}, generate = true) {
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
     const s = this.settings;
     s.startEpoch = Math.max(0, Math.min(LAST_EPOCH, s.startEpoch));
     s.maxEpoch = Math.max(s.startEpoch, Math.min(LAST_EPOCH, s.maxEpoch));
+    s.mapType = resolveMapType(s.mapType, s.seed);
     this.rng = new Rng(s.seed);
     this.map = new GameMap(s.mapSize, s.mapSize);
     this.pathfinder = new Pathfinder(this.map);
@@ -278,10 +320,90 @@ export class World {
       this.wonderFx.push(new Set());
     });
 
+    if (!generate) return;
     this.startPositions.push(...generateMap(this));
     this.setupStartingBases();
     this.rebuildGrid();
     updateVision(this);
+  }
+
+  // ------------------------------------------------------------- save games
+
+  snapshot(): WorldSnapshot {
+    const m = this.map;
+    return {
+      tick: this.tick,
+      nextId: this.nextId,
+      nextHazard: this.nextHazard,
+      rng: this.rng.position,
+      map: { terrain: m.terrain, blocked: m.blocked, occupied: m.occupied, shade: m.shade, gateTeam: m.gateTeam, version: m.version },
+      players: this.players,
+      startPositions: this.startPositions,
+      entities: [...this.entities.values()].map((e) =>
+        e.kind === 'unit' ? { ...e, cargo: e.cargo.map((c) => c.id) } : e.kind === 'building' ? { ...e, garrison: e.garrison.map((u) => u.id) } : e,
+      ),
+      units: this.units.map((u) => u.id),
+      buildings: this.buildings.map((b) => b.id),
+      resources: this.resources.map((n) => n.id),
+      projectiles: this.projectiles,
+      hazards: this.hazards,
+      victory: this.victory,
+      victoryWonder: this.victoryWonder,
+      over: this.over,
+      winnerTeam: this.winnerTeam,
+      lastAlertTick: this.lastAlertTick,
+      wonderFx: this.wonderFx.map((fx) => [...fx]),
+      controllers: this.controllers.map((c) => ({ playerId: c.playerId, state: c.saveState?.() ?? null })),
+    };
+  }
+
+  /** Pours a snapshot (decoded, not shared with a live world) into this empty world; controllers are the caller's job. */
+  loadSnapshot(snap: WorldSnapshot): void {
+    this.tick = snap.tick;
+    this.nextId = snap.nextId;
+    this.nextHazard = snap.nextHazard;
+    this.rng.restore(snap.rng);
+    const m = this.map;
+    m.terrain.set(snap.map.terrain);
+    m.blocked.set(snap.map.blocked);
+    m.occupied.set(snap.map.occupied);
+    m.shade.set(snap.map.shade);
+    m.gateTeam.set(snap.map.gateTeam);
+    m.version = snap.map.version;
+    m.computeRegions();
+    snap.players.forEach((p, i) => Object.assign(this.players[i], p));
+    this.startPositions.length = 0;
+    this.startPositions.push(...snap.startPositions);
+    this.entities.clear();
+    const cargo = new Map<Unit, number[]>();
+    const garrison = new Map<Building, number[]>();
+    for (const raw of snap.entities as Entity[]) {
+      const e = { ...raw } as Entity;
+      if (e.kind === 'unit') {
+        cargo.set(e, e.cargo as unknown as number[]);
+        e.cargo = [];
+      } else if (e.kind === 'building') {
+        garrison.set(e, e.garrison as unknown as number[]);
+        e.garrison = [];
+      }
+      this.entities.set(e.id, e);
+    }
+    const unitById = (id: number) => this.entities.get(id) as Unit;
+    for (const [u, ids] of cargo) u.cargo = ids.map(unitById);
+    for (const [b, ids] of garrison) b.garrison = ids.map(unitById);
+    this.units = snap.units.map(unitById);
+    this.buildings = snap.buildings.map((id) => this.entities.get(id) as Building);
+    this.resources = snap.resources.map((id) => this.entities.get(id) as ResourceNode);
+    this.projectiles = snap.projectiles;
+    this.hazards = snap.hazards;
+    this.victory = snap.victory;
+    this.victoryWonder = snap.victoryWonder;
+    this.over = snap.over;
+    this.winnerTeam = snap.winnerTeam;
+    this.lastAlertTick = snap.lastAlertTick;
+    this.wonderFx = snap.wonderFx.map((fx) => new Set(fx));
+    for (const cache of this.statCache) cache.clear();
+    this.rebuildGrid();
   }
 
   get time(): number {
@@ -343,6 +465,7 @@ export class World {
       formation: DEFAULT_FORMATION,
       lockstep: true,
       inside: 0,
+      cargo: [],
       path: [],
       repathTick: -1000,
       scanTick: 0,
@@ -522,8 +645,10 @@ export class World {
     p.techs.add(id);
     p.mods = modsFor(p.techs);
     this.statCache[owner].clear();
-    for (const u of this.units) {
-      if (u.dead || u.owner !== owner) continue;
+    // Units on board or in shelter count too (they are only missing from `units`).
+    for (const e of this.entities.values()) {
+      if (e.kind !== 'unit' || e.dead || e.owner !== owner) continue;
+      const u = e;
       const ratio = u.hp / u.maxHp;
       u.stats = this.unitStatsFor(owner, u.role, u.tier);
       u.maxHp = u.stats.hp;
@@ -547,7 +672,7 @@ export class World {
   }
 
   addResource(nodeType: NodeType, tx: number, ty: number, size: number, amount: number): ResourceNode {
-    const res: Res = nodeType === 'tree' ? 'wood' : nodeType === 'berries' ? 'food' : nodeType;
+    const res: Res = nodeType === 'tree' ? 'wood' : nodeType === 'berries' || nodeType === 'fish' ? 'food' : nodeType;
     const n: ResourceNode = {
       kind: 'resource',
       id: this.nextId++,
@@ -591,7 +716,7 @@ export class World {
     const r = rectOf(b);
     for (const u of this.units) {
       if (u.dead || distToRect(u.x, u.y, r) > 0) continue;
-      const free = this.map.nearestPassable(u.x, u.y, 8);
+      const free = this.map.nearestPassable(u.x, u.y, 8, isNaval(u.role));
       if (free) {
         u.x = u.px = free.x + 0.5;
         u.y = u.py = free.y + 0.5;
@@ -612,7 +737,7 @@ export class World {
 
   popCount(owner: number): number {
     let n = 0;
-    for (const u of this.units) if (u.owner === owner && !u.dead) n++;
+    for (const u of this.units) if (u.owner === owner && !u.dead) n += 1 + u.cargo.length;
     for (const b of this.buildings) if (b.owner === owner && !b.dead) n += b.garrison.length;
     return n;
   }
@@ -680,11 +805,12 @@ export class World {
     }
   }
 
-  nearestDropoff(owner: number, x: number, y: number): Building | null {
+  /** `fish`: where a fishing boat unloads (harbours) instead of a citizen's drop-off. */
+  nearestDropoff(owner: number, x: number, y: number, fish = false): Building | null {
     let best: Building | null = null;
     let bestD = Infinity;
     for (const b of this.buildings) {
-      if (b.dead || b.owner !== owner || !b.built || !BUILDING_DEFS[b.type].dropoff) continue;
+      if (b.dead || b.owner !== owner || !b.built || !(fish ? BUILDING_DEFS[b.type].fishDrop : BUILDING_DEFS[b.type].dropoff)) continue;
       const d = distToRect(x, y, rectOf(b));
       if (d < bestD) {
         bestD = d;
@@ -694,11 +820,12 @@ export class World {
     return best;
   }
 
-  nearestResource(res: Res, x: number, y: number, maxDist: number, player = -1, excludeId = 0): ResourceNode | null {
+  /** `water`: fishing grounds (for boats) instead of deposits on land. */
+  nearestResource(res: Res, x: number, y: number, maxDist: number, player = -1, excludeId = 0, water = false): ResourceNode | null {
     let best: ResourceNode | null = null;
     let bestD = maxDist;
     for (const n of this.resources) {
-      if (n.dead || n.res !== res || n.id === excludeId || n.blockedUntil > this.tick) continue;
+      if (n.dead || n.res !== res || n.id === excludeId || n.blockedUntil > this.tick || (n.nodeType === 'fish') !== water) continue;
       if (player >= 0 && !this.isVisibleTo(player, n)) continue;
       const d = hypot(n.x - x, n.y - y);
       if (d < bestD) {
@@ -714,7 +841,7 @@ export class World {
     let best: ResourceNode | null = null;
     let bestD = maxDist;
     for (const n of this.resources) {
-      if (n.dead || n.blockedUntil > this.tick || !this.isVisibleTo(player, n)) continue;
+      if (n.dead || n.nodeType === 'fish' || n.blockedUntil > this.tick || !this.isVisibleTo(player, n)) continue;
       const d = distToRect(x, y, rectOf(n));
       if (d < bestD) {
         bestD = d;
@@ -744,14 +871,14 @@ export class World {
     return n;
   }
 
-  /** Free tile next to a building, preferring the side facing `towards`. */
-  findSpawnPoint(b: Building, towards: Point, skip = 0): Point | null {
+  /** Free tile next to a building, preferring the side facing `towards`; `naval`: on the water (ships from a harbour). */
+  findSpawnPoint(b: Building, towards: Point, skip = 0, naval = false): Point | null {
     const candidates: Array<Point & { d: number }> = [];
     for (let ring = 1; ring <= 4 && candidates.length <= skip; ring++) {
       for (let y = b.ty - ring; y < b.ty + b.size + ring; y++) {
         for (let x = b.tx - ring; x < b.tx + b.size + ring; x++) {
           const onRing = x === b.tx - ring || y === b.ty - ring || x === b.tx + b.size + ring - 1 || y === b.ty + b.size + ring - 1;
-          if (!onRing || !this.map.passable(x, y)) continue;
+          if (!onRing || !this.map.passableFor(x, y, -1, naval)) continue;
           candidates.push({ x: x + 0.5, y: y + 0.5, d: hypot(x + 0.5 - towards.x, y + 0.5 - towards.y) });
         }
       }
@@ -765,9 +892,11 @@ export class World {
   canPlace(owner: number, type: BuildingType, tx: number, ty: number): boolean {
     const size = BUILDING_DEFS[type].size;
     const vis = this.players[owner].vis;
+    // Harbours stand in the water at the shore, everything else on dry land.
+    if (BUILDING_DEFS[type].shore && !this.map.shoreSite(tx, ty, size)) return false;
     for (let y = ty; y < ty + size; y++) {
       for (let x = tx; x < tx + size; x++) {
-        if (!this.map.buildable(x, y)) return false;
+        if (!BUILDING_DEFS[type].shore && !this.map.buildable(x, y)) return false;
         if (!this.settings.revealMap && vis[this.map.idx(x, y)] === 0) return false;
       }
     }
@@ -835,7 +964,7 @@ export class World {
           // Priests answer an attack order by converting; prophets do not fight at all.
           if (u.role === 'priest') {
             if (target.kind === 'unit' && !isHero(target.role)) this.assign(u, { kind: 'convert', targetId: target.id }, cmd.queue ?? false);
-          } else if (u.role !== 'prophet') {
+          } else if (u.role !== 'prophet' && canHit(u, target)) {
             this.assign(u, { kind: 'attack', targetId: target.id }, cmd.queue ?? false);
           }
         }
@@ -873,6 +1002,14 @@ export class World {
         if (cmd.on) this.commandShelter(cmd.player);
         else this.releaseShelter(cmd.player);
         break;
+      case 'board':
+        this.commandBoard(cmd.player, cmd.ids, cmd.targetId, cmd.queue ?? false);
+        break;
+      case 'unload':
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
+          if (u.role === 'transport') this.assign(u, { kind: 'unload', x: cmd.x, y: cmd.y }, cmd.queue ?? false);
+        }
+        break;
       case 'gather': {
         const target = this.get(cmd.targetId);
         if (!target) return;
@@ -884,10 +1021,10 @@ export class World {
         }
         const res: Res = target.kind === 'resource' ? target.res : 'food';
         const units = this.ownUnits(cmd.player, cmd.ids);
-        for (const u of units) {
-          if (u.role === 'citizen') this.assign(u, { kind: 'gather', targetId: target.id, res, lx: target.x, ly: target.y }, cmd.queue ?? false);
-        }
-        const others = units.filter((u) => u.role !== 'citizen').map((u) => u.id);
+        // Citizens work the land, fishing boats the fish; everybody else just goes there.
+        const workers = units.filter((u) => canGather(u, target));
+        for (const u of workers) this.assign(u, { kind: 'gather', targetId: target.id, res, lx: target.x, ly: target.y }, cmd.queue ?? false);
+        const others = units.filter((u) => !workers.includes(u) && u.role !== 'citizen' && u.role !== 'fisher').map((u) => u.id);
         if (others.length) this.commandMove(cmd.player, others, target.x, target.y, false, cmd.queue ?? false);
         break;
       }
@@ -1061,8 +1198,10 @@ export class World {
     const team = this.teamOf(player);
     return units.map((u) => {
       const slot = slots.get(u.id)!;
-      if (this.map.passableFor(Math.floor(slot.x), Math.floor(slot.y), team)) return { x: slot.x, y: slot.y };
-      const near = this.map.nearestPassable(slot.x, slot.y, 6);
+      const naval = isNaval(u.role);
+      if (this.map.passableFor(Math.floor(slot.x), Math.floor(slot.y), team, naval)) return { x: slot.x, y: slot.y };
+      // Ships sent ashore stop at the nearest water, walkers sent to sea at the nearest shore.
+      const near = this.map.nearestPassable(slot.x, slot.y, naval ? 24 : 6, naval);
       return near ? { x: near.x + 0.5, y: near.y + 0.5 } : { x, y };
     });
   }
@@ -1201,6 +1340,113 @@ export class World {
     u.order = resume.kind === 'gather' ? { ...resume, phase: u.carryAmount > 0 ? 'toDrop' : 'toNode', dropId: 0, snug: false } : resume;
   }
 
+  /**
+   * Boarding: the land units head for the shore by the ship, the ship
+   * (unless it already lies at the coast there) sails to the water's edge
+   * nearest to them.
+   */
+  private commandBoard(player: number, ids: number[], targetId: number, queue: boolean): void {
+    const ship = this.get(targetId);
+    if (!ship || ship.kind !== 'unit' || ship.owner !== player || ship.role !== 'transport') return;
+    // As many as there is room for; the rest stays ashore.
+    const units = this.ownUnits(player, ids)
+      .filter((u) => !isNaval(u.role))
+      .slice(0, Math.max(0, TRANSPORT_CAPACITY - ship.cargo.length));
+    if (units.length === 0) return;
+    for (const u of units) this.assign(u, { kind: 'board', targetId }, queue);
+    if (queue || (ship.order.kind !== 'idle' && ship.order.kind !== 'move')) return;
+    let cx = 0;
+    let cy = 0;
+    for (const u of units) {
+      cx += u.x / units.length;
+      cy += u.y / units.length;
+    }
+    const spot = this.shoreSpot(cx, cy, ship);
+    if (spot && hypot(spot.x - ship.x, spot.y - ship.y) > 1.5) this.assign(ship, { kind: 'move', x: spot.x, y: spot.y, attackMove: false }, false);
+  }
+
+  /** The water tile of a ship's sea that lies closest to a point on land (where to pick people up). */
+  shoreSpot(x: number, y: number, ship: Unit): Point | null {
+    const { map } = this;
+    const sea = map.waterRegion[map.idx(Math.floor(ship.x), Math.floor(ship.y))];
+    const cx = Math.floor(x);
+    const cy = Math.floor(y);
+    for (let r = 0; r <= 30; r++) {
+      let best: Point | null = null;
+      let bestD = Infinity;
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const tx = cx + dx;
+          const ty = cy + dy;
+          if (!map.passableFor(tx, ty, -1, true) || map.waterRegion[map.idx(tx, ty)] !== sea) continue;
+          const d = hypot(tx + 0.5 - x, ty + 0.5 - y);
+          if (d < bestD) {
+            bestD = d;
+            best = { x: tx + 0.5, y: ty + 0.5 };
+          }
+        }
+      }
+      if (best) return best;
+    }
+    return null;
+  }
+
+  /** A unit goes aboard: it leaves the map until the ship puts it ashore. */
+  boardShip(u: Unit, ship: Unit): void {
+    u.inside = ship.id;
+    u.order = { kind: 'idle' };
+    u.queue = [];
+    u.path = [];
+    u.moving = false;
+    if (u.carry && u.carryAmount > 0 && u.role === 'citizen') u.carryAmount = 0;
+    ship.cargo.push(u);
+    this.cue({ kind: 'board', x: ship.x, y: ship.y, owner: ship.owner, epoch: ship.stats.epoch });
+  }
+
+  /** The `skip`-th free land tile within reach of a ship, nearest to where the passengers want to go. */
+  landingSpot(ship: Unit, towards: Point, skip: number): Point | null {
+    const { map } = this;
+    const team = this.teamOf(ship.owner);
+    const sx = Math.floor(ship.x);
+    const sy = Math.floor(ship.y);
+    const r = Math.ceil(LANDING_REACH);
+    const spots: Array<Point & { d: number }> = [];
+    for (let ty = sy - r; ty <= sy + r; ty++) {
+      for (let tx = sx - r; tx <= sx + r; tx++) {
+        if (!map.passableFor(tx, ty, team)) continue;
+        if (hypot(tx + 0.5 - ship.x, ty + 0.5 - ship.y) > LANDING_REACH) continue;
+        spots.push({ x: tx + 0.5, y: ty + 0.5, d: hypot(tx + 0.5 - towards.x, ty + 0.5 - towards.y) });
+      }
+    }
+    if (spots.length === 0) return null;
+    spots.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
+    const pick = spots[skip % spots.length];
+    return { x: pick.x, y: pick.y };
+  }
+
+  /** Everybody ashore by the ship, then on to the point. */
+  unloadShip(ship: Unit, to: Point): void {
+    const out = ship.cargo;
+    ship.cargo = [];
+    const ids: number[] = [];
+    out.forEach((u, i) => {
+      const spot = this.landingSpot(ship, to, i) ?? { x: ship.x, y: ship.y };
+      u.inside = 0;
+      u.x = u.px = spot.x;
+      u.y = u.py = spot.y;
+      u.order = { kind: 'idle' };
+      u.path = [];
+      u.repathTick = -1000;
+      if (!this.units.includes(u)) this.units.push(u);
+      ids.push(u.id);
+    });
+    this.cue({ kind: 'board', x: ship.x, y: ship.y, owner: ship.owner, epoch: ship.stats.epoch });
+    if (ids.length && hypot(to.x - ship.x, to.y - ship.y) > LANDING_REACH + 1) {
+      this.issue({ type: 'move', player: ship.owner, ids, x: to.x, y: to.y, attackMove: true });
+    }
+  }
+
   private commandPlace(player: number, ids: number[], type: BuildingType, tx: number, ty: number, queue: boolean): void {
     const p = this.players[player];
     if (!this.buildingUnlocked(player, type)) return;
@@ -1329,6 +1575,13 @@ export class World {
     u.path = [];
     u.status = {};
     u.aura = 0;
+    // Whoever is on board changes sides with the ship.
+    for (const c of u.cargo) {
+      c.owner = owner;
+      c.stats = this.unitStatsFor(owner, c.role, c.tier);
+      c.maxHp = c.stats.hp;
+      c.hp = Math.min(c.hp, c.maxHp);
+    }
     this.players[old].stats.unitsLost++;
     this.players[owner].stats.converted++;
     this.effects.push({ kind: 'convert', x: u.x, y: u.y, t: 0, dur: 1.2, size: 1 });
@@ -1529,7 +1782,20 @@ export class World {
     if (e.kind === 'unit') {
       owner.stats.unitsLost++;
       this.cue({ kind: 'death', x: e.x, y: e.y, owner: e.owner, epoch: e.stats.epoch, look: e.stats.look });
+      if (isNaval(e.role)) this.effects.push({ kind: 'sink', x: e.x, y: e.y, t: 0, dur: 2.6, size: e.role === 'fisher' ? 0.6 : 1 });
       if (isHero(e.role)) this.emit({ type: 'warn', player: e.owner, text: `${e.stats.name} ist gefallen.`, x: e.x, y: e.y });
+      if (e.cargo.length) {
+        // A sunk transport takes its passengers down with it.
+        const lost = e.cargo;
+        e.cargo = [];
+        for (const c of lost) {
+          c.x = e.x;
+          c.y = e.y;
+          c.inside = 0;
+          this.kill(c, killerOwner);
+        }
+        this.emit({ type: 'warn', player: e.owner, text: `${e.stats.name} versenkt – ${lost.length} ${lost.length === 1 ? 'Einheit' : 'Einheiten'} an Bord verloren.`, x: e.x, y: e.y });
+      }
     } else {
       owner.stats.buildingsLost++;
       // The people inside escape the ruins.
@@ -1596,6 +1862,7 @@ export class World {
       for (const st of STATUSES) h.add(u.status[st] ?? 0);
       for (const a of ABILITIES) h.add(u.ready[a.id] ?? 0);
       if (u.order.kind === 'convert') h.add(u.order.progress);
+      if (u.role === 'transport') for (const c of u.cargo) h.add(c.id);
     }
     for (const b of this.buildings) {
       if (b.dead) continue;

@@ -1,4 +1,5 @@
 import { BUILDING_DEFS } from '../data/buildings';
+import { isNaval } from '../data/units';
 import type { Game } from '../game';
 import type { Building, Unit } from '../sim/entities';
 
@@ -135,6 +136,8 @@ export class Input {
     if (!e) return 'default';
     if (e.kind !== 'resource' && game.world.areEnemies(game.me, e.owner)) return 'crosshair';
     if (e.kind === 'resource') return 'pointer';
+    // Walkers over an own transport ship: they can go aboard.
+    if (e.kind === 'unit' && e.owner === game.me && e.role === 'transport' && game.selectedOwnUnits().some((u) => !isNaval(u.role))) return 'pointer';
     if (e.kind === 'building' && e.owner === game.me && e.built && BUILDING_DEFS[e.type].dropoff) {
       if (game.selectedOwnUnits().some((u) => u.role === 'citizen' && u.carryAmount > 0)) return 'pointer';
     }
@@ -347,6 +350,12 @@ export class Input {
   private onKeyDown(e: KeyboardEvent): void {
     const game = this.game;
     if (e.key === 'Shift') this.keys.add('Shift');
+    // Strg+S saves the match, never the web page.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      if (!game.hud.overlayOpen()) game.quickSave();
+      return;
+    }
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) {
       // A focused slider or checkbox (sound dialog) still lets Esc close and Ctrl+M mute.

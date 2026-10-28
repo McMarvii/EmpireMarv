@@ -5,9 +5,10 @@ import type { Look } from '../data/units';
 import type { NodeType } from '../sim/entities';
 import type { Project } from './camera';
 import { ERA_PALETTE, shade, SKIN } from './colors';
+import { drawDock, drawShip, SHIP_LOOKS } from './ships';
 
-type Ctx = CanvasRenderingContext2D;
-type Pt = [number, number];
+export type Ctx = CanvasRenderingContext2D;
+export type Pt = [number, number];
 
 export interface UnitLook {
   look: Look;
@@ -19,11 +20,13 @@ export interface UnitLook {
   working: boolean;
   carry: Res | null;
   seed: number;
+  /** Transport ships: passengers on board. */
+  cargo?: number;
 }
 
 // ------------------------------------------------------------------ helpers
 
-function poly(ctx: Ctx, pts: Pt[], fill: string, stroke?: string, lw = 1): void {
+export function poly(ctx: Ctx, pts: Pt[], fill: string, stroke?: string, lw = 1): void {
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
@@ -37,7 +40,7 @@ function poly(ctx: Ctx, pts: Pt[], fill: string, stroke?: string, lw = 1): void 
   }
 }
 
-function line(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, color: string, w: number): void {
+export function line(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, color: string, w: number): void {
   ctx.beginPath();
   ctx.moveTo(x0, y0);
   ctx.lineTo(x1, y1);
@@ -47,7 +50,7 @@ function line(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, color: s
   ctx.stroke();
 }
 
-function circle(ctx: Ctx, x: number, y: number, r: number, fill: string, stroke?: string, lw = 1): void {
+export function circle(ctx: Ctx, x: number, y: number, r: number, fill: string, stroke?: string, lw = 1): void {
   ctx.beginPath();
   ctx.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2);
   ctx.fillStyle = fill;
@@ -59,7 +62,7 @@ function circle(ctx: Ctx, x: number, y: number, r: number, fill: string, stroke?
   }
 }
 
-function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: string): void {
+export function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: string): void {
   ctx.beginPath();
   ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2);
   ctx.fillStyle = fill;
@@ -70,7 +73,7 @@ function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: s
  * Extruded quad in world space: a box whose ground corners are rotated by
  * `facing` around (cx, cy). Sides are depth-sorted so it reads as solid.
  */
-function box3d(
+export function box3d(
   ctx: Ctx,
   project: Project,
   cx: number,
@@ -120,6 +123,10 @@ function screenDir(facing: number): { dx: number; dy: number } {
 export const VEHICLE_LOOKS = new Set<Look>(['tank', 'mech', 'armoredcar', 'ram', 'catapult', 'trebuchet', 'cannon', 'rocket', 'beam', 'jeep', 'drone']);
 
 export function drawUnit(ctx: Ctx, project: Project, scale: number, wx: number, wy: number, u: UnitLook, time: number): void {
+  if (SHIP_LOOKS.has(u.look)) {
+    drawShip(ctx, project, scale, wx, wy, u, time);
+    return;
+  }
   const [sx, sy] = project(wx, wy);
   if (VEHICLE_LOOKS.has(u.look)) {
     drawVehicle(ctx, project, scale, wx, wy, u, time);
@@ -865,7 +872,7 @@ export const LINK_E = 2;
 export const LINK_S = 4;
 export const LINK_W = 8;
 
-function roofPyramid(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
+export function roofPyramid(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
   const apex = project(cx, cy, z + h);
@@ -879,7 +886,7 @@ function roofPyramid(ctx: Ctx, project: Project, x0: number, y0: number, x1: num
   poly(ctx, [c, d, apex], shade(color, -0.25));
 }
 
-function roofGable(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
+export function roofGable(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
   const my = (y0 + y1) / 2;
   const r0 = project(x0, my, z + h);
   const r1 = project(x1, my, z + h);
@@ -901,14 +908,14 @@ function dome(ctx: Ctx, project: Project, cx: number, cy: number, z: number, r: 
   ctx.fill();
 }
 
-function flag(ctx: Ctx, x: number, y: number, scale: number, color: string, time: number, seed: number): void {
+export function flag(ctx: Ctx, x: number, y: number, scale: number, color: string, time: number, seed: number): void {
   line(ctx, x, y, x, y - 14 * scale, '#3a2a1a', 1.2 * scale);
   const wave = Math.sin(time * 4 + seed) * 1.5 * scale;
   poly(ctx, [[x, y - 14 * scale], [x + 9 * scale, y - 12 * scale + wave], [x, y - 9 * scale]], color);
 }
 
 /** Window rows on the two visible walls. */
-function windows(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z0: number, z1: number, color: string, scale: number): void {
+export function windows(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z0: number, z1: number, color: string, scale: number): void {
   const rows = Math.max(1, Math.floor((z1 - z0) / 10));
   for (let r = 0; r < rows; r++) {
     const z = z0 + ((r + 0.5) * (z1 - z0)) / rows;
@@ -942,6 +949,7 @@ const GEOMETRY: Record<BuildingType, Geometry> = {
   academy: { inset: 0.25, wall: 42 },
   temple: { inset: 0.3, wall: 40 },
   wonder: { inset: 0.35, wall: 70 },
+  dock: { inset: 0.15, wall: 18 },
 };
 
 interface WallLook {
@@ -1165,6 +1173,10 @@ export function drawBuilding(ctx: Ctx, project: Project, scale: number, b: Build
   }
   if (b.type === 'wonder') {
     drawWonder(ctx, project, scale, b, time);
+    return;
+  }
+  if (b.type === 'dock') {
+    drawDock(ctx, project, scale, b, time);
     return;
   }
   const geo = GEOMETRY[b.type];
@@ -1865,6 +1877,47 @@ export function drawNode(ctx: Ctx, project: Project, scale: number, n: NodeLook,
       for (let i = 0; i < count; i++) {
         const a = i * 2.1 + n.variant;
         circle(ctx, x + Math.cos(a) * r * 0.6, y - r * 0.8 + Math.sin(a) * r * 0.5, 1.2 * k, '#c9283c');
+      }
+      break;
+    }
+    case 'fish': {
+      // A shoal under the surface: rings on the water, dark backs circling, now and then one jumps.
+      const phase = time * 0.9 + n.variant * 1.7;
+      ctx.lineWidth = Math.max(1, 0.8 * k);
+      for (let i = 0; i < 2; i++) {
+        const t = (phase * 0.5 + i * 0.5) % 1;
+        ctx.strokeStyle = `rgba(220,240,255,${(0.55 * (1 - t)).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, (3 + t * 10) * k, (1.5 + t * 5) * k, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      const count = Math.max(1, Math.ceil(3 * n.ratio));
+      for (let i = 0; i < count; i++) {
+        const a = phase * 0.8 + (i * Math.PI * 2) / count;
+        const fx = x + Math.cos(a) * 5 * k;
+        const fy = y + Math.sin(a) * 2.5 * k;
+        const dir = Math.cos(a + Math.PI / 2) >= 0 ? 1 : -1;
+        poly(
+          ctx,
+          [
+            [fx - 3 * k * dir, fy],
+            [fx, fy - 1 * k],
+            [fx + 2.5 * k * dir, fy],
+            [fx + 4 * k * dir, fy - 1.2 * k],
+            [fx + 4 * k * dir, fy + 1.2 * k],
+            [fx + 2.5 * k * dir, fy],
+            [fx, fy + 1 * k],
+          ],
+          'rgba(24,52,74,0.55)',
+        );
+      }
+      // The jump: an arc every few seconds.
+      const jump = (time * 0.35 + n.variant * 0.29) % 1;
+      if (jump < 0.12) {
+        const t = jump / 0.12;
+        const jx = x + (t - 0.5) * 10 * k;
+        const jy = y - 3 * k - Math.sin(t * Math.PI) * 9 * k;
+        poly(ctx, [[jx - 3 * k, jy + 1 * k], [jx, jy - 1.3 * k], [jx + 3 * k, jy], [jx + 4.5 * k, jy - 1.5 * k], [jx + 4.5 * k, jy + 1.5 * k], [jx + 3 * k, jy + 0.6 * k], [jx, jy + 1.6 * k]], '#c9d7df', '#5d7a8c', 0.6);
       }
       break;
     }

@@ -12,7 +12,7 @@ import {
 } from '../data/buildings';
 import { epochLabel, epochNumeral, EPOCHS, epochStyle } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
-import { bestTier, GATHER_LABEL, isFaithful, isHero, MAX_FAITH, ROLE_DEFS, type Role } from '../data/units';
+import { bestTier, GATHER_LABEL, isFaithful, isHero, MAX_FAITH, ROLE_DEFS, TRANSPORT_CAPACITY, type Role } from '../data/units';
 import { WONDERS, wonderOf } from '../data/wonders';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
@@ -419,7 +419,7 @@ export class Hud {
         if (e.kind === 'unit') {
           const states = Object.values(e.status).filter((t) => (t ?? 0) > this.game.world.tick).length;
           const convert = e.order.kind === 'convert' ? Math.floor(e.order.progress * 4) : '';
-          return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}${Math.floor(e.faith / 2)}${states}${e.aura}${convert}`;
+          return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}${Math.floor(e.faith / 2)}${states}${e.aura}${convert}${e.cargo.length}`;
         }
         return `${Math.floor(e.amount)}`;
       })
@@ -477,7 +477,7 @@ export class Hud {
       const s = e.stats;
       const def = ROLE_DEFS[e.role];
       let activity = '';
-      if (e.order.kind === 'gather') activity = GATHER_LABEL[e.order.res];
+      if (e.order.kind === 'gather') activity = e.role === 'fisher' ? 'fischt' : GATHER_LABEL[e.order.res];
       else if (e.order.kind === 'build') activity = 'baut';
       else if (e.order.kind === 'deposit') activity = 'lagert ein';
       else if (e.order.kind === 'explore') activity = 'erkundet';
@@ -490,6 +490,8 @@ export class Hud {
         activity = e.faith < (MAX_FAITH.priest ?? 0) ? 'sammelt Glauben zum Bekehren' : `bekehrt ${share} %`;
       } else if (e.order.kind === 'heal') activity = 'heilt';
       else if (e.order.kind === 'cast') activity = `wirkt ${ABILITY_BY_ID.get(e.order.ability)!.name}`;
+      else if (e.order.kind === 'board') activity = 'geht an Bord';
+      else if (e.order.kind === 'unload') activity = 'fährt zum Entladen';
       else activity = 'untätig';
       if (e.queue.length) activity += `, dann ${e.queue.length} ${e.queue.length === 1 ? 'weiterer Befehl' : 'weitere Befehle'}`;
       const carry = e.carry && e.carryAmount > 0 ? ` · trägt ${Math.floor(e.carryAmount)} ${RES_LABEL[e.carry]}` : '';
@@ -514,6 +516,13 @@ export class Hud {
         ...(e.aura & AURA_INSPIRED ? ['vom Krieger angefeuert'] : []),
       ];
       const statusLine = states.length ? `<div class="status-line">${states.map((t) => esc(t)).join(' · ')}</div>` : '';
+      const cargoLine =
+        e.role === 'transport'
+          ? `<div class="cargo-line">An Bord: ${e.cargo.length} / ${TRANSPORT_CAPACITY}${e.cargo
+              .slice(0, TRANSPORT_CAPACITY)
+              .map((c) => `<img src="${unitIcon(c.role, c.stats.epoch, world.players[c.owner].color, 22)}" title="${esc(c.stats.name)}">`)
+              .join('')}</div>`
+          : '';
       return `<div class="sel-single">
         <img class="portrait" src="${unitIcon(e.role, s.epoch, owner!.color, 64)}">
         <div class="sel-info">
@@ -523,6 +532,7 @@ export class Hud {
           ${faithBar}
           ${moraleLine}
           ${statusLine}
+          ${cargoLine}
           <div class="stats">${isFaithful(e.role) ? '' : `<span>Angriff ${s.dmg}</span>`}<span>Rüstung ${s.armor}</span>${isFaithful(e.role) ? '' : `<span>Reichweite ${s.range.toFixed(1)}</span>`}<span>Tempo ${s.speed.toFixed(1)}</span></div>
           ${
             ROLE_HELP[e.role]
@@ -602,7 +612,7 @@ export class Hud {
         </div></div>`;
     }
 
-    const names: Record<string, string> = { tree: 'Baum', berries: 'Beerenstrauch', stone: 'Steinbruch', gold: 'Goldmine', iron: 'Eisenmine' };
+    const names: Record<string, string> = { tree: 'Baum', berries: 'Beerenstrauch', stone: 'Steinbruch', gold: 'Goldmine', iron: 'Eisenmine', fish: 'Fischgrund' };
     return `<div class="sel-single"><div class="sel-info">
       <div class="sel-name">${names[e.nodeType]}</div>
       <div class="sel-sub">${RES_LABEL[e.res]}: ${Math.floor(e.amount)} übrig</div>
@@ -750,6 +760,18 @@ export class Hud {
         tooltip: '<b>Halt</b> <kbd>X</kbd><p>Alle Befehle abbrechen.</p>',
         action: () => game.stop(),
       });
+      if (units.some((u) => u.role === 'transport' && u.cargo.length > 0)) {
+        cmds.push({
+          key: 'Y',
+          icon: commandIcon('unload'),
+          enabled: true,
+          title: 'Entladen',
+          tooltip:
+            '<b>Entladen</b> <kbd>Y</kbd><p>Das Schiff fährt an die nächste Küste und setzt alle an Land.</p>' +
+            '<p>Gezielt: Rechtsklick an Land, dort geht die Ladung von Bord und läuft hin.</p><p class="dim">Einsteigen: Landeinheiten wählen, Rechtsklick auf das Schiff.</p>',
+          action: () => game.unloadNearest(),
+        });
+      }
     }
 
     // One building, or several finished ones of a type: orders go to the least busy.
@@ -1074,6 +1096,7 @@ export class Hud {
          <button data-act="resume" class="primary">Weiterspielen</button>
          <button data-act="help">Steuerung</button>
          <button data-act="sound">Ton &amp; Musik</button>
+         ${game.canSave() ? '<button data-act="savegame">Spiel speichern</button>' : ''}
          ${game.recorder ? '<button data-act="save">Wiedergabe speichern</button>' : ''}
          <button data-act="quit">${quit}</button>
        </div>`,
@@ -1082,9 +1105,37 @@ export class Hud {
       resume: () => game.menuPause(false),
       help: () => this.showHelp(),
       sound: () => this.showSound(),
+      savegame: () => this.showSaveGame(),
       save: () => game.recorder && downloadReplay(game.recorder.replay),
       quit: () => game.exitToMenu(),
     });
+  }
+
+  /** Name the save, then into the browser's storage or out as a file. */
+  showSaveGame(): void {
+    const { game } = this;
+    game.menuPause(true);
+    this.openOverlay(
+      'savegame',
+      `<h2>Spiel speichern</h2>
+       <label class="save-name">Name<input name="savename" maxlength="48" value="${esc(game.defaultSaveName())}"></label>
+       <p class="dim">Gespeichert wird im Browser; geladen wird im Hauptmenü unter „Spielstände“. <kbd>Strg</kbd>+<kbd>S</kbd> speichert schnell, alle 5 Spielminuten wird automatisch gespeichert.</p>
+       <div class="dialog-buttons">
+         <button data-act="store" class="primary">Speichern</button>
+         <button data-act="file">Als Datei herunterladen</button>
+         <button data-act="back">Zurück</button>
+       </div>`,
+    );
+    const input = this.els.overlay.querySelector<HTMLInputElement>('input[name="savename"]')!;
+    input.select();
+    const store = async () => {
+      if (await game.saveAs(input.value)) this.showPauseMenu();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') void store();
+      if (e.key === 'Escape') this.showPauseMenu();
+    };
+    this.bindOverlay({ store: () => void store(), file: () => game.saveToFile(), back: () => this.showPauseMenu() });
   }
 
   /** The network match is over for this player (host gone, connection lost). */
@@ -1184,6 +1235,7 @@ export class Hud {
         <tr><td>F2</td><td>Technologiebaum</td></tr>
         <tr><td>Strg + M</td><td>Ton ein/aus (Lautstärke: Menü → Ton &amp; Musik)</td></tr>
         <tr><td>P / Esc</td><td>Pause / Menü (im Mehrspieler pausiert P für alle)</td></tr>
+        <tr><td>Strg + S</td><td>Schnell speichern (Einzelspieler; laden im Hauptmenü unter „Spielstände“)</td></tr>
         <tr><td>Enter / Umschalt + Enter</td><td>Mehrspieler: Chat an alle / ans Team (Tab wechselt beim Schreiben)</td></tr>
         <tr><td>Alt + Klick</td><td>Mehrspieler: Stelle für Verbündete markieren (auch auf der Minikarte)</td></tr>
       </table>

@@ -46,7 +46,11 @@ export type Order =
   /** Prophet: walk within range of a spot, then call down a calamity. */
   | { kind: 'cast'; ability: AbilityId; x: number; y: number }
   /** Take shelter in a town center or tower; `resume` is the work to go back to afterwards. */
-  | { kind: 'garrison'; targetId: number; resume: Order | null };
+  | { kind: 'garrison'; targetId: number; resume: Order | null }
+  /** Walk to the shore and go aboard a transport ship. */
+  | { kind: 'board'; targetId: number }
+  /** Transport ship: sail to the coast near a point and put everybody ashore. */
+  | { kind: 'unload'; x: number; y: number };
 
 /** A queued command (Shift), turned into an order once the unit gets to it. */
 export type Plan =
@@ -58,7 +62,9 @@ export type Plan =
   | { kind: 'explore' }
   | { kind: 'patrol'; points: Point[] }
   | { kind: 'convert'; targetId: number }
-  | { kind: 'heal'; targetId: number };
+  | { kind: 'heal'; targetId: number }
+  | { kind: 'board'; targetId: number }
+  | { kind: 'unload'; x: number; y: number };
 
 interface BaseEntity {
   id: number;
@@ -86,8 +92,10 @@ export interface Unit extends BaseEntity {
   formation: Formation;
   /** Marches in step with its group (slows down so everybody arrives together). */
   lockstep: boolean;
-  /** Building the unit shelters in (0: outside). Sheltered units leave `World.units`. */
+  /** Building or ship the unit is inside (0: outside). Units inside leave `World.units`. */
   inside: number;
+  /** Transport ships: the units on board. */
+  cargo: Unit[];
   path: Point[];
   repathTick: number;
   scanTick: number;
@@ -166,7 +174,8 @@ export interface Hazard {
   until: number;
 }
 
-export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron';
+/** Fish lie on water and only boats can catch them. */
+export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron' | 'fish';
 
 export interface ResourceNode extends BaseEntity {
   kind: 'resource';

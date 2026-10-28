@@ -23,6 +23,7 @@ export const ERA_INST: Record<EraStyle, { lead: Inst; fanfare: Inst }> = {
 
 const WOOD_SIEGE = new Set<Look>(['ram', 'catapult', 'trebuchet']);
 const MACHINES = new Set<Look>(['tank', 'mech', 'armoredcar', 'jeep', 'cannon', 'rocket', 'beam']);
+const SHIPS = new Set<Look>(['fishingboat', 'transportship', 'warship', 'bombardship']);
 
 function vary(r: number, amount = 0.12): number {
   return 1 + (r - 0.5) * amount;
@@ -148,6 +149,13 @@ export function deathSound(o: Out, look: Look | undefined, r: number): void {
     noise(o, { dur: 0.3, vol: 0.07, filter: { type: 'highpass', f: 3000 } });
     return;
   }
+  if (look && SHIPS.has(look)) {
+    // Sinking: timber (or steel) groans, the water closes over it.
+    tone(o, { type: 'sawtooth', f: 110 * k, f2: 55, glide: 0.9, dur: 1, attack: 0.05, vol: 0.12, filter: { type: 'lowpass', f: 500 } });
+    noise(o, { at: 0.2, dur: 1.1, attack: 0.1, vol: 0.22, filter: { type: 'lowpass', f: 700 * k, f2: 200 } });
+    for (let i = 0; i < 5; i++) tone(o, { at: 0.5 + i * 0.13 * k, type: 'sine', f: 500 + i * 90, f2: 900 + i * 120, dur: 0.06, vol: 0.05 });
+    return;
+  }
   if (look && WOOD_SIEGE.has(look)) {
     noise(o, { dur: 0.55, vol: 0.32, rate: 0.6, filter: { type: 'bandpass', f: 700 * k, f2: 280, q: 1.2 } });
     for (let i = 0; i < 4; i++) tone(o, { at: i * 0.09 * k, f: 180 - i * 20, f2: 90, dur: 0.08, vol: 0.18 });
@@ -256,8 +264,18 @@ export function healSound(o: Out, r: number): void {
   tone(o, { at: 0.08, type: 'sine', f: 1760 * k, dur: 0.45, attack: 0.01, vol: 0.05 });
 }
 
+/** Going aboard or ashore: feet on planks (a ramp clanging in later eras) and a splash. */
+export function boardSound(o: Out, style: EraStyle, r: number): void {
+  const k = vary(r, 0.1);
+  const metal = style === 'modern' || style === 'future';
+  for (let i = 0; i < 3; i++) {
+    tone(o, { at: i * 0.09, f: (metal ? 420 : 150) * k, f2: metal ? 380 : 110, dur: metal ? 0.08 : 0.06, attack: 0.001, vol: metal ? 0.08 : 0.14 });
+  }
+  noise(o, { at: 0.05, dur: 0.3, attack: 0.02, vol: 0.08, filter: { type: 'lowpass', f: 800 * k } });
+}
+
 /** Citizens at work: axe on wood, pick on rock, rustling crops, hammering. */
-export function workSound(o: Out, work: Res | 'build', style: EraStyle, r: number): void {
+export function workSound(o: Out, work: Res | 'build' | 'fish', style: EraStyle, r: number): void {
   const k = vary(r, 0.15);
   switch (work) {
     case 'wood':
@@ -275,6 +293,12 @@ export function workSound(o: Out, work: Res | 'build', style: EraStyle, r: numbe
     }
     case 'food':
       noise(o, { dur: 0.14, attack: 0.03, vol: 0.12, filter: { type: 'bandpass', f: 3200 * k, q: 0.7 } });
+      break;
+    case 'fish':
+      // A net coming up: a splash and a few drops.
+      noise(o, { dur: 0.22, attack: 0.01, vol: 0.12, filter: { type: 'lowpass', f: 900 * k } });
+      tone(o, { at: 0.06, type: 'sine', f: 900 * k, f2: 1400 * k, dur: 0.05, attack: 0.002, vol: 0.05 });
+      tone(o, { at: 0.13, type: 'sine', f: 1100 * k, f2: 1700 * k, dur: 0.04, attack: 0.002, vol: 0.04 });
       break;
     case 'build':
       if (style === 'future') {
@@ -402,6 +426,22 @@ export function ackSound(o: Out, ack: Ack, look: Look | undefined, style: EraSty
     noise(o, { dur: 0.4, attack: 0.03, vol: 0.08, rate: 0.4, filter: { type: 'lowpass', f: 320 } });
     return;
   }
+  if (look && SHIPS.has(look)) {
+    if (style === 'modern' || style === 'future') {
+      // Ship's horn: one blast to sail, two to fight.
+      for (let i = 0; i < (ack === 'attack' ? 2 : 1); i++) {
+        tone(o, { at: i * 0.3, type: 'sawtooth', f: 98 * k, dur: 0.24, attack: 0.03, vol: 0.12, filter: { type: 'lowpass', f: 650 } });
+        tone(o, { at: i * 0.3, type: 'sawtooth', f: 123 * k, dur: 0.24, attack: 0.03, vol: 0.08, filter: { type: 'lowpass', f: 650 } });
+      }
+    } else {
+      // Ship's bell: once to sail, twice to fight.
+      for (let i = 0; i < (ack === 'attack' ? 2 : 1); i++) {
+        tone(o, { at: i * 0.2, type: 'sine', f: 880 * k, dur: 0.6, attack: 0.002, vol: 0.1 });
+        tone(o, { at: i * 0.2, type: 'sine', f: 2430 * k, dur: 0.25, attack: 0.002, vol: 0.03 });
+      }
+    }
+    return;
+  }
   if (look && WOOD_SIEGE.has(look)) {
     tone(o, { type: 'sawtooth', f: 95 * k, f2: 75, dur: 0.28, attack: 0.03, vol: 0.08, filter: { type: 'bandpass', f: 650, q: 7 } });
     tone(o, { at: 0.24, f: 170, f2: 100, dur: 0.07, vol: 0.18 });
@@ -470,7 +510,7 @@ export function soundSamples(): Sample[] {
   for (const p of ['shell', 'boulder', 'laser'] as Projectile[]) out.push({ name: `blast:${p}`, dur: 1.6, play: (o) => blastSound(o, p, 1.5, 0.5) });
   for (const look of ['sword', 'citizen', 'tank', 'catapult', 'drone'] as Look[]) out.push({ name: `death:${look}`, dur: 1, play: (o) => deathSound(o, look, 0.5) });
   out.push({ name: 'collapse', dur: 2.2, play: (o) => collapseSound(o, 3, 0.5) });
-  for (const work of ['wood', 'stone', 'gold', 'iron', 'food', 'build'] as Array<Res | 'build'>) {
+  for (const work of ['wood', 'stone', 'gold', 'iron', 'food', 'fish', 'build'] as Array<Res | 'build' | 'fish'>) {
     out.push({ name: `work:${work}`, dur: 0.3, play: (o) => workSound(o, work, 'medieval', 0.5) });
   }
   out.push({ name: 'work:build:future', dur: 0.3, play: (o) => workSound(o, 'build', 'future', 0.5) });

@@ -16,7 +16,8 @@ export type BuildingType =
   | 'smithy'
   | 'academy'
   | 'temple'
-  | 'wonder';
+  | 'wonder'
+  | 'dock';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -38,6 +39,10 @@ export interface BuildingDef {
   line?: boolean;
   /** Lets units of the owner's team through, blocks everyone else. */
   gate?: boolean;
+  /** Stands in the water at the shore instead of on dry land. */
+  shore?: boolean;
+  /** Fishing boats unload their catch here. */
+  fishDrop?: boolean;
   hotkey: string;
   description: string;
 }
@@ -330,6 +335,31 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     hotkey: 'D',
     description: 'Ein Wunder der aktuellen Ära mit eigener Wirkung; jedes Ära-Wunder einmal. Bei Wundersieg gewinnt, wer es lange genug hält.',
   },
+  dock: {
+    type: 'dock',
+    names: [
+      [0, 'Anlegestelle'],
+      [3, 'Hafen'],
+      [6, 'Werft'],
+      [9, 'Marinewerft'],
+      [12, 'Seehafen'],
+      [15, 'Schwebedock'],
+    ],
+    size: 3,
+    hp: 1100,
+    cost: { wood: 150 },
+    buildTime: 40,
+    minEpoch: 0,
+    trains: ['fisher', 'transport', 'warship', 'bombard'],
+    dropoff: false,
+    fishDrop: true,
+    shore: true,
+    walkable: false,
+    sight: 7,
+    // Q as in Quai.
+    hotkey: 'Q',
+    description: 'Steht am Ufer im Wasser. Baut Fischerboote sowie Transport-, Kriegs- und Belagerungsschiffe und nimmt den Fang der Fischer an.',
+  },
 };
 
 export const BUILDABLE: BuildingType[] = [
@@ -345,6 +375,7 @@ export const BUILDABLE: BuildingType[] = [
   'smithy',
   'academy',
   'temple',
+  'dock',
   'wonder',
   'towncenter',
 ];
