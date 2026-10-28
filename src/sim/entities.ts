@@ -45,6 +45,8 @@ export type Order =
   | { kind: 'heal'; targetId: number }
   /** Prophet: walk within range of a spot, then call down a calamity. */
   | { kind: 'cast'; ability: AbilityId; x: number; y: number };
+  /** Take shelter in a town center or tower; `resume` is the work to go back to afterwards. */
+  | { kind: 'garrison'; targetId: number; resume: Order | null };
 
 /** A queued command (Shift), turned into an order once the unit gets to it. */
 export type Plan =
@@ -82,6 +84,10 @@ export interface Unit extends BaseEntity {
   /** Orders to carry out after the current one, oldest first. */
   queue: Plan[];
   formation: Formation;
+  /** Marches in step with its group (slows down so everybody arrives together). */
+  lockstep: boolean;
+  /** Building the unit shelters in (0: outside). Sheltered units leave `World.units`. */
+  inside: number;
   path: Point[];
   repathTick: number;
   scanTick: number;
@@ -156,6 +162,8 @@ export interface Hazard {
   owner: number;
   start: number;
   until: number;
+  /** Citizens sheltering inside (town center, tower); each one adds an arrow. */
+  garrison: Unit[];
 }
 
 export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron';

@@ -34,6 +34,8 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 - **5 Rohstoffe**: Nahrung, Holz, Stein, Gold, Eisen. Bürger sammeln, bauen und reparieren; Felder liefern unbegrenzt Nahrung. Rechtsklick auf Dorfzentrum oder Lager lagert die Ladung sofort ein.
 - **Kampfdreieck**, das über alle Epochen gleich bleibt: Sturminfanterie › Abwehrinfanterie › Kavallerie & Fahrzeuge › Fernkampf › Sturminfanterie. Belagerung und Artillerie zerstören Gebäude.
 - **14 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
+- **12 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
+- **Zuflucht**: Auf Knopfdruck im Dorfzentrum (`Z`) suchen sich alle Bürger einen Platz im nächsten Dorfzentrum oder Turm, bis zu 5 je Gebäude. Jeder Bürger darin schießt einen zusätzlichen Pfeil. Erneut drücken gibt Entwarnung, alle gehen an ihre Arbeit zurück.
 - **Mauern und Tore**, als Linie gezogen: Palisade, Lehmziegel, Zinnenmauer, Bastion, Beton, Energiebarriere. Tore lassen nur das eigene Team durch.
 - **Späher** mit großer Sichtweite und **Erkundenmodus** für jede Einheit.
 - **Moral**: Häuser stärken Einheiten in ihrer Nähe – sichtbar als Punkte am Lebensbalken und als Kreis um das Haus.
@@ -44,6 +46,8 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 - **Ton und Musik**, komplett im Browser erzeugt, ohne Audiodateien: Waffen klingen nach ihrer Epoche (Schleuder, Bogen, Muskete, Gewehr, Kanone, Laser), Bürger hacken, schürfen und hämmern, Einheiten antworten auf Befehle. Ein Alarm passend zur Ära (Kriegshorn, Glocke, Signalhorn, Sirene) und eine Fanfare beim Aufstieg. Die Musik wird für jede Ära neu komponiert, von der Knochenflöte bis zum Synthesizer, und wird im Kampf treibender. Man hört nur, was man sieht.
 - **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee. Sie setzt Helden und ihre Fähigkeiten ein, bekehrt, ruft Katastrophen auf deine Truppen, baut Wunder und greift fremde Wunder gezielt an.
 - **Formationen** Linie, Block und Keil: Infanterie vorn, Fernkampf und Belagerung hinten. Gruppen marschieren im Gleichschritt und kommen gleichzeitig an. Rechts-Ziehen legt die Blickrichtung mit einem Pfeil fest.
+- **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee.
+- **Formationen** Linie, Block und Keil: Infanterie vorn, Fernkampf und Belagerung hinten. Gruppen marschieren im Gleichschritt und kommen gleichzeitig an (mit `L` abschaltbar). Nach einem Sieg im Gefecht greifen Soldaten zuerst die nächste feindliche Einheit an, erst dann Gebäude. Rechts-Ziehen legt die Blickrichtung mit einem Pfeil fest.
 - **Befehlsketten** mit Umschalt: Wegpunkte, Angriffe, Sammeln und mehrere Bauaufträge nacheinander. Die Wegpunkte sind als Linien sichtbar. Dazu **Patrouille** und **Sammelpunkt-Ketten**.
 - **Gebäude-Hotkeys und Produktionsleiste**: `Tab` plus Bau-Taste springt zu Kaserne, Stall & Co. (untätige zuerst). Eine Leiste zeigt jedes Produktionsgebäude mit laufendem Auftrag, Warteschlange und untätigem Zustand. Mehrere Gebäude eines Typs bilden gemeinsam aus, Forschung und Aufstieg lassen sich einreihen.
 - **Fog of War**, Minimap, Sammelpunkte, Kontrollgruppen mit Gruppenleiste, Angriffsbewegung, Anzeige untätiger Bürger.
@@ -67,6 +71,8 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 | `A`, dann Klick                 | Angriffsbewegung                                    |
 | `R`, dann Klick                 | Patrouille (Umschalt + Klick: weitere Punkte)       |
 | `N` / `O` / `V`                 | Formation Linie / Block / Keil                      |
+| `L`                             | Gleichschritt an/aus (Armee ausgewählt)             |
+| `Z` (Dorfzentrum/Turm gewählt)  | Zuflucht für alle Bürger, nochmal: Entwarnung       |
 | `E`                             | Erkunden (mit Einheiten ausgewählt)                 |
 | `M` `W` `L` / `K` `D` `U`       | Stratege: Sammelruf, Schildwall, Feldlazarett / Krieger: Kampfschrei, Wirbelschlag, Blutrausch |
 | `S` `B` `F` `T`, dann Klick     | Prophet: Seuche, Erdbeben, Feuersturm, Sturm (Kreis zeigt Fläche und Reichweite) |

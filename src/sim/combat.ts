@@ -147,7 +147,7 @@ export function applyDamage(
   attackerOwner: number,
   attackerId: number,
 ): void {
-  if (target.kind === 'resource' || target.dead) return;
+  if (target.kind === 'resource' || target.dead || (target.kind === 'unit' && target.inside)) return;
   const cls = target.kind === 'building' ? 'building' : target.role;
   const armor = target.kind === 'unit' ? target.stats.armor : 1 + target.epoch * 0.6;
   const moraleDef = target.kind === 'unit' ? target.morale * MORALE_PER_HOUSE : 0;

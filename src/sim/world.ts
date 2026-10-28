@@ -18,6 +18,7 @@ import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
 import { isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { updateProjectiles } from './combat';
 import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Plan, type Player, type ResourceNode, type Unit } from './entities';
+import { rectOf, type Building, type Entity, type NodeType, type Order, type Plan, type Player, type ResourceNode, type Unit } from './entities';
 import { hypot } from './fmath';
 import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
 import { GameMap } from './map';
@@ -152,6 +153,10 @@ export type Command =
   /** Walk between where the units are (or will be) and this point, fighting what comes along. */
   | { type: 'patrol'; player: number; ids: number[]; x: number; y: number; queue?: boolean }
   | { type: 'formation'; player: number; ids: number[]; formation: Formation }
+  /** Marching in step (the group arrives together) on or off. */
+  | { type: 'lockstep'; player: number; ids: number[]; on: boolean }
+  /** Citizens take shelter in town centers and towers (on), or come out and go back to work (off). */
+  | { type: 'shelter'; player: number; on: boolean }
   | { type: 'train'; player: number; buildingId: number; role: Role; count?: number }
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
@@ -310,9 +315,10 @@ export class World {
 
   // ---------------------------------------------------------------- entities
 
+  /** A living entity on the map; sheltered units count as away. */
   get(id: number): Entity | undefined {
     const e = this.entities.get(id);
-    return e && !e.dead ? e : undefined;
+    return e && !e.dead && !(e.kind === 'unit' && e.inside) ? e : undefined;
   }
 
   spawnUnit(owner: number, role: Role, x: number, y: number, tier = bestTier(role, this.players[owner].epoch)): Unit {
@@ -336,6 +342,8 @@ export class World {
       order: { kind: 'idle' },
       queue: [],
       formation: DEFAULT_FORMATION,
+      lockstep: true,
+      inside: 0,
       path: [],
       repathTick: -1000,
       scanTick: 0,
@@ -390,6 +398,7 @@ export class World {
       seenBy: 1 << owner,
       popBlocked: false,
       countdown: 0,
+      garrison: [],
     };
     this.entities.set(b.id, b);
     this.buildings.push(b);
@@ -605,6 +614,7 @@ export class World {
   popCount(owner: number): number {
     let n = 0;
     for (const u of this.units) if (u.owner === owner && !u.dead) n++;
+    for (const b of this.buildings) if (b.owner === owner && !b.dead) n += b.garrison.length;
     return n;
   }
 
@@ -857,6 +867,13 @@ export class World {
       case 'formation':
         this.commandFormation(cmd.player, cmd.ids, cmd.formation);
         break;
+      case 'lockstep':
+        for (const u of this.ownUnits(cmd.player, cmd.ids)) u.lockstep = cmd.on;
+        break;
+      case 'shelter':
+        if (cmd.on) this.commandShelter(cmd.player);
+        else this.releaseShelter(cmd.player);
+        break;
       case 'gather': {
         const target = this.get(cmd.targetId);
         if (!target) return;
@@ -987,6 +1004,8 @@ export class World {
       // The stand-in plays without the bonus computer opponents get.
       const bonus = p.gatherBonus;
       this.controllers.push(this.makeAI!(player));
+      // The computer does not know about the alarm: everybody back to work.
+      this.releaseShelter(player);
       p.gatherBonus = bonus;
     } else {
       this.controllers = this.controllers.filter((c) => c.playerId !== player);
@@ -1000,7 +1019,7 @@ export class World {
     const out: Unit[] = [];
     for (const id of ids) {
       const e = this.get(id);
-      if (e && e.kind === 'unit' && e.owner === player) out.push(e);
+      if (e && e.kind === 'unit' && e.owner === player && !e.inside) out.push(e);
     }
     return out;
   }
@@ -1054,8 +1073,15 @@ export class World {
     if (units.length === 0) return;
     const starts = units.map((u) => (queue ? this.plannedEnd(u) : { x: u.x, y: u.y }));
     const targets = this.formationTargets(player, units, starts, x, y, facing);
-    // Everybody arrives together: the fast ones slow down to the group's pace.
-    const pace = units.length > 1 ? arrivalPace(units.map((u, i) => ({ id: u.id, x: starts[i].x, y: starts[i].y, speed: u.stats.speed })), targets) : null;
+    // Everybody marching in step arrives together: the fast ones slow down to the group's pace.
+    const inStep = units.flatMap((u, i) => (u.lockstep ? [i] : []));
+    const pace =
+      inStep.length > 1
+        ? arrivalPace(
+            inStep.map((i) => ({ id: units[i].id, x: starts[i].x, y: starts[i].y, speed: units[i].stats.speed })),
+            inStep.map((i) => targets[i]),
+          )
+        : null;
     units.forEach((u, i) => {
       this.assign(u, { kind: 'move', x: targets[i].x, y: targets[i].y, attackMove, pace: pace?.get(u.id) }, queue);
     });
@@ -1098,6 +1124,82 @@ export class World {
       const attackMove = walking.some((u) => u.order.kind === 'move' && u.order.attackMove);
       this.commandMove(player, walking.map((u) => u.id), gx, gy, attackMove);
     }
+  }
+
+  /**
+   * Alarm: every citizen heads for the nearest town center or tower that
+   * still has room. Places are handed out shortest way first, so nobody
+   * runs past a free shelter to a far one.
+   */
+  private commandShelter(player: number): void {
+    const shelters = this.buildings.filter((b) => !b.dead && b.built && b.owner === player && BUILDING_DEFS[b.type].garrison);
+    const room = new Map(shelters.map((b) => [b.id, BUILDING_DEFS[b.type].garrison! - b.garrison.length]));
+    const citizens = this.units.filter((u) => !u.dead && u.owner === player && u.role === 'citizen' && u.order.kind !== 'garrison');
+    const pairs: Array<{ u: Unit; b: Building; d: number }> = [];
+    for (const u of citizens) for (const b of shelters) pairs.push({ u, b, d: distToRect(u.x, u.y, rectOf(b)) });
+    pairs.sort((a, c) => a.d - c.d || a.u.id - c.u.id || a.b.id - c.b.id);
+    const placed = new Set<Unit>();
+    for (const { u, b } of pairs) {
+      if (placed.has(u) || room.get(b.id)! <= 0) continue;
+      placed.add(u);
+      room.set(b.id, room.get(b.id)! - 1);
+      const resume = u.order.kind === 'idle' ? null : u.order;
+      u.order = { kind: 'garrison', targetId: b.id, resume };
+      u.queue = [];
+      u.path = [];
+      u.repathTick = -1000;
+    }
+    const left = citizens.length - placed.size;
+    if (shelters.length === 0) this.emit({ type: 'warn', player, text: 'Kein Dorfzentrum oder Turm als Zuflucht.' });
+    else if (left > 0) this.emit({ type: 'warn', player, text: `${left} ${left === 1 ? 'Bürger findet' : 'Bürger finden'} keinen Platz in Dorfzentrum oder Türmen.` });
+  }
+
+  /** All clear: sheltered citizens come out, the ones on their way turn round. */
+  private releaseShelter(player: number): void {
+    for (const b of this.buildings) if (!b.dead && b.owner === player) this.ejectGarrison(b);
+    for (const u of this.units) {
+      if (u.dead || u.owner !== player || u.order.kind !== 'garrison') continue;
+      this.resumeAfterShelter(u, u.order.resume);
+    }
+  }
+
+  /** A citizen goes inside: its load is booked if the shelter takes it, then it leaves the map. */
+  enterShelter(u: Unit, b: Building): void {
+    if (BUILDING_DEFS[b.type].dropoff && u.carry && u.carryAmount > 0) {
+      const p = this.players[u.owner];
+      p.stock[u.carry] += u.carryAmount;
+      p.stats.gathered[u.carry] += u.carryAmount;
+      u.carryAmount = 0;
+    }
+    u.inside = b.id;
+    u.path = [];
+    u.moving = false;
+    b.garrison.push(u);
+  }
+
+  /** Everybody inside steps out next to the building and goes back to work. */
+  ejectGarrison(b: Building): void {
+    const out = b.garrison;
+    b.garrison = [];
+    out.forEach((u, i) => {
+      const spot = this.findSpawnPoint(b, { x: b.x + b.size, y: b.y + b.size }, i) ?? { x: b.x, y: b.y + b.size / 2 + 0.5 };
+      u.inside = 0;
+      u.x = u.px = spot.x;
+      u.y = u.py = spot.y;
+      // Went in this very tick: still listed until the end of the tick.
+      if (!this.units.includes(u)) this.units.push(u);
+      this.resumeAfterShelter(u, u.order.kind === 'garrison' ? u.order.resume : null);
+    });
+  }
+
+  private resumeAfterShelter(u: Unit, resume: Order | null): void {
+    u.path = [];
+    u.repathTick = -1000;
+    if (!resume) {
+      u.order = { kind: 'idle' };
+      return;
+    }
+    u.order = resume.kind === 'gather' ? { ...resume, phase: u.carryAmount > 0 ? 'toDrop' : 'toNode', dropId: 0, snug: false } : resume;
   }
 
   private commandPlace(player: number, ids: number[], type: BuildingType, tx: number, ty: number, queue: boolean): void {
@@ -1383,7 +1485,7 @@ export class World {
       u.py = u.y;
     }
     for (const b of this.buildings) if (!b.dead) updateBuilding(this, b);
-    for (const u of this.units) if (!u.dead) updateUnit(this, u);
+    for (const u of this.units) if (!u.dead && !u.inside) updateUnit(this, u);
     separateUnits(this);
     updateProjectiles(this);
     updateHazards(this);
@@ -1410,11 +1512,12 @@ export class World {
   compact(): void {
     let changed = false;
     for (const list of [this.units, this.buildings, this.resources] as Entity[][]) {
-      for (const e of list) if (e.dead) changed = true;
+      for (const e of list) if (e.dead || (e.kind === 'unit' && e.inside)) changed = true;
     }
     if (!changed) return;
     for (const [id, e] of this.entities) if (e.dead) this.entities.delete(id);
-    this.units = this.units.filter((u) => !u.dead);
+    // Sheltered units stay in `entities` but leave the map.
+    this.units = this.units.filter((u) => !u.dead && !u.inside);
     this.buildings = this.buildings.filter((b) => !b.dead);
     this.resources = this.resources.filter((r) => !r.dead);
   }
@@ -1430,6 +1533,8 @@ export class World {
       if (isHero(e.role)) this.emit({ type: 'warn', player: e.owner, text: `${e.stats.name} ist gefallen.`, x: e.x, y: e.y });
     } else {
       owner.stats.buildingsLost++;
+      // The people inside escape the ruins.
+      if (e.garrison.length) this.ejectGarrison(e);
       this.cue({ kind: 'collapse', x: e.x, y: e.y, owner: e.owner, epoch: e.epoch, size: e.size });
       // Research that depended on what ran here can no longer come.
       if (e.tech || e.techQueue.length) this.pruneTechQueues(e.owner);
@@ -1506,6 +1611,7 @@ export class World {
       h.add(hz.until);
       h.add(hz.x);
       h.add(hz.y);
+      h.add(b.garrison.length);
     }
     h.add(this.victory === 'wonder' ? 2 : this.victory === 'conquest' ? 1 : 0);
     for (const n of this.resources) {

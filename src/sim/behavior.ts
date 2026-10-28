@@ -106,7 +106,11 @@ function goIdle(u: Unit): void {
   u.path = [];
 }
 
-/** Best enemy within a radius: combat units first, then citizens, then buildings. */
+/**
+ * Best enemy within a radius: combat units first, then citizens. Buildings
+ * only once no enemy unit is in reach, so a fight is finished before the
+ * troops turn to the houses. Siege weapons prefer buildings.
+ */
 export function findTarget(w: World, owner: number, x: number, y: number, radius: number, siege = false): Entity | null {
   let best: Entity | null = null;
   let bestScore = Infinity;
@@ -120,6 +124,7 @@ export function findTarget(w: World, owner: number, x: number, y: number, radius
       best = o;
     }
   });
+  if (best && !siege) return best;
   for (const b of w.buildings) {
     if (b.dead || !w.areEnemies(owner, b.owner)) continue;
     const d = distToRect(x, y, rectOf(b));
@@ -178,6 +183,9 @@ export function updateUnit(w: World, u: Unit): void {
       break;
     case 'cast':
       updateCast(w, u);
+    case 'garrison':
+      updateGarrison(w, u);
+      if (u.inside) return;
       break;
   }
   followPath(w, u);
@@ -725,6 +733,45 @@ function finishDeposit(u: Unit, resume: GatherOrder | null): void {
   u.repathTick = -1000;
 }
 
+/** On the way to a shelter; full or gone: the next one with room, else back to work. */
+function updateGarrison(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'garrison') return;
+  let b = w.get(o.targetId);
+  const fits = (x: Entity | undefined): x is Building =>
+    !!x && x.kind === 'building' && x.owner === u.owner && x.built && x.garrison.length < (BUILDING_DEFS[x.type].garrison ?? 0);
+  if (!fits(b)) {
+    let next: Building | null = null;
+    let bestD = Infinity;
+    for (const other of w.buildings) {
+      if (other.dead || !fits(other)) continue;
+      const d = distToRect(u.x, u.y, rectOf(other));
+      if (d < bestD) {
+        bestD = d;
+        next = other;
+      }
+    }
+    if (!next) {
+      u.order = o.resume ?? { kind: 'idle' };
+      u.path = [];
+      u.repathTick = -1000;
+      return;
+    }
+    o.targetId = next.id;
+    u.path = [];
+    b = next;
+  }
+  const shelter = b as Building;
+  if (distTo(u, shelter) <= WORK_REACH) {
+    w.enterShelter(u, shelter);
+    return;
+  }
+  if (u.path.length === 0) {
+    if (w.tick - u.repathTick < TICK_RATE / 2) return;
+    approach(w, u, rectOf(shelter), APPROACH_REACH);
+  }
+}
+
 function updateBuild(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'build') return;
@@ -823,7 +870,17 @@ export function updateBuilding(w: World, b: Building): void {
     }
     b.targetId = target ? target.id : 0;
     if (target && b.cooldown <= 0) {
-      fire(w, b, target);
+      // One arrow of its own, one more for every citizen sheltering inside.
+      for (let i = 0; i <= b.garrison.length; i++) {
+        fire(w, b, target);
+        const shot = w.projectiles[w.projectiles.length - 1];
+        if (i > 0 && shot) {
+          // Shot from different loopholes, a moment apart.
+          shot.x0 += ((i % 3) - 1) * 0.5;
+          shot.y0 += (((i + 1) % 3) - 1) * 0.5;
+          shot.dur += i * 0.04;
+        }
+      }
       b.cooldown = atk.cooldown;
     }
   }
@@ -921,7 +978,7 @@ function sendToRally(w: World, u: Unit, points: Point[]): void {
 export function separateUnits(w: World): void {
   const minDist = UNIT_RADIUS * 2;
   for (const u of w.units) {
-    if (u.dead) continue;
+    if (u.dead || u.inside) continue;
     const working = (u.order.kind === 'gather' && u.order.phase === 'work') || u.order.kind === 'build';
     if (working) continue;
     let pushX = 0;

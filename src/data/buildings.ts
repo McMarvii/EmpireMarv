@@ -32,6 +32,8 @@ export interface BuildingDef {
   walkable: boolean;
   sight: number;
   attack?: { dmg: number; range: number; cooldown: number };
+  /** Citizens that can shelter inside; each one fires an extra arrow. */
+  garrison?: number;
   /** Placed by dragging a line of 1×1 segments (walls and gates). */
   line?: boolean;
   /** Lets units of the owner's team through, blocks everyone else. */
@@ -59,6 +61,7 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     walkable: false,
     sight: 10,
     attack: { dmg: 6, range: 6, cooldown: 2 },
+    garrison: 5,
     hotkey: 'Z',
     description: 'Bildet Bürger, Späher und Helden aus, nimmt alle Rohstoffe an und erforscht den Aufstieg in die nächste Epoche.',
   },
@@ -194,6 +197,7 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     walkable: false,
     sight: 9,
     attack: { dmg: 8, range: 7, cooldown: 1.8 },
+    garrison: 5,
     hotkey: 'T',
     description: 'Verteidigungsturm. Wird mit jeder Epoche stärker.',
   },

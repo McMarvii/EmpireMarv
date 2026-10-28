@@ -724,6 +724,25 @@ export class Game {
     if (ids.length) this.issue({ type: 'stop', player: this.me, ids });
   }
 
+  /** Marching in step on or off for the selected units. */
+  setLockstep(on: boolean): void {
+    const units = this.selectedOwnUnits();
+    if (!units.length) return;
+    this.issue({ type: 'lockstep', player: this.me, ids: units.map((u) => u.id), on });
+    this.hud.message('info', on ? 'Gleichschritt an: Die Gruppe kommt gemeinsam an.' : 'Gleichschritt aus: Jede Einheit läuft so schnell sie kann.');
+  }
+
+  /** Alarm (on) or all clear (off) for every citizen of the player. */
+  shelter(on: boolean): void {
+    this.issue({ type: 'shelter', player: this.me, on });
+  }
+
+  /** Whether citizens are sheltering or on their way to a shelter. */
+  sheltering(): boolean {
+    const { world, me } = this;
+    return world.buildings.some((b) => b.owner === me && b.garrison.length > 0) || world.units.some((u) => u.owner === me && !u.dead && u.order.kind === 'garrison');
+  }
+
   explore(): void {
     const ids = this.selectedOwnUnits().map((u) => u.id);
     if (ids.length) this.issue({ type: 'explore', player: this.me, ids });
