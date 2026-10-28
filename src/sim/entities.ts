@@ -37,7 +37,9 @@ export type Order =
   | { kind: 'deposit'; targetId: number; resume: GatherOrder | null }
   /** Head for the nearest unexplored ground until the whole map is known. */
   | { kind: 'explore'; tx: number; ty: number; skip: number[] }
-  | PatrolOrder;
+  | PatrolOrder
+  /** Take shelter in a town center or tower; `resume` is the work to go back to afterwards. */
+  | { kind: 'garrison'; targetId: number; resume: Order | null };
 
 /** A queued command (Shift), turned into an order once the unit gets to it. */
 export type Plan =
@@ -73,6 +75,10 @@ export interface Unit extends BaseEntity {
   /** Orders to carry out after the current one, oldest first. */
   queue: Plan[];
   formation: Formation;
+  /** Marches in step with its group (slows down so everybody arrives together). */
+  lockstep: boolean;
+  /** Building the unit shelters in (0: outside). Sheltered units leave `World.units`. */
+  inside: number;
   path: Point[];
   repathTick: number;
   scanTick: number;
@@ -118,6 +124,8 @@ export interface Building extends BaseEntity {
   /** Bitmask of players who have seen this building (for fog of war). */
   seenBy: number;
   popBlocked: boolean;
+  /** Citizens sheltering inside (town center, tower); each one adds an arrow. */
+  garrison: Unit[];
 }
 
 export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron';
