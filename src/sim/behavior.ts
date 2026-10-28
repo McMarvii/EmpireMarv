@@ -247,7 +247,7 @@ export function startPlan(w: World, u: Unit, plan: Plan): void {
       break;
     case 'unload':
       u.order = u.role === 'transport' ? { kind: 'unload', x: plan.x, y: plan.y } : { kind: 'idle' };
-      if (u.role === 'transport') setPathTo(w, u, { kind: 'point', x: plan.x, y: plan.y });
+      if (u.role === 'transport') sailToShore(w, u, plan);
       break;
   }
 }
@@ -840,11 +840,17 @@ function updateUnload(w: World, u: Unit): void {
     return goIdle(u);
   }
   if (w.tick - u.repathTick >= TICK_RATE * 2) {
-    setPathTo(w, u, { kind: 'point', x: o.x, y: o.y });
+    sailToShore(w, u, o);
     if (u.path.length > 0) return;
   }
   w.emit({ type: 'warn', player: u.owner, text: 'Hier gibt es kein Ufer zum Entladen.', x: u.x, y: u.y });
   goIdle(u);
+}
+
+/** Heads for the water of the ship's own sea closest to a point ashore. */
+function sailToShore(w: World, u: Unit, to: Point): void {
+  const spot = w.shoreSpot(to.x, to.y, u) ?? to;
+  setPathTo(w, u, { kind: 'point', x: spot.x, y: spot.y });
 }
 
 function updateBuild(w: World, u: Unit): void {

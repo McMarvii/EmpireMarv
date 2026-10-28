@@ -3,8 +3,9 @@ import { buildingCost, BUILDING_DEFS, FARM_CAPACITY, type BuildingType } from '.
 import { EPOCHS } from '../data/epochs';
 import { canAfford, RESOURCES, type Cost, type Res } from '../data/resources';
 import { RESEARCH_BUILDINGS, TECHS, type Tech } from '../data/techs';
-import { bestTier, COMBAT_ROLES, HERO_ROLES, isHero, MAX_FAITH, unitStats, type CombatRole, type Role } from '../data/units';
-import type { Building, ResourceNode, Unit } from './entities';
+import { bestTier, COMBAT_ROLES, HERO_ROLES, isHero, isNaval, MAX_FAITH, unitStats, type CombatRole, type Role } from '../data/units';
+import { NavalPlanner, type NavalHost } from './ainaval';
+import type { Building, Player, ResourceNode, Unit } from './entities';
 import { cos, hypot, sin } from './fmath';
 import type { Point } from './pathfinding';
 import { abilityReady } from './powers';
@@ -20,6 +21,21 @@ interface WallTile {
 }
 
 const RING_RADIUS = 12;
+
+/** What the computer player sees of its own empire on each think. */
+export interface AISnapshot {
+  player: Player;
+  units: Unit[];
+  buildings: Building[];
+  tc: Building | null;
+  base: Point;
+  citizens: Unit[];
+  /** Land forces (heroes and the faithful included), no ships. */
+  army: Unit[];
+  ships: Unit[];
+  scouts: Unit[];
+  count: (t: BuildingType) => number;
+}
 
 interface Profile {
   think: number;
@@ -60,7 +76,7 @@ const COUNTERS: Record<Role, CombatRole[]> = {
  * through `world.issue()` – but knows where enemy buildings are (classic
  * RTS AI behaviour). Decisions run a few times per second.
  */
-export class AIController implements Controller {
+export class AIController implements Controller, NavalHost {
   private nextThink: number;
   private nextWave: number;
   private nextRebalance = 0;
@@ -74,6 +90,8 @@ export class AIController implements Controller {
   private ringCenter: Point = { x: 0, y: 0 };
   /** Last progress seen per construction site, to spot sites nobody can reach. */
   private siteProgress = new Map<number, { progress: number; tick: number }>();
+  /** Harbour, fishing, fleet and landings. */
+  private naval: NavalPlanner = new NavalPlanner(this);
 
   constructor(
     readonly playerId: number,
@@ -99,14 +117,19 @@ export class AIController implements Controller {
     this.military(w, s);
     this.heroes(w, s);
     this.faithful(w, s);
+    this.naval.update(w, s);
     this.scout(w, s);
+  }
+
+  release(ids: number[]): void {
+    for (const id of ids) this.attackers.delete(id);
   }
 
   /**
    * Uncovers the map so new deposits become known: scouts explore on their
    * own, without one a soldier is sent to unexplored spots now and then.
    */
-  private scout(w: World, s: ReturnType<AIController['snapshot']>): void {
+  private scout(w: World, s: AISnapshot): void {
     if (w.tick < this.nextScout) return;
     this.nextScout = w.tick + 30 * 20;
     if (s.scouts.length) {
@@ -139,17 +162,18 @@ export class AIController implements Controller {
     w.issue({ type: 'move', player: this.playerId, ids: [scout.id], x: best.x, y: best.y });
   }
 
-  private snapshot(w: World) {
+  private snapshot(w: World): AISnapshot {
     const id = this.playerId;
     const units = w.unitsOf(id);
     const buildings = w.buildingsOf(id);
     const tc = buildings.find((b) => b.type === 'towncenter' && b.built) ?? null;
     const base: Point = tc ? { x: tc.x, y: tc.y } : w.startPositions[id];
     const citizens = units.filter((u) => u.role === 'citizen');
-    const army = units.filter((u) => u.role !== 'citizen' && u.role !== 'scout');
+    const ships = units.filter((u) => isNaval(u.role));
+    const army = units.filter((u) => u.role !== 'citizen' && u.role !== 'scout' && !isNaval(u.role));
     const scouts = units.filter((u) => u.role === 'scout');
     const count = (t: BuildingType) => buildings.filter((b) => b.type === t).length;
-    return { player: w.players[id], units, buildings, tc, base, citizens, army, scouts, count };
+    return { player: w.players[id], units, buildings, tc, base, citizens, army, ships, scouts, count };
   }
 
   // -------------------------------------------------------------- economy
@@ -160,7 +184,7 @@ export class AIController implements Controller {
     return { food: 0.3, wood: 0.24, stone: 0.12, gold: 0.18, iron: 0.16 };
   }
 
-  private economy(w: World, s: ReturnType<AIController['snapshot']>): void {
+  private economy(w: World, s: AISnapshot): void {
     const { player, tc, citizens } = s;
     const target = Math.min(Math.floor(w.popLimit() * 0.45), 16 + 3 * player.epoch, 48);
     const queued = tc ? tc.queue.length : 0;
@@ -220,7 +244,7 @@ export class AIController implements Controller {
     }
   }
 
-  private sendToGather(w: World, s: ReturnType<AIController['snapshot']>, c: Unit, res: Res): boolean {
+  private sendToGather(w: World, s: AISnapshot, c: Unit, res: Res): boolean {
     const id = this.playerId;
     if (res === 'food') {
       const berries = w.nearestResource('food', s.base.x, s.base.y, 18, id);
@@ -253,7 +277,7 @@ export class AIController implements Controller {
   }
 
   /** Nearest known deposit, measured from the closest drop-off. */
-  private bestNode(w: World, s: ReturnType<AIController['snapshot']>, res: Res): ResourceNode | null {
+  private bestNode(w: World, s: AISnapshot, res: Res): ResourceNode | null {
     const drops = s.buildings.filter((b) => b.built && BUILDING_DEFS[b.type].dropoff);
     let best: ResourceNode | null = null;
     let bestD = 80;
@@ -271,7 +295,7 @@ export class AIController implements Controller {
 
   // ---------------------------------------------------------- construction
 
-  private construction(w: World, s: ReturnType<AIController['snapshot']>): void {
+  private construction(w: World, s: AISnapshot): void {
     const { player, count, citizens, buildings } = s;
     const id = this.playerId;
     const sites = buildings.filter((b) => !b.built);
@@ -359,7 +383,7 @@ export class AIController implements Controller {
    * in the middle of every side. Tiles that cannot take a wall (forest,
    * water, buildings) are skipped – they block on their own or stay a gap.
    */
-  private walls(w: World, s: ReturnType<AIController['snapshot']>): boolean {
+  private walls(w: World, s: AISnapshot): boolean {
     const { player, tc, citizens } = s;
     const id = this.playerId;
     if (!tc || !w.buildingUnlocked(id, 'wall')) return false;
@@ -456,7 +480,7 @@ export class AIController implements Controller {
   }
 
   /** A deposit with several workers but far from any drop-off. */
-  private storehouseSpot(w: World, s: ReturnType<AIController['snapshot']>): Point | null {
+  private storehouseSpot(w: World, s: AISnapshot): Point | null {
     let best: Point | null = null;
     let bestScore = 0;
     for (const c of s.citizens) {
@@ -473,7 +497,7 @@ export class AIController implements Controller {
     return best;
   }
 
-  private pickWorker(s: ReturnType<AIController['snapshot']>, near: Point): Unit | null {
+  pickWorker(s: AISnapshot, near: Point): Unit | null {
     let best: Unit | null = null;
     let bestD = Infinity;
     for (const c of s.citizens) {
@@ -490,7 +514,7 @@ export class AIController implements Controller {
   /** Spiral search for a valid spot in a ring around a point. */
   private placeNear(
     w: World,
-    s: ReturnType<AIController['snapshot']>,
+    s: AISnapshot,
     type: BuildingType,
     center: Point,
     builders: Unit[],
@@ -525,7 +549,7 @@ export class AIController implements Controller {
 
   // ----------------------------------------------------------------- epochs
 
-  private epoch(w: World, s: ReturnType<AIController['snapshot']>): void {
+  private epoch(w: World, s: AISnapshot): void {
     const { player, tc, citizens } = s;
     if (!tc || tc.research || player.epoch >= w.settings.maxEpoch || w.isResearching(this.playerId)) return;
     if (citizens.length < Math.min(10 + player.epoch, 28)) return;
@@ -540,7 +564,7 @@ export class AIController implements Controller {
    * while the next advance still needs them; otherwise economy before
    * military, and military only once there is an army to profit from it.
    */
-  private research(w: World, s: ReturnType<AIController['snapshot']>): void {
+  private research(w: World, s: AISnapshot): void {
     const id = this.playerId;
     const { player } = s;
     const gap = w.missingTechs(id);
@@ -575,7 +599,7 @@ export class AIController implements Controller {
   }
 
   /** While saving for the next epoch or a wonder, only spend what exceeds their price. */
-  private spendable(w: World, s: ReturnType<AIController['snapshot']>, cost: Cost): boolean {
+  spendable(w: World, s: AISnapshot, cost: Cost): boolean {
     const { player } = s;
     if (!canAfford(player.stock, cost)) return false;
     if (s.army.length < 4 + player.epoch) return true;
@@ -592,7 +616,7 @@ export class AIController implements Controller {
    * The wonder worth saving for: an established empire without this era's
    * wonder yet. With wonder victory on, the AI starts a whole era earlier.
    */
-  private wonderGoal(w: World, s: ReturnType<AIController['snapshot']>): Cost | null {
+  private wonderGoal(w: World, s: AISnapshot): Cost | null {
     const { player, citizens, buildings } = s;
     const victory = (w.settings.wonderVictory ?? 0) > 0;
     const from = victory ? (this.profile.think <= 12 ? 3 : 4) : 6;
@@ -603,7 +627,7 @@ export class AIController implements Controller {
 
   // --------------------------------------------------------------- military
 
-  private military(w: World, s: ReturnType<AIController['snapshot']>): void {
+  private military(w: World, s: AISnapshot): void {
     const id = this.playerId;
     const { player, buildings, army } = s;
 
@@ -636,8 +660,9 @@ export class AIController implements Controller {
     }
 
     // Defence: anything hostile near the base pulls the home army.
+    // Ships off the coast are the fleet's business; the army cannot reach them.
     const threat = w.units.find(
-      (e) => w.areEnemies(id, e.owner) && w.inSight(id, e) && hypot(e.x - s.base.x, e.y - s.base.y) < 18,
+      (e) => w.areEnemies(id, e.owner) && !isNaval(e.role) && w.inSight(id, e) && hypot(e.x - s.base.x, e.y - s.base.y) < 18 && w.map.sameLand(e.x, e.y, s.base.x, s.base.y),
     );
     for (const id2 of [...this.attackers]) if (!w.get(id2)) this.attackers.delete(id2);
     const home = army.filter((u) => !this.attackers.has(u.id));
@@ -654,21 +679,28 @@ export class AIController implements Controller {
       const target = this.attackTarget(w, s.base);
       if (target) {
         const ids = home.map((u) => u.id);
-        ids.forEach((i) => this.attackers.add(i));
-        w.issue({ type: 'move', player: id, ids, x: target.x, y: target.y, attackMove: true });
-        this.nextWave = w.tick + this.profile.waveInterval * 20;
+        if (this.byLand(w, s.base, target)) {
+          ids.forEach((i) => this.attackers.add(i));
+          w.issue({ type: 'move', player: id, ids, x: target.x, y: target.y, attackMove: true });
+          this.nextWave = w.tick + this.profile.waveInterval * 20;
+        } else if (this.naval.canLaunch(s)) {
+          // Overseas: the fleet ships the wave over.
+          ids.forEach((i) => this.attackers.add(i));
+          this.naval.launch(w, s, home, target);
+          this.nextWave = w.tick + this.profile.waveInterval * 20;
+        }
       }
     }
-    // Attackers that finished their march push on to the next building.
+    // Attackers that finished their march push on to the next building on the same land.
     const loose = army.filter((u) => this.attackers.has(u.id) && u.order.kind === 'idle');
     if (loose.length) {
-      const target = this.attackTarget(w, { x: loose[0].x, y: loose[0].y });
+      const target = this.attackTarget(w, { x: loose[0].x, y: loose[0].y }, true);
       if (target) w.issue({ type: 'move', player: id, ids: loose.map((u) => u.id), x: target.x, y: target.y, attackMove: true });
     }
   }
 
   /** Heroes: one of each from the town centre once there is an army, abilities when they pay off. */
-  private heroes(w: World, s: ReturnType<AIController['snapshot']>): void {
+  private heroes(w: World, s: AISnapshot): void {
     const id = this.playerId;
     const { tc, player } = s;
     if (tc && !tc.research && !tc.pendingAdvance && player.epoch >= 1 && s.army.length >= 6 && tc.queue.length < 2) {
@@ -711,7 +743,7 @@ export class AIController implements Controller {
   }
 
   /** Priests convert what is worth it and heal the rest of the time; prophets curse crowds and towns. */
-  private faithful(w: World, s: ReturnType<AIController['snapshot']>): void {
+  private faithful(w: World, s: AISnapshot): void {
     const id = this.playerId;
     const { player, buildings } = s;
     const temple = buildings.find((b) => b.type === 'temple' && b.built);
@@ -778,11 +810,23 @@ export class AIController implements Controller {
     }
   }
 
-  private attackTarget(w: World, from: Point): Building | null {
+  /** Whether troops can march from a point to a building (harbours count by their shore). */
+  private byLand(w: World, from: Point, b: Building): boolean {
+    for (let y = b.ty - 1; y <= b.ty + b.size; y++) {
+      for (let x = b.tx - 1; x <= b.tx + b.size; x++) {
+        if (w.map.inBounds(x, y) && w.map.sameLand(x + 0.5, y + 0.5, from.x, from.y)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** `sameLand`: only what can be reached on foot from `from`. */
+  private attackTarget(w: World, from: Point, sameLand = false): Building | null {
     let best: Building | null = null;
     let bestD = Infinity;
     for (const b of w.buildings) {
       if (b.dead || !w.areEnemies(this.playerId, b.owner)) continue;
+      if (sameLand && !this.byLand(w, from, b)) continue;
       // Walls are only attacked when they stand in the way, not marched to.
       // Wonders first (above all one counting down to victory), walls only in the way.
       const wonder = b.type === 'wonder' ? 30 + (b.countdown > 0 ? 60 : 0) : 0;
