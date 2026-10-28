@@ -369,6 +369,21 @@ button.primary {
   color: #c9e4ff;
 }
 
+.cargo-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: #c9e4ff;
+}
+
+.cargo-line img {
+  width: 22px;
+  height: 22px;
+}
+
 .hero-tag {
   margin-left: 4px;
   padding: 0 5px;

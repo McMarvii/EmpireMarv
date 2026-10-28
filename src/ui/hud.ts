@@ -12,7 +12,7 @@ import {
 } from '../data/buildings';
 import { epochLabel, epochNumeral, EPOCHS, epochStyle } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
-import { bestTier, GATHER_LABEL, isFaithful, isHero, MAX_FAITH, ROLE_DEFS, type Role } from '../data/units';
+import { bestTier, GATHER_LABEL, isFaithful, isHero, MAX_FAITH, ROLE_DEFS, TRANSPORT_CAPACITY, type Role } from '../data/units';
 import { WONDERS, wonderOf } from '../data/wonders';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
@@ -419,7 +419,7 @@ export class Hud {
         if (e.kind === 'unit') {
           const states = Object.values(e.status).filter((t) => (t ?? 0) > this.game.world.tick).length;
           const convert = e.order.kind === 'convert' ? Math.floor(e.order.progress * 4) : '';
-          return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}${Math.floor(e.faith / 2)}${states}${e.aura}${convert}`;
+          return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}${Math.floor(e.faith / 2)}${states}${e.aura}${convert}${e.cargo.length}`;
         }
         return `${Math.floor(e.amount)}`;
       })
@@ -477,7 +477,7 @@ export class Hud {
       const s = e.stats;
       const def = ROLE_DEFS[e.role];
       let activity = '';
-      if (e.order.kind === 'gather') activity = GATHER_LABEL[e.order.res];
+      if (e.order.kind === 'gather') activity = e.role === 'fisher' ? 'fischt' : GATHER_LABEL[e.order.res];
       else if (e.order.kind === 'build') activity = 'baut';
       else if (e.order.kind === 'deposit') activity = 'lagert ein';
       else if (e.order.kind === 'explore') activity = 'erkundet';
@@ -490,6 +490,8 @@ export class Hud {
         activity = e.faith < (MAX_FAITH.priest ?? 0) ? 'sammelt Glauben zum Bekehren' : `bekehrt ${share} %`;
       } else if (e.order.kind === 'heal') activity = 'heilt';
       else if (e.order.kind === 'cast') activity = `wirkt ${ABILITY_BY_ID.get(e.order.ability)!.name}`;
+      else if (e.order.kind === 'board') activity = 'geht an Bord';
+      else if (e.order.kind === 'unload') activity = 'fährt zum Entladen';
       else activity = 'untätig';
       if (e.queue.length) activity += `, dann ${e.queue.length} ${e.queue.length === 1 ? 'weiterer Befehl' : 'weitere Befehle'}`;
       const carry = e.carry && e.carryAmount > 0 ? ` · trägt ${Math.floor(e.carryAmount)} ${RES_LABEL[e.carry]}` : '';
@@ -514,6 +516,13 @@ export class Hud {
         ...(e.aura & AURA_INSPIRED ? ['vom Krieger angefeuert'] : []),
       ];
       const statusLine = states.length ? `<div class="status-line">${states.map((t) => esc(t)).join(' · ')}</div>` : '';
+      const cargoLine =
+        e.role === 'transport'
+          ? `<div class="cargo-line">An Bord: ${e.cargo.length} / ${TRANSPORT_CAPACITY}${e.cargo
+              .slice(0, TRANSPORT_CAPACITY)
+              .map((c) => `<img src="${unitIcon(c.role, c.stats.epoch, world.players[c.owner].color, 22)}" title="${esc(c.stats.name)}">`)
+              .join('')}</div>`
+          : '';
       return `<div class="sel-single">
         <img class="portrait" src="${unitIcon(e.role, s.epoch, owner!.color, 64)}">
         <div class="sel-info">
@@ -523,6 +532,7 @@ export class Hud {
           ${faithBar}
           ${moraleLine}
           ${statusLine}
+          ${cargoLine}
           <div class="stats">${isFaithful(e.role) ? '' : `<span>Angriff ${s.dmg}</span>`}<span>Rüstung ${s.armor}</span>${isFaithful(e.role) ? '' : `<span>Reichweite ${s.range.toFixed(1)}</span>`}<span>Tempo ${s.speed.toFixed(1)}</span></div>
           ${
             ROLE_HELP[e.role]
@@ -750,6 +760,18 @@ export class Hud {
         tooltip: '<b>Halt</b> <kbd>X</kbd><p>Alle Befehle abbrechen.</p>',
         action: () => game.stop(),
       });
+      if (units.some((u) => u.role === 'transport' && u.cargo.length > 0)) {
+        cmds.push({
+          key: 'Y',
+          icon: commandIcon('unload'),
+          enabled: true,
+          title: 'Entladen',
+          tooltip:
+            '<b>Entladen</b> <kbd>Y</kbd><p>Das Schiff fährt an die nächste Küste und setzt alle an Land.</p>' +
+            '<p>Gezielt: Rechtsklick an Land, dort geht die Ladung von Bord und läuft hin.</p><p class="dim">Einsteigen: Landeinheiten wählen, Rechtsklick auf das Schiff.</p>',
+          action: () => game.unloadNearest(),
+        });
+      }
     }
 
     // One building, or several finished ones of a type: orders go to the least busy.

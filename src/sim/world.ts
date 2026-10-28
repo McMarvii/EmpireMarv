@@ -126,7 +126,7 @@ export interface SoundCue {
 const MAX_CUES = 256;
 
 export interface Effect {
-  kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit' | 'ring' | 'convert' | 'heal';
+  kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit' | 'ring' | 'convert' | 'heal' | 'sink';
   x: number;
   y: number;
   t: number;
@@ -1668,6 +1668,7 @@ export class World {
     if (e.kind === 'unit') {
       owner.stats.unitsLost++;
       this.cue({ kind: 'death', x: e.x, y: e.y, owner: e.owner, epoch: e.stats.epoch, look: e.stats.look });
+      if (isNaval(e.role)) this.effects.push({ kind: 'sink', x: e.x, y: e.y, t: 0, dur: 2.6, size: e.role === 'fisher' ? 0.6 : 1 });
       if (isHero(e.role)) this.emit({ type: 'warn', player: e.owner, text: `${e.stats.name} ist gefallen.`, x: e.x, y: e.y });
       if (e.cargo.length) {
         // A sunk transport takes its passengers down with it.

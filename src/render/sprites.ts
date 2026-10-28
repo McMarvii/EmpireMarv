@@ -5,9 +5,10 @@ import type { Look } from '../data/units';
 import type { NodeType } from '../sim/entities';
 import type { Project } from './camera';
 import { ERA_PALETTE, shade, SKIN } from './colors';
+import { drawDock, drawShip, SHIP_LOOKS } from './ships';
 
-type Ctx = CanvasRenderingContext2D;
-type Pt = [number, number];
+export type Ctx = CanvasRenderingContext2D;
+export type Pt = [number, number];
 
 export interface UnitLook {
   look: Look;
@@ -19,11 +20,13 @@ export interface UnitLook {
   working: boolean;
   carry: Res | null;
   seed: number;
+  /** Transport ships: passengers on board. */
+  cargo?: number;
 }
 
 // ------------------------------------------------------------------ helpers
 
-function poly(ctx: Ctx, pts: Pt[], fill: string, stroke?: string, lw = 1): void {
+export function poly(ctx: Ctx, pts: Pt[], fill: string, stroke?: string, lw = 1): void {
   ctx.beginPath();
   ctx.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
@@ -37,7 +40,7 @@ function poly(ctx: Ctx, pts: Pt[], fill: string, stroke?: string, lw = 1): void 
   }
 }
 
-function line(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, color: string, w: number): void {
+export function line(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, color: string, w: number): void {
   ctx.beginPath();
   ctx.moveTo(x0, y0);
   ctx.lineTo(x1, y1);
@@ -47,7 +50,7 @@ function line(ctx: Ctx, x0: number, y0: number, x1: number, y1: number, color: s
   ctx.stroke();
 }
 
-function circle(ctx: Ctx, x: number, y: number, r: number, fill: string, stroke?: string, lw = 1): void {
+export function circle(ctx: Ctx, x: number, y: number, r: number, fill: string, stroke?: string, lw = 1): void {
   ctx.beginPath();
   ctx.arc(x, y, Math.max(0.1, r), 0, Math.PI * 2);
   ctx.fillStyle = fill;
@@ -59,7 +62,7 @@ function circle(ctx: Ctx, x: number, y: number, r: number, fill: string, stroke?
   }
 }
 
-function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: string): void {
+export function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: string): void {
   ctx.beginPath();
   ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2);
   ctx.fillStyle = fill;
@@ -70,7 +73,7 @@ function ellipse(ctx: Ctx, x: number, y: number, rx: number, ry: number, fill: s
  * Extruded quad in world space: a box whose ground corners are rotated by
  * `facing` around (cx, cy). Sides are depth-sorted so it reads as solid.
  */
-function box3d(
+export function box3d(
   ctx: Ctx,
   project: Project,
   cx: number,
@@ -120,6 +123,10 @@ function screenDir(facing: number): { dx: number; dy: number } {
 export const VEHICLE_LOOKS = new Set<Look>(['tank', 'mech', 'armoredcar', 'ram', 'catapult', 'trebuchet', 'cannon', 'rocket', 'beam', 'jeep', 'drone']);
 
 export function drawUnit(ctx: Ctx, project: Project, scale: number, wx: number, wy: number, u: UnitLook, time: number): void {
+  if (SHIP_LOOKS.has(u.look)) {
+    drawShip(ctx, project, scale, wx, wy, u, time);
+    return;
+  }
   const [sx, sy] = project(wx, wy);
   if (VEHICLE_LOOKS.has(u.look)) {
     drawVehicle(ctx, project, scale, wx, wy, u, time);
@@ -865,7 +872,7 @@ export const LINK_E = 2;
 export const LINK_S = 4;
 export const LINK_W = 8;
 
-function roofPyramid(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
+export function roofPyramid(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
   const apex = project(cx, cy, z + h);
@@ -879,7 +886,7 @@ function roofPyramid(ctx: Ctx, project: Project, x0: number, y0: number, x1: num
   poly(ctx, [c, d, apex], shade(color, -0.25));
 }
 
-function roofGable(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
+export function roofGable(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
   const my = (y0 + y1) / 2;
   const r0 = project(x0, my, z + h);
   const r1 = project(x1, my, z + h);
@@ -901,14 +908,14 @@ function dome(ctx: Ctx, project: Project, cx: number, cy: number, z: number, r: 
   ctx.fill();
 }
 
-function flag(ctx: Ctx, x: number, y: number, scale: number, color: string, time: number, seed: number): void {
+export function flag(ctx: Ctx, x: number, y: number, scale: number, color: string, time: number, seed: number): void {
   line(ctx, x, y, x, y - 14 * scale, '#3a2a1a', 1.2 * scale);
   const wave = Math.sin(time * 4 + seed) * 1.5 * scale;
   poly(ctx, [[x, y - 14 * scale], [x + 9 * scale, y - 12 * scale + wave], [x, y - 9 * scale]], color);
 }
 
 /** Window rows on the two visible walls. */
-function windows(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z0: number, z1: number, color: string, scale: number): void {
+export function windows(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z0: number, z1: number, color: string, scale: number): void {
   const rows = Math.max(1, Math.floor((z1 - z0) / 10));
   for (let r = 0; r < rows; r++) {
     const z = z0 + ((r + 0.5) * (z1 - z0)) / rows;
@@ -1166,6 +1173,10 @@ export function drawBuilding(ctx: Ctx, project: Project, scale: number, b: Build
   }
   if (b.type === 'wonder') {
     drawWonder(ctx, project, scale, b, time);
+    return;
+  }
+  if (b.type === 'dock') {
+    drawDock(ctx, project, scale, b, time);
     return;
   }
   const geo = GEOMETRY[b.type];

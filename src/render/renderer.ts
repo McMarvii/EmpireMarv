@@ -1,6 +1,6 @@
 import { STATUSES, STRATEGIST_AURA, WARRIOR_AURA } from '../data/abilities';
 import { BUILDING_DEFS, MORALE_RADIUS, type BuildingType } from '../data/buildings';
-import { MAX_FAITH } from '../data/units';
+import { isNaval, MAX_FAITH } from '../data/units';
 import { convertTime, orderTarget } from '../sim/behavior';
 import { rectOf, type Building, type Entity, type Hazard, type Order, type Plan, type ResourceNode, type Unit } from '../sim/entities';
 import { hasStatus } from '../sim/status';
@@ -342,7 +342,8 @@ export class Renderer {
       if (!this.onScreen(sx, sy, 60 * zoom)) continue;
       if (state.selection.has(u.id) || state.hoverId === u.id) {
         ctx.beginPath();
-        ctx.ellipse(sx, sy, 9 * unitScale * (wide(u) ? 1.4 : 1), 4.5 * unitScale, 0, 0, Math.PI * 2);
+        const ring = isNaval(u.role) ? 2.3 : wide(u) ? 1.4 : 1;
+        ctx.ellipse(sx, sy, 9 * unitScale * ring, 4.5 * unitScale * (ring > 2 ? 1.6 : 1), 0, 0, Math.PI * 2);
         ctx.strokeStyle = this.ringColor(u.owner);
         ctx.lineWidth = state.selection.has(u.id) ? 2 : 1;
         ctx.stroke();
@@ -362,6 +363,7 @@ export class Renderer {
         working,
         carry: u.carryAmount > 0 ? u.carry : null,
         seed: u.id,
+        cargo: u.cargo.length,
       };
       const drawIt = () => drawUnit(ctx, project, unitScale, x, y, look, time);
       drawables.push({ depth: x + y, draw: drawIt });
@@ -840,6 +842,43 @@ export class Renderer {
           ctx.arc(sx, sy - r * 0.6, r * 0.8, 0, Math.PI * 2);
           ctx.fillStyle = `rgba(80,80,80,${0.45 * (1 - k)})`;
           ctx.fill();
+          break;
+        }
+        case 'sink': {
+          // A hull going down: spreading rings, bubbles, a few planks left floating.
+          const [gx, gy] = camera.project(fx.x, fx.y);
+          for (let i = 0; i < 3; i++) {
+            const t = Math.min(1, k * 1.4 + i * 0.12);
+            ctx.beginPath();
+            ctx.ellipse(gx, gy, (8 + 30 * t) * zoom * fx.size, (4 + 15 * t) * zoom * fx.size, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(225,242,255,${(0.6 * (1 - t)).toFixed(3)})`;
+            ctx.lineWidth = 1.5 * zoom;
+            ctx.stroke();
+          }
+          if (k < 0.45) {
+            // The last of the hull, tipping under.
+            const d = k / 0.45;
+            ctx.save();
+            ctx.translate(gx, gy + d * 6 * zoom);
+            ctx.rotate(-0.5 * d);
+            ctx.fillStyle = `rgba(90,62,34,${(1 - d).toFixed(3)})`;
+            ctx.fillRect(-14 * zoom * fx.size, -6 * zoom * (1 - d), 28 * zoom * fx.size, 6 * zoom * (1 - d));
+            ctx.restore();
+          }
+          for (let i = 0; i < 6; i++) {
+            const a = i * 1.9 + fx.x;
+            const bx = gx + Math.cos(a) * (6 + 14 * k) * zoom * fx.size;
+            const by = gy + Math.sin(a) * (3 + 7 * k) * zoom * fx.size;
+            if (i % 2) {
+              ctx.fillStyle = `rgba(120,86,52,${(0.9 * (1 - k)).toFixed(3)})`;
+              ctx.fillRect(bx - 3 * zoom, by - 1 * zoom, 6 * zoom, 2 * zoom);
+            } else {
+              ctx.beginPath();
+              ctx.arc(bx, by - k * 6 * zoom, (1 + 1.5 * (1 - k)) * zoom, 0, Math.PI * 2);
+              ctx.fillStyle = `rgba(235,248,255,${(0.7 * (1 - k)).toFixed(3)})`;
+              ctx.fill();
+            }
+          }
           break;
         }
         case 'laserhit':

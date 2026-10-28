@@ -2,7 +2,7 @@ import { GameAudio } from './audio/director';
 import { ABILITY_BY_ID, CONVERT_RANGE, HEAL_RANGE, type AbilityId } from './data/abilities';
 import { BUILDING_DEFS, buildingName, type BuildingType } from './data/buildings';
 import { canAfford, type Stock } from './data/resources';
-import { isHero, type Role } from './data/units';
+import { isHero, isNaval, type Role } from './data/units';
 import type { NetSession } from './net/session';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
@@ -11,8 +11,10 @@ import { MARK_TIME, Renderer, type CastPreview, type Mark, type Marker, type Ord
 import { View } from './render/view';
 import { normalize, Recorder, storeLastReplay, type Replay } from './replay';
 import { LocalSession, ReplaySession, type Session } from './session';
+import { canGather } from './sim/behavior';
 import type { Building, Entity, Unit } from './sim/entities';
 import { formationSlots, type Formation } from './sim/formation';
+import { Terrain } from './sim/map';
 import { createWorld } from './sim/setup';
 import { DT, MAX_LINE, World, type Command, type GameSettings } from './sim/world';
 import { Hud } from './ui/hud';
@@ -424,15 +426,39 @@ export class Game {
       this.audio.ack('work', units);
       return;
     }
+    // Walkers onto an own transport ship: go aboard.
+    const walkers = units.filter((u) => !isNaval(u.role)).map((u) => u.id);
+    if (target && target.kind === 'unit' && target.owner === this.me && target.role === 'transport' && walkers.length) {
+      this.issue({ type: 'board', player: this.me, ids: walkers, targetId: target.id, queue });
+      const rest = units.filter((u) => isNaval(u.role) && u.id !== target.id).map((u) => u.id);
+      if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
+      this.setMarker(target.x, target.y, '#8dff5a');
+      this.audio.ack('move', units);
+      return;
+    }
+    // Loaded transports sent ashore: put the passengers on land there.
+    const loaded = units.filter((u) => u.role === 'transport' && u.cargo.length > 0).map((u) => u.id);
+    const ashore = world.map.inBounds(Math.floor(pos.x), Math.floor(pos.y)) && world.map.terrainAt(Math.floor(pos.x), Math.floor(pos.y)) !== Terrain.Water;
+    if (loaded.length && ashore && !(target && target.kind !== 'resource' && world.areEnemies(this.me, target.owner))) {
+      this.issue({ type: 'unload', player: this.me, ids: loaded, x: pos.x, y: pos.y, queue });
+      const rest = ids.filter((id) => !loaded.includes(id));
+      if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
+      this.setMarker(pos.x, pos.y, '#8dff5a');
+      this.audio.ack('move', units);
+      return;
+    }
     if (target && target.kind !== 'resource' && world.areEnemies(this.me, target.owner)) {
       this.issue({ type: 'attack', player: this.me, ids, targetId: target.id, queue });
       this.setMarker(target.x, target.y, '#ff5a4d');
       this.audio.ack('attack', units);
       return;
     }
-    if (target && target.kind === 'resource' && citizens.length) {
-      this.issue({ type: 'gather', player: this.me, ids: citizens, targetId: target.id, queue });
-      if (others.length) this.issue({ type: 'move', player: this.me, ids: others, x: pos.x, y: pos.y, queue });
+    // Citizens to deposits on land, fishing boats to the fish.
+    const gatherers = target && target.kind === 'resource' ? units.filter((u) => canGather(u, target)).map((u) => u.id) : [];
+    if (target && target.kind === 'resource' && gatherers.length) {
+      this.issue({ type: 'gather', player: this.me, ids: gatherers, targetId: target.id, queue });
+      const rest = ids.filter((id) => !gatherers.includes(id));
+      if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
       this.setMarker(target.x, target.y, '#ffd24d');
       this.audio.ack('work', units);
       return;
@@ -615,6 +641,25 @@ export class Game {
     const size = BUILDING_DEFS[this.placement.type].size;
     this.placement.tx = Math.round(pos.x - size / 2);
     this.placement.ty = Math.round(pos.y - size / 2);
+    // Harbours snap to the nearest free shore site under the cursor.
+    if (BUILDING_DEFS[this.placement.type].shore && !this.world.canPlace(this.me, this.placement.type, this.placement.tx, this.placement.ty)) {
+      let best: { tx: number; ty: number } | null = null;
+      let bestD = Infinity;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const tx = this.placement.tx + dx;
+          const ty = this.placement.ty + dy;
+          if (dx * dx + dy * dy < bestD && this.world.canPlace(this.me, this.placement.type, tx, ty)) {
+            bestD = dx * dx + dy * dy;
+            best = { tx, ty };
+          }
+        }
+      }
+      if (best) {
+        this.placement.tx = best.tx;
+        this.placement.ty = best.ty;
+      }
+    }
     this.refreshPlacement();
   }
 
@@ -741,6 +786,16 @@ export class Game {
   sheltering(): boolean {
     const { world, me } = this;
     return world.buildings.some((b) => b.owner === me && b.garrison.length > 0) || world.units.some((u) => u.owner === me && !u.dead && u.order.kind === 'garrison');
+  }
+
+  /** Loaded transports put their passengers ashore at the nearest coast. */
+  unloadNearest(): void {
+    const ships = this.selectedOwnUnits().filter((u) => u.role === 'transport' && u.cargo.length > 0);
+    for (const ship of ships) {
+      const land = this.world.map.nearestPassable(ship.x, ship.y, 30);
+      if (land) this.issue({ type: 'unload', player: this.me, ids: [ship.id], x: land.x + 0.5, y: land.y + 0.5 });
+    }
+    if (ships.length) this.audio.ack('move', ships);
   }
 
   explore(): void {

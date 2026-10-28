@@ -6,6 +6,7 @@ import { formationSlots, type Formation } from '../sim/formation';
 import type { Project } from './camera';
 import { ABILITY_COLOR, shade } from './colors';
 import { drawBuilding, drawUnit, LINK_E, LINK_W, VEHICLE_LOOKS } from './sprites';
+import { SHIP_LOOKS } from './ships';
 
 const cache = new Map<string, string>();
 
@@ -29,11 +30,19 @@ export function unitIcon(role: Role, epoch: number, color: string, size = 44): s
   const t = ROLE_DEFS[role].tiers[tier] ?? ROLE_DEFS[role].tiers[0];
   return render(`u:${role}:${tier}:${color}:${size}`, size, (ctx) => {
     const vehicle = VEHICLE_LOOKS.has(t.look);
+    const ship = SHIP_LOOKS.has(t.look);
     // Sized for a 44 px button; smaller and larger icons scale along so the figure always fits.
     const fit = size / 44;
-    const scale = fit * (vehicle ? 0.9 : t.look === 'horse' || t.look === 'chariot' || t.look === 'scouthorse' ? 1.15 : 1.5);
+    const scale = fit * (ship ? 0.6 : vehicle ? 0.9 : t.look === 'horse' || t.look === 'chariot' || t.look === 'scouthorse' ? 1.15 : 1.5);
     const cx = size / 2;
-    const cy = size * (vehicle ? 0.68 : 0.88);
+    const cy = size * (ship ? 0.66 : vehicle ? 0.68 : 0.88);
+    if (ship) {
+      // A patch of sea under the hull.
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, size * 0.46, size * 0.2, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#2c6ea3';
+      ctx.fill();
+    }
     const project: Project = (wx, wy, z = 0) => [cx + (wx - wy) * 32 * scale, cy + (wx + wy) * 16 * scale - z * scale];
     drawUnit(
       ctx,
@@ -56,6 +65,18 @@ export function buildingIcon(type: BuildingType, epoch: number, color: string, s
     const cy = size * (type === 'farm' ? 0.2 : 0.42);
     const project: Project = (wx, wy, z = 0) => [cx + (wx - wy) * 32 * scale, cy + (wx + wy) * 16 * scale - z * scale];
     const links = line ? LINK_E | LINK_W : 0;
+    if (BUILDING_DEFS[type].shore) {
+      // Harbours stand in the water.
+      ctx.beginPath();
+      for (const [x, y] of [
+        [-0.3, -0.3],
+        [tiles + 0.3, -0.3],
+        [tiles + 0.3, tiles + 0.3],
+        [-0.3, tiles + 0.3],
+      ]) ctx.lineTo(...project(x, y));
+      ctx.fillStyle = '#2c6ea3';
+      ctx.fill();
+    }
     drawBuilding(ctx, project, scale, { type, epoch, color, tx: 0, ty: 0, size: tiles, progress: 1, built: true, hpRatio: 1, seed: 3, links }, 0.5);
   });
 }
@@ -543,7 +564,7 @@ export function abilityIcon(kind: string, size = 44): string {
   });
 }
 
-export type CommandGlyph = 'attack' | 'patrol' | 'explore' | 'stop' | 'cancel' | 'demolish' | 'dismiss' | 'lockstep' | 'shelter' | 'allclear';
+export type CommandGlyph = 'attack' | 'patrol' | 'explore' | 'stop' | 'cancel' | 'demolish' | 'dismiss' | 'lockstep' | 'shelter' | 'allclear' | 'unload';
 
 /** Pictograms for the order buttons that have no unit, building or tech to show. */
 export function commandIcon(kind: CommandGlyph, size = 44): string {
@@ -662,6 +683,19 @@ export function commandIcon(kind: CommandGlyph, size = 44): string {
         ctx.lineWidth = Math.max(1, size / 30);
         line([[-0.95, 0.9], [0.95, 0.9]]);
         ctx.stroke();
+        break;
+      case 'unload':
+        // An arrow from the boat down onto the shore.
+        ctx.fillStyle = '#2c6ea3';
+        line([[-0.95, 0.15], [0.95, 0.15], [0.7, 0.55], [-0.7, 0.55]], true);
+        ctx.fill();
+        ctx.fillStyle = '#d8c58d';
+        line([[-0.95, 0.75], [0.95, 0.75], [0.95, 0.95], [-0.95, 0.95]], true);
+        ctx.fill();
+        ctx.strokeStyle = '#8dff5a';
+        line([[0, -0.9], [0, 0.05]]);
+        ctx.stroke();
+        arrowHead(0, 0.05, Math.PI / 2);
         break;
       case 'shelter':
       case 'allclear': {

@@ -23,6 +23,7 @@ export const ERA_INST: Record<EraStyle, { lead: Inst; fanfare: Inst }> = {
 
 const WOOD_SIEGE = new Set<Look>(['ram', 'catapult', 'trebuchet']);
 const MACHINES = new Set<Look>(['tank', 'mech', 'armoredcar', 'jeep', 'cannon', 'rocket', 'beam']);
+const SHIPS = new Set<Look>(['fishingboat', 'transportship', 'warship', 'bombardship']);
 
 function vary(r: number, amount = 0.12): number {
   return 1 + (r - 0.5) * amount;
@@ -146,6 +147,13 @@ export function deathSound(o: Out, look: Look | undefined, r: number): void {
   if (look === 'drone') {
     tone(o, { type: 'square', f: 800 * k, f2: 60, dur: 0.5, attack: 0.002, vol: 0.06, filter: { type: 'lowpass', f: 2000 } });
     noise(o, { dur: 0.3, vol: 0.07, filter: { type: 'highpass', f: 3000 } });
+    return;
+  }
+  if (look && SHIPS.has(look)) {
+    // Sinking: timber (or steel) groans, the water closes over it.
+    tone(o, { type: 'sawtooth', f: 110 * k, f2: 55, glide: 0.9, dur: 1, attack: 0.05, vol: 0.12, filter: { type: 'lowpass', f: 500 } });
+    noise(o, { at: 0.2, dur: 1.1, attack: 0.1, vol: 0.22, filter: { type: 'lowpass', f: 700 * k, f2: 200 } });
+    for (let i = 0; i < 5; i++) tone(o, { at: 0.5 + i * 0.13 * k, type: 'sine', f: 500 + i * 90, f2: 900 + i * 120, dur: 0.06, vol: 0.05 });
     return;
   }
   if (look && WOOD_SIEGE.has(look)) {
@@ -416,6 +424,22 @@ export function ackSound(o: Out, ack: Ack, look: Look | undefined, style: EraSty
     const up = ack === 'attack' ? 1.5 : 1.25;
     tone(o, { type: 'sawtooth', f: 52 * k, f2: 52 * k * up, glide: 0.22, dur: 0.42, attack: 0.03, vol: 0.13, filter: { type: 'lowpass', f: 380 } });
     noise(o, { dur: 0.4, attack: 0.03, vol: 0.08, rate: 0.4, filter: { type: 'lowpass', f: 320 } });
+    return;
+  }
+  if (look && SHIPS.has(look)) {
+    if (style === 'modern' || style === 'future') {
+      // Ship's horn: one blast to sail, two to fight.
+      for (let i = 0; i < (ack === 'attack' ? 2 : 1); i++) {
+        tone(o, { at: i * 0.3, type: 'sawtooth', f: 98 * k, dur: 0.24, attack: 0.03, vol: 0.12, filter: { type: 'lowpass', f: 650 } });
+        tone(o, { at: i * 0.3, type: 'sawtooth', f: 123 * k, dur: 0.24, attack: 0.03, vol: 0.08, filter: { type: 'lowpass', f: 650 } });
+      }
+    } else {
+      // Ship's bell: once to sail, twice to fight.
+      for (let i = 0; i < (ack === 'attack' ? 2 : 1); i++) {
+        tone(o, { at: i * 0.2, type: 'sine', f: 880 * k, dur: 0.6, attack: 0.002, vol: 0.1 });
+        tone(o, { at: i * 0.2, type: 'sine', f: 2430 * k, dur: 0.25, attack: 0.002, vol: 0.03 });
+      }
+    }
     return;
   }
   if (look && WOOD_SIEGE.has(look)) {
