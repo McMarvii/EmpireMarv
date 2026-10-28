@@ -203,6 +203,9 @@ export class GameAudio {
       case 'tech':
         this.ui('tech', 500);
         break;
+      case 'wonder':
+        this.ui('wonder', 1500);
+        break;
       case 'attack':
         this.heat.add(Heat.ENTER);
         this.ui('alarm', 4000);

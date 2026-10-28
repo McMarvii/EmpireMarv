@@ -18,6 +18,13 @@ const NODE_RGB: Record<string, string> = {
   berries: '#d2404f',
 };
 
+const HAZARD_RGBA: Record<string, string> = {
+  plague: 'rgba(156,207,60,0.55)',
+  quake: 'rgba(176,132,78,0.6)',
+  firestorm: 'rgba(255,138,30,0.6)',
+  storm: 'rgba(111,214,232,0.55)',
+};
+
 /** Diamond-shaped overview map, like the classic isometric RTS minimaps. */
 export class Minimap {
   private ctx: CanvasRenderingContext2D;
@@ -120,6 +127,23 @@ export class Minimap {
       ctx.fillRect(x - s / 2, y - s / 2, s, s);
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.strokeRect(x - s / 2, y - s / 2, s, s);
+      if (b.type === 'wonder') {
+        // Wonders stand out; a running victory countdown pulses.
+        const pulse = b.countdown > 0 ? 0.5 + 0.5 * Math.sin(world.time * 5) : 0;
+        ctx.beginPath();
+        ctx.arc(x, y, s * 0.9 + 2 + pulse * 3, 0, Math.PI * 2);
+        ctx.strokeStyle = b.built ? '#f2c84b' : 'rgba(242,200,75,0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+    for (const hz of world.hazards) {
+      if (hz.owner !== this.view.me && vis[world.map.idx(Math.floor(hz.x), Math.floor(hz.y))] !== 2) continue;
+      const [x, y] = this.toMini(hz.x, hz.y);
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(2, hz.r * this.k), 0, Math.PI * 2);
+      ctx.fillStyle = HAZARD_RGBA[hz.kind];
+      ctx.fill();
     }
     for (const u of world.units) {
       if (u.dead || !this.view.seesUnit(u)) continue;

@@ -4,6 +4,7 @@ import type { Tech, TechGlyph } from '../data/techs';
 import { bestTier, ROLE_DEFS, type Role } from '../data/units';
 import { formationSlots, type Formation } from '../sim/formation';
 import type { Project } from './camera';
+import { ABILITY_COLOR, shade } from './colors';
 import { drawBuilding, drawUnit, LINK_E, LINK_W, VEHICLE_LOOKS } from './sprites';
 
 const cache = new Map<string, string>();
@@ -413,6 +414,106 @@ export function formationIcon(kind: Formation, size = 44): string {
       ctx.strokeStyle = 'rgba(0,0,0,0.6)';
       ctx.lineWidth = 1;
       ctx.stroke();
+    }
+  });
+}
+
+/** Button picture of an ability, a calamity or a priestly act: a coloured disc with a sign. */
+export function abilityIcon(kind: string, size = 44): string {
+  return render(`a:${kind}:${size}`, size, (ctx) => {
+    const c = size / 2;
+    const r = size * 0.42;
+    const color = ABILITY_COLOR[kind] ?? '#e0ad4a';
+    const g = ctx.createRadialGradient(c, c - r * 0.3, r * 0.1, c, c, r);
+    g.addColorStop(0, shade(color, 0.35));
+    g.addColorStop(1, shade(color, -0.45));
+    ctx.beginPath();
+    ctx.arc(c, c, r, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.strokeStyle = '#fff8e8';
+    ctx.fillStyle = '#fff8e8';
+    ctx.lineWidth = size * 0.07;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const k = size / 44;
+    const path = (pts: Array<[number, number]>) => {
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => (i ? ctx.lineTo(c + x * k, c + y * k) : ctx.moveTo(c + x * k, c + y * k)));
+      ctx.stroke();
+    };
+    switch (kind) {
+      case 'rally':
+        path([[-9, -7], [-2, 0], [-9, 7]]);
+        path([[1, -7], [8, 0], [1, 7]]);
+        break;
+      case 'shieldwall':
+        ctx.beginPath();
+        ctx.moveTo(c, c - 10 * k);
+        ctx.lineTo(c + 8 * k, c - 6 * k);
+        ctx.quadraticCurveTo(c + 7 * k, c + 6 * k, c, c + 11 * k);
+        ctx.quadraticCurveTo(c - 7 * k, c + 6 * k, c - 8 * k, c - 6 * k);
+        ctx.closePath();
+        ctx.stroke();
+        break;
+      case 'fieldheal':
+      case 'heal':
+        ctx.fillRect(c - 3 * k, c - 9 * k, 6 * k, 18 * k);
+        ctx.fillRect(c - 9 * k, c - 3 * k, 18 * k, 6 * k);
+        break;
+      case 'warcry':
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.arc(c - 6 * k, c, (5 + i * 5) * k, -0.7, 0.7);
+          ctx.stroke();
+        }
+        break;
+      case 'whirlwind':
+      case 'storm':
+        ctx.beginPath();
+        for (let t = 0; t < 4 * Math.PI; t += 0.2) {
+          const rr = (1.5 + t * 0.85) * k;
+          const x = c + Math.cos(t) * rr;
+          const y = c + Math.sin(t) * rr;
+          if (t === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        break;
+      case 'frenzy':
+      case 'firestorm':
+        ctx.beginPath();
+        ctx.moveTo(c, c - 11 * k);
+        ctx.quadraticCurveTo(c + 10 * k, c - 1 * k, c + 5 * k, c + 9 * k);
+        ctx.quadraticCurveTo(c, c + 12 * k, c - 5 * k, c + 9 * k);
+        ctx.quadraticCurveTo(c - 10 * k, c - 1 * k, c, c - 11 * k);
+        ctx.fill();
+        break;
+      case 'plague':
+        for (const [x, y, rr] of [[-4, 2, 5], [5, -1, 4], [1, -7, 3], [3, 7, 3]] as Array<[number, number, number]>) {
+          ctx.beginPath();
+          ctx.arc(c + x * k, c + y * k, rr * k, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        break;
+      case 'quake':
+        path([[-10, -4], [-4, 0], [-6, 4], [1, 2], [0, 7], [6, 3], [10, 6]]);
+        path([[-10, -9], [10, -9]]);
+        break;
+      case 'convert':
+        ctx.beginPath();
+        ctx.ellipse(c, c - 7 * k, 7 * k, 2.5 * k, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        path([[-6, 9], [6, -1]]);
+        path([[1, -1], [6, -1], [6, 4]]);
+        break;
+      default:
+        ctx.beginPath();
+        ctx.arc(c, c, 5 * k, 0, Math.PI * 2);
+        ctx.fill();
     }
   });
 }

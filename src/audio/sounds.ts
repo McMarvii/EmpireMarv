@@ -290,8 +290,8 @@ export function workSound(o: Out, work: Res | 'build', style: EraStyle, r: numbe
 
 // --------------------------------------------------------------- interface
 
-export type UiSound = 'click' | 'error' | 'place' | 'built' | 'trained' | 'tech' | 'epoch' | 'alarm' | 'victory' | 'defeat';
-export const UI_SOUNDS: UiSound[] = ['click', 'error', 'place', 'built', 'trained', 'tech', 'epoch', 'alarm', 'victory', 'defeat'];
+export type UiSound = 'click' | 'error' | 'place' | 'built' | 'trained' | 'tech' | 'epoch' | 'alarm' | 'victory' | 'defeat' | 'wonder';
+export const UI_SOUNDS: UiSound[] = ['click', 'error', 'place', 'built', 'trained', 'tech', 'epoch', 'alarm', 'victory', 'defeat', 'wonder'];
 
 /** Plays notes given as [offset in s, semitones over `root`, length in s]. */
 function phrase(o: Out, inst: Inst, root: number, notes: Array<[number, number, number]>, vel = 1): void {
@@ -329,6 +329,11 @@ export function uiSound(o: Out, id: UiSound, style: EraStyle): void {
       break;
     case 'alarm':
       alarmSound(o, style);
+      break;
+    case 'wonder':
+      // Bells over a wide chord: something for the ages.
+      phrase(o, 'bell', 72, [[0, 0, 0.8], [0.25, 7, 0.8], [0.5, 12, 1.2]], 0.7);
+      phrase(o, 'strings', 48, [[0, 0, 2], [0, 7, 2], [0, 16, 2]], 0.6);
       break;
     case 'victory':
       phrase(o, fanfare, 60, [[0, 0, 0.15], [0.16, 4, 0.15], [0.32, 7, 0.15], [0.48, 12, 0.3], [0.8, 7, 0.15], [0.96, 12, 1.2]]);
@@ -474,7 +479,7 @@ export function soundSamples(): Sample[] {
   out.push({ name: 'convert', dur: 2.6, play: (o) => convertSound(o, 'ancient') });
   out.push({ name: 'heal', dur: 0.6, play: (o) => healSound(o, 0.5) });
   for (const style of STYLES) {
-    for (const id of UI_SOUNDS) out.push({ name: `ui:${id}:${style}`, dur: id === 'defeat' ? 4 : id === 'victory' ? 3 : 2.5, play: (o) => uiSound(o, id, style) });
+    for (const id of UI_SOUNDS) out.push({ name: `ui:${id}:${style}`, dur: id === 'defeat' || id === 'wonder' ? 4 : id === 'victory' ? 3 : 2.5, play: (o) => uiSound(o, id, style) });
     for (const look of ACK_LOOKS) {
       for (const ack of ACKS) out.push({ name: `ack:${ack}:${look ?? 'building'}:${style}`, dur: 0.8, play: (o) => ackSound(o, ack, look, style, 0.5) });
     }

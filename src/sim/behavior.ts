@@ -385,6 +385,11 @@ function closeIn(w: World, u: Unit, t: Unit, range: number): boolean {
  * store of faith; every hit on the priest throws the prayer back, the
  * target slipping out of range starts it over. Heroes cannot be won over.
  */
+/** Seconds of prayer it takes to win a unit over. */
+export function convertTime(w: World, t: Unit): number {
+  return CONVERT_TIME * (1 + w.players[t.owner].mods.convertResist) * (CONVERT_CLASS[t.role] ?? 1);
+}
+
 function updateConvert(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'convert') return;
@@ -404,9 +409,7 @@ function updateConvert(w: World, u: Unit): void {
   }
   o.progress += DT;
   u.attackAnim = Math.max(u.attackAnim, 0.2);
-  const resist = 1 + w.players[t.owner].mods.convertResist;
-  const need = CONVERT_TIME * resist * (CONVERT_CLASS[t.role] ?? 1);
-  if (o.progress < need) return;
+  if (o.progress < convertTime(w, t)) return;
   w.convertUnit(t, u.owner);
   u.faith = 0;
   goIdle(u);

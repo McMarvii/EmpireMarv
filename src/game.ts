@@ -1,11 +1,13 @@
 import { GameAudio } from './audio/director';
+import { ABILITY_BY_ID, CONVERT_RANGE, HEAL_RANGE, type AbilityId } from './data/abilities';
 import { BUILDING_DEFS, buildingName, type BuildingType } from './data/buildings';
 import { canAfford, type Stock } from './data/resources';
-import type { Role } from './data/units';
+import { isHero, type Role } from './data/units';
 import type { NetSession } from './net/session';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
-import { MARK_TIME, Renderer, type Mark, type Marker, type OrderPreview, type Placement } from './render/renderer';
+import { ABILITY_COLOR } from './render/colors';
+import { MARK_TIME, Renderer, type CastPreview, type Mark, type Marker, type OrderPreview, type Placement } from './render/renderer';
 import { View } from './render/view';
 import { normalize, Recorder, storeLastReplay, type Replay } from './replay';
 import { LocalSession, ReplaySession, type Session } from './session';
@@ -18,7 +20,10 @@ import { Input } from './ui/input';
 import { NetUi } from './ui/netui';
 import { ReplayBar } from './ui/replaybar';
 
-export type Mode = 'normal' | 'place' | 'attackMove' | 'patrol';
+export type Mode = 'normal' | 'place' | 'attackMove' | 'patrol' | 'cast';
+
+/** What a click does in cast mode: a prophet's calamity, or a priest's conversion or healing. */
+export type CastKind = AbilityId | 'convert' | 'heal';
 
 export interface GameOptions {
   settings: Partial<GameSettings>;
@@ -67,6 +72,8 @@ export class Game {
   mode: Mode = 'normal';
   /** Attack-move or patrol kept open by Shift for more points; ends when Shift is released. */
   stickyMode = false;
+  /** Cast mode: what the next click does. */
+  casting: CastKind | null = null;
   placement: Placement | null = null;
   paused = false;
   speed = 1;
@@ -194,6 +201,7 @@ export class Game {
       showPlans: this.input.shiftHeld,
       preview: this.preview,
       marks: this.marks,
+      cast: this.castPreview(),
     });
     if (this.marker && (this.marker.t += dt) > 0.6) this.marker = null;
     for (const m of this.marks) m.age += dt;
@@ -398,6 +406,24 @@ export class Game {
     const ids = units.map((u) => u.id);
     const citizens = units.filter((u) => u.role === 'citizen').map((u) => u.id);
     const others = units.filter((u) => u.role !== 'citizen').map((u) => u.id);
+    // Priests convert enemy units and heal friends; the rest of the selection does the usual.
+    const priests = units.filter((u) => u.role === 'priest').map((u) => u.id);
+    if (priests.length && target && target.kind === 'unit' && world.areEnemies(this.me, target.owner) && !isHero(target.role)) {
+      this.issue({ type: 'convert', player: this.me, ids: priests, targetId: target.id, queue });
+      const rest = ids.filter((id) => !priests.includes(id));
+      if (rest.length) this.issue({ type: 'attack', player: this.me, ids: rest, targetId: target.id, queue });
+      this.setMarker(target.x, target.y, '#ffe27a');
+      this.audio.ack('attack', units);
+      return;
+    }
+    if (priests.length && target && target.kind === 'unit' && !world.areEnemies(this.me, target.owner) && target.hp < target.maxHp && !priests.includes(target.id)) {
+      this.issue({ type: 'heal', player: this.me, ids: priests, targetId: target.id, queue });
+      const rest = ids.filter((id) => !priests.includes(id));
+      if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
+      this.setMarker(target.x, target.y, '#8dff5a');
+      this.audio.ack('work', units);
+      return;
+    }
     if (target && target.kind !== 'resource' && world.areEnemies(this.me, target.owner)) {
       this.issue({ type: 'attack', player: this.me, ids, targetId: target.id, queue });
       this.setMarker(target.x, target.y, '#ff5a4d');
@@ -486,6 +512,63 @@ export class Game {
     this.audio.ack('attack', units);
     if (!queue) this.mode = 'normal';
     this.stickyMode = queue;
+  }
+
+  /** Hero abilities: at once, around every selected hero that has it. */
+  useAbility(id: AbilityId): void {
+    const a = ABILITY_BY_ID.get(id)!;
+    if (a.target === 'ground') return this.beginCast(id);
+    const units = this.selectedOwnUnits().filter((u) => u.role === a.role);
+    if (!units.length) return;
+    this.issue({ type: 'ability', player: this.me, ids: units.map((u) => u.id), ability: id });
+    this.audio.ack('attack', units);
+  }
+
+  /** Calamities, conversions and healing wait for a click on the map. */
+  beginCast(kind: CastKind): void {
+    this.cancelMode();
+    this.mode = 'cast';
+    this.casting = kind;
+  }
+
+  /** Cast mode: what the renderer shows around the casters and under the cursor. */
+  private castPreview(): CastPreview | null {
+    const kind = this.casting;
+    if (this.mode !== 'cast' || !kind) return null;
+    const p = this.input.pointer;
+    const at = p ? this.camera.screenToWorld(p.x, p.y) : null;
+    const priestly = kind === 'convert' || kind === 'heal';
+    const role = priestly ? 'priest' : ABILITY_BY_ID.get(kind)!.role;
+    const casters = this.selectedOwnUnits()
+      .filter((u) => u.role === role)
+      .map((u) => ({ x: u.x, y: u.y }));
+    if (priestly) return { at, r: 0, color: ABILITY_COLOR[kind], casters, range: kind === 'convert' ? CONVERT_RANGE : HEAL_RANGE };
+    const a = ABILITY_BY_ID.get(kind)!;
+    return { at, r: a.radius, color: ABILITY_COLOR[kind], casters, range: a.range };
+  }
+
+  /** Cast mode click: the prophet's spot, or the priest's target. Shift keeps the mode. */
+  castAt(sx: number, sy: number, keep = false): void {
+    const kind = this.casting;
+    if (!kind) return this.cancelMode();
+    const units = this.selectedOwnUnits();
+    if (kind === 'convert' || kind === 'heal') {
+      const target = this.renderer.pick(sx, sy, 1);
+      const priests = units.filter((u) => u.role === 'priest').map((u) => u.id);
+      if (target && target.kind === 'unit' && priests.length) {
+        this.issue({ type: kind, player: this.me, ids: priests, targetId: target.id });
+        this.setMarker(target.x, target.y, kind === 'convert' ? '#ffe27a' : '#8dff5a');
+      }
+    } else {
+      const pos = this.camera.screenToWorld(sx, sy);
+      const casters = units.filter((u) => u.role === ABILITY_BY_ID.get(kind)!.role);
+      if (casters.length) {
+        this.issue({ type: 'ability', player: this.me, ids: casters.map((u) => u.id), ability: kind, x: pos.x, y: pos.y });
+        this.setMarker(pos.x, pos.y, '#ff9a3c');
+        this.audio.ack('attack', casters);
+      }
+    }
+    if (!keep) this.cancelMode();
   }
 
   /** The formation most of the units use (what the buttons show as active). */
@@ -595,6 +678,7 @@ export class Game {
 
   cancelMode(): void {
     this.mode = 'normal';
+    this.casting = null;
     this.stickyMode = false;
     this.placement = null;
     this.preview = null;

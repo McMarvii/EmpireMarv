@@ -215,7 +215,7 @@ export class World {
   /** How the match was won, once it is over. */
   victory: 'conquest' | 'wonder' | null = null;
   /** Wonder victory: which wonder of whom. */
-  victoryNote = '';
+  victoryWonder: { name: string; owner: number } | null = null;
   /** Builds the computer player that takes over an empire whose human left. */
   makeAI: ((player: number) => Controller) | null = null;
   over = false;
@@ -1280,9 +1280,17 @@ export class World {
     const minutes = this.settings.wonderVictory ?? 0;
     if (minutes > 0) b.countdown = minutes * 60 * TICK_RATE;
     for (const p of this.players) {
+      // The builder reads it in the second person (the local player is called "Du").
+      const own = p.id === owner.id;
       const mine = this.teamOf(p.id) === owner.team;
-      const tail = minutes > 0 ? (mine ? ` Haltet es ${minutes} Minuten für den Wundersieg!` : ` Zerstört es in ${minutes} Minuten, sonst gewinnt ${owner.name}!`) : '';
-      this.emit({ type: 'wonder', player: p.id, text: `${owner.name} hat ${name} vollendet.${tail}`, x: b.x, y: b.y });
+      const head = own ? `Wunder vollendet: ${name}.` : `${owner.name} hat ein Wunder vollendet: ${name}.`;
+      let tail = '';
+      if (minutes > 0) {
+        if (own) tail = ` Halte es ${minutes} Minuten, dann gewinnst du!`;
+        else if (mine) tail = ` Haltet es ${minutes} Minuten für den Wundersieg!`;
+        else tail = ` Zerstört es in ${minutes} Minuten, sonst gewinnt ${owner.name}!`;
+      }
+      this.emit({ type: 'wonder', player: p.id, text: head + tail, x: b.x, y: b.y });
     }
   }
 
@@ -1292,10 +1300,13 @@ export class World {
       b.countdown--;
       const left = b.countdown / TICK_RATE;
       if (left === 60) {
-        for (const p of this.players) this.emit({ type: 'wonder', player: p.id, text: `Noch 1 Minute bis zum Wundersieg von ${this.players[b.owner].name}!`, x: b.x, y: b.y });
+        for (const p of this.players) {
+          const text = p.id === b.owner ? 'Noch 1 Minute bis zu deinem Wundersieg!' : `Noch 1 Minute bis zum Wundersieg von ${this.players[b.owner].name}!`;
+          this.emit({ type: 'wonder', player: p.id, text, x: b.x, y: b.y });
+        }
       }
       if (b.countdown === 0) {
-        this.victoryNote = `${buildingName(b.type, b.epoch)} von ${this.players[b.owner].name}`;
+        this.victoryWonder = { name: buildingName(b.type, b.epoch), owner: b.owner };
         this.finish(this.players[b.owner].team, 'wonder');
         return;
       }

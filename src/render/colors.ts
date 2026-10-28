@@ -60,3 +60,19 @@ export const TERRAIN_COLORS: string[][] = [
   ['#2a6a9e', '#2c6ea3', '#2e72a8', '#3076ad'], // water
   ['#8a7850', '#8e7c53', '#928056', '#968459'], // dirt
 ];
+
+/** Colour of each ability, calamity and priestly act: buttons, rings, beams, areas. */
+export const ABILITY_COLOR: Record<string, string> = {
+  rally: '#f2c84b',
+  shieldwall: '#7fb2ff',
+  fieldheal: '#7dff8a',
+  warcry: '#ff7a3c',
+  whirlwind: '#e6e9ee',
+  frenzy: '#ff3b3b',
+  plague: '#9ccf3c',
+  quake: '#b0844e',
+  firestorm: '#ff8a1e',
+  storm: '#6fd6e8',
+  convert: '#ffe27a',
+  heal: '#7dff8a',
+};

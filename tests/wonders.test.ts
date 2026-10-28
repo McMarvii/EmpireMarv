@@ -88,7 +88,8 @@ describe('wonders', () => {
     run(w, 5 * 60);
     expect(w.over).toBe(true);
     expect(w.victory).toBe('wonder');
-    expect(w.victoryNote).toMatch(/Steinkreis von A/);
+    expect(w.victoryWonder).toEqual({ name: 'Steinkreis', owner: 0 });
+    expect(w.events.some((e) => e.type === 'wonder' && e.player === 0 && /Halte es 5 Minuten, dann gewinnst du/.test(e.text))).toBe(true);
     expect(w.winnerTeam).toBe(w.players[0].team);
   });
 
