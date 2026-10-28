@@ -17,8 +17,7 @@ import { bestTier, CARRY_CAPACITY, isHero, MAX_FAITH, ROLE_DEFS, unitStats, type
 import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
 import { isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { updateProjectiles } from './combat';
-import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Plan, type Player, type ResourceNode, type Unit } from './entities';
-import { rectOf, type Building, type Entity, type NodeType, type Order, type Plan, type Player, type ResourceNode, type Unit } from './entities';
+import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Order, type Plan, type Player, type ResourceNode, type Unit } from './entities';
 import { hypot } from './fmath';
 import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
 import { GameMap } from './map';
@@ -1605,13 +1604,13 @@ export class World {
       h.add(b.progress);
       h.add(b.queue.length);
       h.add(b.countdown);
+      h.add(b.garrison.length);
     }
     for (const hz of this.hazards) {
       h.add(hz.id);
       h.add(hz.until);
       h.add(hz.x);
       h.add(hz.y);
-      h.add(b.garrison.length);
     }
     h.add(this.victory === 'wonder' ? 2 : this.victory === 'conquest' ? 1 : 0);
     for (const n of this.resources) {

@@ -92,7 +92,7 @@ Das Dorfzentrum bildet ab der Jungsteinzeit (II) zwei Helden aus, **je Spieler h
 
 | Held | Titel (ab Epoche) | Aura | Fähigkeiten (Taste, Abklingzeit) |
 | --- | --- | --- | --- |
-| **Stratege** (220 LP, Nahrung 200, Gold 250) | Häuptling (II) → Heerführer (IV) → Feldherr (VII) → Marschall (X) → General (XIII) → Kommandant (XVI) | Radius 7: +2 Moral (über die 5 Häuser hinaus bis 7), 1 % LP/s Heilung | **Sammelruf** `M` (60 s): Verbündete im Radius 8 laufen 10 s lang 35 % schneller. **Schildwall** `W` (75 s): Radius 6, 12 s lang −40 % Schaden. **Feldlazarett** `L` (90 s): Radius 7, sofort +35 % LP, heilt die Seuche |
+| **Stratege** (220 LP, Nahrung 200, Gold 250) | Häuptling (II) → Heerführer (IV) → Feldherr (VII) → Marschall (X) → General (XIII) → Kommandant (XVI) | Radius 7: +2 Moral (über die 5 Häuser hinaus bis 7), 1 % LP/s Heilung | **Sammelruf** `M` (60 s): Verbündete im Radius 8 laufen 10 s lang 35 % schneller. **Schildwall** `W` (75 s): Radius 6, 12 s lang −40 % Schaden. **Feldlazarett** `Q` (90 s): Radius 7, sofort +35 % LP, heilt die Seuche |
 | **Krieger** (320 LP, Nahrung 250, Gold 200, Eisen 100) | Recke (II) → Kriegsheld (IV) → Bannerritter (VII) → Haudegen (X) → Kommandosoldat (XIII, Gewehr) → Elitekämpfer (XVII, Laser) | Radius 6: +15 % Angriff | **Kampfschrei** `K` (50 s): Gegner im Radius 5 sind 3 s gelähmt. **Wirbelschlag** `D` (30 s): 2,5-facher Schaden an allen Gegnern im Radius 2,5. **Blutrausch** `U` (60 s): 10 s lang +50 % Schaden und schnellere Angriffe |
 
 Auren werden einmal pro Sekunde zusammen mit der Moral berechnet; ein gelähmter Held strahlt keine Aura aus. Fähigkeitsknöpfe erscheinen nur, wenn keine Bürger in der Auswahl sind; die Bau-Tasten der Bürger bleiben so frei.

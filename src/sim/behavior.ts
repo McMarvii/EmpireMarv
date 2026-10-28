@@ -183,6 +183,7 @@ export function updateUnit(w: World, u: Unit): void {
       break;
     case 'cast':
       updateCast(w, u);
+      break;
     case 'garrison':
       updateGarrison(w, u);
       if (u.inside) return;

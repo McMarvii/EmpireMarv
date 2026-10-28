@@ -44,7 +44,7 @@ export type Order =
   /** Priest: heal a friendly unit until it is whole. */
   | { kind: 'heal'; targetId: number }
   /** Prophet: walk within range of a spot, then call down a calamity. */
-  | { kind: 'cast'; ability: AbilityId; x: number; y: number };
+  | { kind: 'cast'; ability: AbilityId; x: number; y: number }
   /** Take shelter in a town center or tower; `resume` is the work to go back to afterwards. */
   | { kind: 'garrison'; targetId: number; resume: Order | null };
 
@@ -150,6 +150,8 @@ export interface Building extends BaseEntity {
   popBlocked: boolean;
   /** Wonders: ticks left until the wonder victory (only with it switched on, once finished). */
   countdown: number;
+  /** Citizens sheltering inside (town center, tower); each one adds an arrow. */
+  garrison: Unit[];
 }
 
 /** A calamity at work: deterministic, processed every tick until `until`. */
@@ -162,8 +164,6 @@ export interface Hazard {
   owner: number;
   start: number;
   until: number;
-  /** Citizens sheltering inside (town center, tower); each one adds an arrow. */
-  garrison: Unit[];
 }
 
 export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron';

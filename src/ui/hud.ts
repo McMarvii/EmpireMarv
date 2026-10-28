@@ -17,8 +17,7 @@ import { WONDERS, wonderOf } from '../data/wonders';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
 import { downloadReplay } from '../replay';
-import { abilityIcon, buildingIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
-import { buildingIcon, commandIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
+import { abilityIcon, buildingIcon, commandIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
 import { convertTime } from '../sim/behavior';
 import { AURA_INSPIRED, AURA_LED, type Building, type Entity, type Unit } from '../sim/entities';
@@ -59,7 +58,7 @@ const FORMATION_HELP: Record<Formation, string> = {
 };
 /** What heroes and the faithful do, for tooltips and the selection panel. */
 const ROLE_HELP: Partial<Record<Role, string>> = {
-  strategist: 'Aura: Einheiten in der Nähe +2 Moral und heilen langsam. Fähigkeiten: Sammelruf (M), Schildwall (W), Feldlazarett (L).',
+  strategist: 'Aura: Einheiten in der Nähe +2 Moral und heilen langsam. Fähigkeiten: Sammelruf (M), Schildwall (W), Feldlazarett (Q).',
   warrior: 'Aura: Einheiten in der Nähe +15 % Angriff. Fähigkeiten: Kampfschrei (K), Wirbelschlag (D), Blutrausch (U).',
   priest: 'Bekehrt mit vollem Glauben gegnerische Einheiten (Rechtsklick oder C) und heilt Verbündete (Rechtsklick oder H). Greift nie an.',
   prophet: 'Wirkt mit Glauben Katastrophen, die nur Gegner treffen: Seuche (S), Erdbeben (B), Feuersturm (F), Sturm (T).',
@@ -415,13 +414,12 @@ export class Hud {
           const q = e.queue.map((i) => `${i.role}${Math.floor(i.progress * 2)}`).join('');
           const tech = e.tech ? `${e.tech.id}${Math.floor(e.tech.progress)}` : '';
           const waiting = `${e.techQueue.map((j) => j.id).join('')}${e.pendingAdvance ? `a${e.pendingAdvance.ahead}` : ''}`;
-          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}${Math.ceil(e.countdown / TICK_RATE)}`;
+          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}${Math.ceil(e.countdown / TICK_RATE)}${e.garrison.length}`;
         }
         if (e.kind === 'unit') {
           const states = Object.values(e.status).filter((t) => (t ?? 0) > this.game.world.tick).length;
           const convert = e.order.kind === 'convert' ? Math.floor(e.order.progress * 4) : '';
           return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}${Math.floor(e.faith / 2)}${states}${e.aura}${convert}`;
-          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}${e.garrison.length}`;
         }
         return `${Math.floor(e.amount)}`;
       })
@@ -1164,7 +1162,7 @@ export class Hud {
         <tr><td>Umschalt + Rechtsklick</td><td>Befehl anhängen (Wegpunkte, Ziele, Bauaufträge); gehaltene Umschalttaste zeigt die Pläne</td></tr>
         <tr><td>Rechts ziehen (Einheiten gewählt)</td><td>Ziel und Blickrichtung der Formation (Pfeil)</td></tr>
         <tr><td>N / O / V</td><td>Formation Linie / Block / Keil</td></tr>
-        <tr><td>M / W / L</td><td>Stratege: Sammelruf / Schildwall / Feldlazarett</td></tr>
+        <tr><td>M / W / Q</td><td>Stratege: Sammelruf / Schildwall / Feldlazarett</td></tr>
         <tr><td>K / D / U</td><td>Krieger: Kampfschrei / Wirbelschlag / Blutrausch</td></tr>
         <tr><td>Rechtsklick mit Priester / C / H</td><td>Gegner bekehren, Verbündete heilen</td></tr>
         <tr><td>S / B / F / T, dann Klick</td><td>Prophet: Seuche / Erdbeben / Feuersturm / Sturm (nur Gegner)</td></tr>

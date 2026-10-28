@@ -56,7 +56,7 @@ export const ABILITIES: AbilityDef[] = [
     id: 'fieldheal',
     name: 'Feldlazarett',
     role: 'strategist',
-    key: 'L',
+    key: 'Q',
     cooldown: 90,
     radius: 7,
     target: 'self',

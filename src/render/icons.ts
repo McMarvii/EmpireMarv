@@ -516,6 +516,10 @@ export function abilityIcon(kind: string, size = 44): string {
         ctx.beginPath();
         ctx.arc(c, c, 5 * k, 0, Math.PI * 2);
         ctx.fill();
+    }
+  });
+}
+
 export type CommandGlyph = 'attack' | 'patrol' | 'explore' | 'stop' | 'cancel' | 'demolish' | 'dismiss' | 'lockstep' | 'shelter' | 'allclear';
 
 /** Pictograms for the order buttons that have no unit, building or tech to show. */
