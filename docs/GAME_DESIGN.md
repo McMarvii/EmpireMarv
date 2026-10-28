@@ -81,7 +81,54 @@ Fünf Rollen, jede Epoche liefert eine neue Stufe pro Rolle:
 - Werte steigen pro Epoche um 22 % des Grundwerts, Kosten nur um 12 %. Neuere Armeen sind also überlegen, alte Einheiten aber nicht wertlos. Ab der Industrialisierung kommen Fahrzeuge mit zusätzlicher Panzerung hinzu.
 - **Moral**: Jedes eigene Haus im Umkreis von 8 Feldern gibt +4 % Schaden und −4 % erlittenen Schaden (höchstens 5 Häuser).
 - Türme und Dorfzentren schießen und werden mit jeder Epoche stärker.
+- **Helden, Priester und Propheten** stehen ebenfalls außerhalb des Dreiecks, siehe [Helden, Glaube und Wunder](#helden-glaube-und-wunder).
 - **Späher** stehen außerhalb des Kampfdreiecks: schnell, Sichtweite 11, kaum Kampfkraft, greifen nie von selbst an. Stufen: Läufer → Kundschafter → Meldereiter → Spähwagen → Aufklärungsdrohne. Jede Einheit kann in den **Erkundenmodus** geschickt werden und zieht dann selbstständig zum nächsten unerkundeten Rand.
+
+## Helden, Glaube und Wunder
+
+### Helden
+
+Das Dorfzentrum bildet ab der Jungsteinzeit (II) zwei Helden aus, **je Spieler höchstens einen pro Art** (auch nicht eingereiht). Fällt einer, kann er neu ausgebildet werden. Helden sind größer gezeichnet und tragen einen goldenen Ring. Sie wachsen mit der Epoche und bekommen dann einen neuen Titel. Außerhalb des Kampfes heilen sie sich selbst (1 % LP/s nach 5 s ohne Treffer).
+
+| Held | Titel (ab Epoche) | Aura | Fähigkeiten (Taste, Abklingzeit) |
+| --- | --- | --- | --- |
+| **Stratege** (220 LP, Nahrung 200, Gold 250) | Häuptling (II) → Heerführer (IV) → Feldherr (VII) → Marschall (X) → General (XIII) → Kommandant (XVI) | Radius 7: +2 Moral (über die 5 Häuser hinaus bis 7), 1 % LP/s Heilung | **Sammelruf** `M` (60 s): Verbündete im Radius 8 laufen 10 s lang 35 % schneller. **Schildwall** `W` (75 s): Radius 6, 12 s lang −40 % Schaden. **Feldlazarett** `L` (90 s): Radius 7, sofort +35 % LP, heilt die Seuche |
+| **Krieger** (320 LP, Nahrung 250, Gold 200, Eisen 100) | Recke (II) → Kriegsheld (IV) → Bannerritter (VII) → Haudegen (X) → Kommandosoldat (XIII, Gewehr) → Elitekämpfer (XVII, Laser) | Radius 6: +15 % Angriff | **Kampfschrei** `K` (50 s): Gegner im Radius 5 sind 3 s gelähmt. **Wirbelschlag** `D` (30 s): 2,5-facher Schaden an allen Gegnern im Radius 2,5. **Blutrausch** `U` (60 s): 10 s lang +50 % Schaden und schnellere Angriffe |
+
+Auren werden einmal pro Sekunde zusammen mit der Moral berechnet; ein gelähmter Held strahlt keine Aura aus. Fähigkeitsknöpfe erscheinen nur, wenn keine Bürger in der Auswahl sind; die Bau-Tasten der Bürger bleiben so frei.
+
+### Tempel, Priester und Propheten
+
+Der Tempel (ab II, Holz 125, Stein 150, Gold 50, Taste `I`) bildet Priester (ab II) und Propheten (ab III) aus. Beide greifen nie an, auch nicht auf Befehl.
+
+- **Glaube**: Priester sammeln bis 100 Glaubenspunkte (1,5/s), Propheten bis 200 (1/s).
+- **Bekehren** (Rechtsklick auf einen Gegner oder `C`): Mit vollem Glauben betet der Priester aus bis zu 5 Feldern Abstand. Dauer 6 s × Klasse (Bürger und Späher 0,75; Kavallerie, Priester und Propheten 1,5; Belagerung 2; sonst 1) × Glaubensschutz des Gegners. Jeder Treffer am Priester wirft das Gebet 1,5 s zurück. Danach wechselt die Einheit den Besitzer, der Glaube ist verbraucht. Helden lassen sich nicht bekehren.
+- **Heilen** (Rechtsklick auf Verbündete oder `H`): 2,5 % der LP pro Sekunde aus bis zu 4 Feldern. Untätige Priester suchen sich Verwundete von selbst.
+- **Katastrophen** der Propheten (Klick auf eine Stelle bis 9 Felder entfernt; der Prophet läuft notfalls heran). Sie treffen **nur Gegner** und addieren sich nicht, wenn zwei gleiche auf derselben Stelle liegen. Dorfzentren nehmen halben Schaden, Wunder keinen.
+
+| Katastrophe | Taste | Ab | Glaube | Radius | Wirkung |
+| --- | --- | --- | --- | --- | --- |
+| Seuche | `S` | III | 100 | 4 | Wer in den 4 s, die die Wolke liegt, ins Gebiet gerät, erkrankt und verliert in 12 s 30 % LP, auch auf der Flucht. Feldlazarett heilt sie |
+| Erdbeben | `B` | III | 150 | 5 | 3 s lang: Gebäude −25 %, Einheiten −15 % LP |
+| Feuersturm | `F` | VI | 150 | 3,5 | 6 s lang: Einheiten bis −45 %, Gebäude −15 % LP |
+| Sturm | `T` | IX | 120 | 5 | 8 s lang halbes Tempo und −20 % LP |
+
+**Gegenmittel** im Tempel, je 6 Stufen: Glaubensschutz (Bekehren dauert je Stufe 40 % länger), Heilkunst (+25 % Heilung durch Priester, Strategen und Kathedrale), Katastrophenschutz (−15 % Katastrophenschaden, höchstens −75 %), Glaubenseifer (+20 % Glaubensregeneration).
+
+### Wunder
+
+Jede Ära hat ein Wunder. Ein Spieler kann jedes Ära-Wunder einmal bauen, also später weitere aus neuen Ären. Ein Wunder behält die Ära, in der es gegründet wurde, mit Aussehen, Namen und Wirkung. Kosten: das Doppelte des letzten Aufstiegs seiner Ära; 5×5 Felder, 8000 LP, 600 s Bauzeit (Taste `D`, ab III).
+
+| Baustil (Epochen) | Wunder | Wirkung für den Besitzer |
+| --- | --- | --- |
+| Stein (III) | Steinkreis | Alle Rohstoffe 15 % schneller sammeln |
+| Antike (IV–VI) | Große Bibliothek | Ganze Karte aufgedeckt, auch für Verbündete |
+| Mittelalter (VII–IX) | Kathedrale | Alle eigenen Einheiten heilen überall langsam (0,6 % LP/s), auch im Kampf |
+| Imperial (X–XII) | Kaiserpalast | Ausbildung 25 % schneller |
+| Modern (XIII–XV) | Sendeturm | +2 Moral für alle eigenen Einheiten |
+| Zukunft (XVI–XVIII) | Weltraumlift | Forschung und Aufstieg 30 % schneller |
+
+**Wundersieg** (Spieleinstellung aus/5/10/15 min, Standard 10): Ist ein Wunder fertig, sehen es alle Spieler, und ein Countdown läuft in der Topbar. Steht es bis zum Ende, gewinnt das Team des Erbauers. Wird es zerstört, endet der Countdown. Während er läuft, leuchtet das Wunder golden, auch auf der Minikarte.
 
 ## Befehle und Formationen
 
@@ -114,12 +161,14 @@ Fünf Rollen, jede Epoche liefert eine neue Stufe pro Rolle:
 | Palisadentor → Torhaus → Schranke → Energietor | 2 | Lässt eigenes Team durch, Gegner nicht |
 | Belagerungswerkstatt / Gießerei / Waffenfabrik | 3 | Belagerung und Artillerie |
 | Stall / Fahrzeugwerk / Mech-Hangar | 4 | Kavallerie, Fahrzeuge, Mechs |
+| Schrein → Tempel → Kloster → Kirche → Andachtshaus → Meditationszentrum | 2 | Priester, Propheten, Glaubensforschung |
+| Wunder (Steinkreis … Weltraumlift) | 3 | Je Ära eines, eigene Wirkung, Wundersieg |
 
 ## Technologien
 
-Der Technologiebaum umfasst **165 Techniken in 24 Zweigen**. Jeder Zweig hat eine Wirkung, die jede seiner Stufen erneut hinzufügt, und Stufen, die Epoche für Epoche freigeschaltet werden. Jede Stufe verlangt die vorige, einige zusätzlich eine Stufe eines anderen Zweigs (z. B. Luntenschloss → Schwarzpulver, Verbrennungsmotor → Dampfpumpe). So entwickelt sich die Zivilisation mit jeder Epoche weiter, statt einmal fertig erforscht zu sein.
+Der Technologiebaum umfasst **189 Techniken in 28 Zweigen**. Jeder Zweig hat eine Wirkung, die jede seiner Stufen erneut hinzufügt, und Stufen, die Epoche für Epoche freigeschaltet werden. Jede Stufe verlangt die vorige, einige zusätzlich eine Stufe eines anderen Zweigs (z. B. Luntenschloss → Schwarzpulver, Verbrennungsmotor → Dampfpumpe). So entwickelt sich die Zivilisation mit jeder Epoche weiter, statt einmal fertig erforscht zu sein.
 
-- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, parallel zur Ausbildung.
+- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung), Tempel (Glaube) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, parallel zur Ausbildung.
 - **Kosten**: Grundpreis des Zweigs × (1 + 0,3 × Epoche). Vor der Kupferzeit wird statt Gold Holz bezahlt, vor der Eisenzeit statt Eisen Stein. Dauer 18 s + 2 s je Epoche.
 - **Aufstieg**: Pro Epoche müssen zwei ihrer Techniken erforscht sein. Jede Epoche bietet 5–14 Techniken aus mindestens zwei Gebäuden.
 - **Bedienung**: Im Gebäude zeigt je Zweig ein Knopf die nächste Stufe (Tasten A, S, D …). Der Technologiebaum (Knopf „Forschung“ oder F2) zeigt alle Zweige mit Zustand und startet Forschung per Klick im nächsten freien Gebäude.
@@ -150,6 +199,10 @@ Der Technologiebaum umfasst **165 Techniken in 24 Zweigen**. Jeder Zweig hat ein
 | Lager | Holzwirtschaft | Holz wird 10 % schneller gesammelt | Steinaxt (I) → Bronzeaxt (IV) → Zugsäge (VII) → Sägemühle (X) → Dampfsäge (XIII) → Kettensäge (XV) → Holzernter (XVII) |
 | Lager | Bergbau | Stein, Gold und Eisen werden 10 % schneller gesammelt | Schlägel und Eisen (II) → Stollenbau (V) → Grubenlampe (VIII) → Sprengpulver (XI) → Dampfpumpe (XIII) → Pressluftbohrer (XIV) → Asteroidenbergbau (XVII) |
 | Lager | Ackerbau | Felder bringen 10 % mehr Nahrung | Hakenpflug (II) → Bewässerung (V) → Dreifelderwirtschaft (VII) → Kummet (IX) → Fruchtwechsel (XII) → Kunstdünger (XIII) → Traktoren (XIV) → Gentechnik (XVI) → Hydroponik (XVIII) |
+| Tempel | Glaubensschutz | Bekehren gegen dich dauert 40 % länger | Amulette (II) → Ahnenkult (V) → Reliquien (VIII) → Bekenntnisschriften (XI) → Gewissensfreiheit (XIV) → Psi-Abschirmung (XVII) |
+| Tempel | Heilkunst | Heilung durch Priester, Strategen und Kathedrale +25 % | Kräuterkunde (II) → Heilbäder (V) → Hospitäler (VIII) → Feldlazarette (XI) → Antibiotika (XIV) → Nanomedizin (XVII) |
+| Tempel | Katastrophenschutz | −15 % Schaden durch Katastrophen (höchstens −75 %) | Opfergaben (III) → Deiche (VI) → Brandwachen (IX) → Quarantäne (XII) → Zivilschutz (XV) → Kraftfelder (XVIII) |
+| Tempel | Glaubenseifer | Glauben 20 % schneller | Rituale (III) → Orakelstätten (VI) → Pilgerfahrten (IX) → Missionen (XII) → Massenmedien (XV) → Neuronale Netze (XVIII) |
 
 ## Ton und Musik
 
@@ -157,6 +210,7 @@ Alles wird mit der Web Audio API zur Laufzeit erzeugt: Oszillatoren, gefiltertes
 
 - **Kampf**: Der Klang folgt der Waffe und ihrer Epoche. Steine und Pfeile surren, Keulen pochen, Bronze und Stahl klirren. Schwarzpulver knallt dumpf, Gewehre knallen scharf, Sturmtruppen und Panzerwagen feuern Salven. Dazu kommen Kanonendonner, Raketen, Laser und Plasma. Mit Holz zerbersten Belagerungsgeräte, mit Metall Fahrzeuge, Gebäude stürzen polternd ein.
 - **Arbeit**: Axt auf Holz, Spitzhacke auf Stein, Gold und Eisen (mit unterschiedlichem Klang), raschelnde Felder, Hammer auf der Baustelle (in der Zukunft ein Schweißgerät).
+- **Helden und Glaube**: Jede Fähigkeit hat ihren Klang: Sammelruf als aufsteigende Fanfare der Ära, Schildwall mit Pauke, Feldlazarett mit Glocken, Kampfschrei mit Ruf und Kriegshorn, Wirbelschlag zischt, Blutrausch stampft. Erdbeben grollen, Feuerstürme prasseln, Stürme heulen, die Seuche brummt kränklich. Bekehrung schwillt als Chorakkord an, Heilung klingt hell, ein fertiges Wunder hat eine eigene Fanfare.
 - **Rückmeldungen**: Bei Auswahl, Bewegen, Angriff und Arbeit antworten Einheiten mit zwei Tönen auf dem Leitinstrument ihrer Ära, Reiter zusätzlich mit Hufschlag. Späher pfeifen, Fahrzeuge lassen den Motor aufheulen, Mechs surren, Drohnen brummen. Gebäude antworten mit einem kurzen Akkord.
 - **Meldungen**: Gebäude fertig, Einheit bereit, Technik erforscht, Fehler, Sieg und Niederlage. Beim Aufstieg spielt eine Fanfare, die Musik wird dabei leiser.
 - **Mischung**: Hörbar ist nur, was auf sichtbaren Feldern passiert. Lautstärke und Stereoposition ergeben sich aus der Bildschirmposition; Kampf ist noch 60 % einer Bildschirmbreite außerhalb zu hören, Arbeit nur im Bild. Jede Klangart hat einen Mindestabstand (z. B. 35 ms für Schüsse), höchstens 28 Effekte klingen gleichzeitig, ein Kompressor verhindert Übersteuern.
@@ -221,6 +275,9 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
 - **Erkundung**: mit dem Späher im Erkundenmodus.
 - **Forschung**: hält Forschungsgebäude beschäftigt. Fehlen Techniken für den Aufstieg, haben die der aktuellen Epoche Vorrang; sonst Wirtschaft vor Militär, Militärtechniken erst ab sechs Soldaten und nur aus Überschuss.
 - **Militär**: Rollenmix, der auf die sichtbare gegnerische Armee kontert. Verteidigt die Basis und greift in wachsenden Wellen an.
+- **Helden**: zuerst der Krieger, dann der Stratege. Fähigkeiten nach Lage: Kampfschrei ab 3 Gegnern im Radius, Wirbelschlag ab 2 direkt daneben, Blutrausch im Nahkampf; Feldlazarett ab 3 Verwundeten, Schildwall ab 4 Gegnern in der Nähe, Sammelruf mit mindestens 5 eigenen Einheiten um sich und 3 Gegnern im Umkreis von 12 Feldern.
+- **Glaube**: Tempel ab II mit mindestens 16 Bürgern und 4 Soldaten. Ein Prophet zuerst, dazu ein Priester und je 10 Soldaten einer mehr, höchstens 3. Priester bekehren wertvolle Ziele, sobald ihr Glaube voll ist. Propheten werfen Feuersturm, Seuche oder Sturm auf Haufen ab 4 Gegnern, sonst ein Erdbeben auf Gebäude.
+- **Wunder**: baut das Wunder der aktuellen Ära aus dem Überschuss. Mit Wundersieg spart sie gezielt dafür und schiebt den Aufstieg auf. Fremde Wunder sind bevorzugte Angriffsziele; läuft ein gegnerischer Countdown, greift sie sofort an.
 - **Schwierigkeit**: Leicht, Mittel, Schwer. Unterschiede bei Reaktionszeit, Sammelrate und Angriffszeitpunkt.
 
 ## Technische Architektur
@@ -242,8 +299,8 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | 0.2 | Mauern und Tore (auch für die KI), Späher und Erkundenmodus, Aufstieg mit Gebäude-Voraussetzungen, Epochen-Embleme, Gruppenleiste, sichtbare Moral, Durchsicht hinter Gebäuden, Karte per Rechts-Ziehen verschieben, Einlagern per Rechtsklick, Abriss mit Entf |
 | 0.3 | ✔ **Großer Technologiebaum** (165 Techniken, 24 Zweige, Schmiede und Akademie, Forschung als Aufstiegsvoraussetzung). ✔ **Ton und Musik** (Befehlsrückmeldungen, Kampf- und Arbeitsgeräusche, Alarm und Fanfaren je Ära, generative Musik je Ära mit Kampfvariante) |
 | 0.4 | ✔ **Befehlsketten** mit Umschalt (Wegpunkte, Ziele, Bauaufträge, Mauerlinien), ✔ **Formationen** (Linie, Block, Keil; Fernkampf hinten; Gleichschritt; Blickrichtung per Rechts-Ziehen), ✔ **Patrouille**, ✔ **Sammelpunkt-Ketten**, ✔ Wegpunkt-Anzeige, ✔ **Gebäude-Hotkeys** (`Tab` + Bau-Taste), ✔ **Produktionsleiste**, ✔ Ausbilden über mehrere Gebäude, ✔ Forschungs- und Aufstiegs-Warteschlangen |
-| **0.5** (jetzt) | ✔ **Mehrspieler per Link** (bis 4 Plätze, Menschen und KI, Teams mit geteilter Sicht; WebRTC direkt, Handschlag über PeerJS oder Codes; Lockstep mit Relay und Desync-Erkennung; Warten und KI-Übernahme bei Abbruch; Wiedereinstieg per Link), ✔ **Chat** und **Kartenmarkierungen**, ✔ **Wiedergaben** (automatisch, als Datei, Tempo, Springen, Sicht wählbar), ✔ browserübergreifend bitgleiche Simulation |
-| 0.6 | Helden (Stratege, Krieger), Priester und Propheten, Wunder mit Wundersieg |
+| 0.5 | ✔ **Mehrspieler per Link** (bis 4 Plätze, Menschen und KI, Teams mit geteilter Sicht; WebRTC direkt, Handschlag über PeerJS oder Codes; Lockstep mit Relay und Desync-Erkennung; Warten und KI-Übernahme bei Abbruch; Wiedereinstieg per Link), ✔ **Chat** und **Kartenmarkierungen**, ✔ **Wiedergaben** (automatisch, als Datei, Tempo, Springen, Sicht wählbar), ✔ browserübergreifend bitgleiche Simulation |
+| **0.6** (jetzt) | ✔ **Helden** (Stratege und Krieger mit Auren, je 3 Fähigkeiten, Titel je Epoche), ✔ **Tempel, Priester und Propheten** (Bekehren, Heilen, vier Katastrophen nur gegen Gegner, Gegenmittel-Techniken), ✔ **Wunder** (eines je Ära mit eigener Wirkung) mit einstellbarem **Wundersieg**, ✔ KI nutzt alles davon |
 | 0.7 | Seekrieg und Luftkrieg, Kartentypen, Speichern & Laden, Tutorial |
 | 1.0 | Kampagne und Szenario-Editor, Balancing, WebGL-Renderer für große Schlachten, Lokalisierung |
 
