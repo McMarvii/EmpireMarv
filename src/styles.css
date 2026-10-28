@@ -338,6 +338,35 @@ button.primary {
   text-overflow: ellipsis;
 }
 
+.fuelbar {
+  position: relative;
+  height: 10px;
+  margin-top: 3px;
+  max-width: 320px;
+  background: #2a2413;
+  border: 1px solid #000;
+  border-radius: 2px;
+}
+
+.fuelbar div {
+  height: 100%;
+  background: linear-gradient(#f6dc8a, #c99a32);
+}
+
+.fuelbar.low div {
+  background: linear-gradient(#ffb27a, #d0591f);
+}
+
+.fuelbar span {
+  position: absolute;
+  inset: 0;
+  font-size: 9.5px;
+  line-height: 10px;
+  text-align: center;
+  color: #2a1a05;
+  font-weight: 700;
+}
+
 .faithbar {
   position: relative;
   height: 10px;

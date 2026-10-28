@@ -1,3 +1,4 @@
+import { isAir } from '../data/units';
 import { Terrain } from '../sim/map';
 import type { World } from '../sim/world';
 import type { Camera } from './camera';
@@ -150,6 +151,21 @@ export class Minimap {
       if (u.dead || !this.view.seesUnit(u)) continue;
       const [x, y] = this.toMini(u.x, u.y);
       ctx.fillStyle = world.players[u.owner].color;
+      if (isAir(u.role)) {
+        // Aircraft as small diamonds with a light rim, so they read over a town.
+        const r = dot * 0.9;
+        ctx.beginPath();
+        ctx.moveTo(x, y - r);
+        ctx.lineTo(x + r, y);
+        ctx.lineTo(x, y + r);
+        ctx.lineTo(x - r, y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        continue;
+      }
       ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
     }
     // Camera frustum.

@@ -24,6 +24,7 @@ export const ERA_INST: Record<EraStyle, { lead: Inst; fanfare: Inst }> = {
 const WOOD_SIEGE = new Set<Look>(['ram', 'catapult', 'trebuchet']);
 const MACHINES = new Set<Look>(['tank', 'mech', 'armoredcar', 'jeep', 'cannon', 'rocket', 'beam']);
 const SHIPS = new Set<Look>(['fishingboat', 'transportship', 'warship', 'bombardship']);
+const PLANES = new Set<Look>(['fighter', 'bomber']);
 
 function vary(r: number, amount = 0.12): number {
   return 1 + (r - 0.5) * amount;
@@ -80,6 +81,11 @@ export function shotSound(o: Out, projectile: Projectile, look: Look | undefined
       tone(o, { f: f / 2, f2: heavy ? 60 : 250, dur: heavy ? 0.4 : 0.16, attack: 0.002, vol: 0.24 });
       break;
     }
+    case 'bomb':
+      // Released: a whistle falling in pitch (the blast comes with the impact).
+      tone(o, { type: 'sine', f: 1500 * k, f2: 480, glide: 0.6, dur: 0.62, attack: 0.04, vol: 0.12 });
+      noise(o, { dur: 0.5, attack: 0.1, vol: 0.05, filter: { type: 'bandpass', f: 2400, q: 3 } });
+      break;
     case 'none':
       break;
   }
@@ -147,6 +153,19 @@ export function deathSound(o: Out, look: Look | undefined, r: number): void {
   if (look === 'drone') {
     tone(o, { type: 'square', f: 800 * k, f2: 60, dur: 0.5, attack: 0.002, vol: 0.06, filter: { type: 'lowpass', f: 2000 } });
     noise(o, { dur: 0.3, vol: 0.07, filter: { type: 'highpass', f: 3000 } });
+    return;
+  }
+  if (look === 'balloon') {
+    // The envelope tears: a hiss, a soft thump far below.
+    noise(o, { dur: 0.9, attack: 0.01, vol: 0.22, filter: { type: 'highpass', f: 1800 * k, f2: 600 } });
+    tone(o, { at: 0.8, f: 90, f2: 45, dur: 0.25, attack: 0.002, vol: 0.2 });
+    return;
+  }
+  if (look && PLANES.has(look)) {
+    // Shot down: the engine screams as it falls, then the crash.
+    tone(o, { type: 'sawtooth', f: 900 * k, f2: 140, glide: 1, dur: 1.05, attack: 0.02, vol: 0.09, filter: { type: 'lowpass', f: 2200, f2: 500 } });
+    noise(o, { at: 1, dur: 0.8, attack: 0.003, vol: 0.5, rate: 0.6, filter: { type: 'lowpass', f: 1600 * k, f2: 120 } });
+    tone(o, { at: 1, f: 70 * k, f2: 30, dur: 0.6, attack: 0.002, vol: 0.45 });
     return;
   }
   if (look && SHIPS.has(look)) {
@@ -426,6 +445,23 @@ export function ackSound(o: Out, ack: Ack, look: Look | undefined, style: EraSty
     noise(o, { dur: 0.4, attack: 0.03, vol: 0.08, rate: 0.4, filter: { type: 'lowpass', f: 320 } });
     return;
   }
+  if (look === 'balloon') {
+    // The burner roars up.
+    noise(o, { dur: 0.45, attack: 0.05, vol: 0.12, filter: { type: 'bandpass', f: 700 * k, f2: 1100, q: 0.8 } });
+    return;
+  }
+  if (look && PLANES.has(look)) {
+    if (style === 'future') {
+      // A rising whine of the drive.
+      tone(o, { type: 'sine', f: 600 * k, f2: ack === 'attack' ? 1500 : 1100, glide: 0.3, dur: 0.35, attack: 0.02, vol: 0.1 });
+    } else {
+      // The engine: bombers drone, fighters howl (higher to attack).
+      const jet = look === 'fighter';
+      tone(o, { type: 'sawtooth', f: (jet ? 140 : 70) * k, f2: (jet ? 140 : 70) * k * (ack === 'attack' ? 1.6 : 1.3), glide: 0.3, dur: 0.5, attack: 0.05, vol: 0.12, vibrato: [jet ? 0 : 22, 0.04], filter: { type: 'lowpass', f: 900 } });
+      noise(o, { dur: 0.5, attack: 0.08, vol: 0.08, filter: { type: 'bandpass', f: jet ? 2400 : 600, q: 0.7 } });
+    }
+    return;
+  }
   if (look && SHIPS.has(look)) {
     if (style === 'modern' || style === 'future') {
       // Ship's horn: one blast to sail, two to fight.
@@ -492,8 +528,9 @@ const SHOT_CASES: Array<[Projectile, Look | undefined, number]> = [
   ['boulder', 'catapult', 5],
   ['laser', 'laser', 16],
   ['laser', 'beam', 17],
+  ['bomb', 'bomber', 13],
 ];
-const ACK_LOOKS: Array<Look | undefined> = [undefined, 'citizen', 'sword', 'horse', 'runner', 'catapult', 'tank', 'mech', 'drone', 'warrior', 'priest'];
+const ACK_LOOKS: Array<Look | undefined> = [undefined, 'citizen', 'sword', 'horse', 'runner', 'catapult', 'tank', 'mech', 'drone', 'warrior', 'priest', 'fighter', 'bomber', 'balloon'];
 const ABILITY_IDS: AbilityId[] = ['rally', 'shieldwall', 'fieldheal', 'warcry', 'whirlwind', 'frenzy'];
 const CALAMITY_IDS: AbilityId[] = ['plague', 'quake', 'firestorm', 'storm'];
 
@@ -508,7 +545,7 @@ export function soundSamples(): Sample[] {
     for (const building of [false, true]) out.push({ name: `impact:${p}:${building ? 'building' : 'unit'}`, dur: 0.3, play: (o) => impactSound(o, p, building, 0.2) });
   }
   for (const p of ['shell', 'boulder', 'laser'] as Projectile[]) out.push({ name: `blast:${p}`, dur: 1.6, play: (o) => blastSound(o, p, 1.5, 0.5) });
-  for (const look of ['sword', 'citizen', 'tank', 'catapult', 'drone'] as Look[]) out.push({ name: `death:${look}`, dur: 1, play: (o) => deathSound(o, look, 0.5) });
+  for (const look of ['sword', 'citizen', 'tank', 'catapult', 'drone', 'fighter', 'balloon'] as Look[]) out.push({ name: `death:${look}`, dur: look === 'fighter' ? 2 : look === 'balloon' ? 1.2 : 1, play: (o) => deathSound(o, look, 0.5) });
   out.push({ name: 'collapse', dur: 2.2, play: (o) => collapseSound(o, 3, 0.5) });
   for (const work of ['wood', 'stone', 'gold', 'iron', 'food', 'fish', 'build'] as Array<Res | 'build' | 'fish'>) {
     out.push({ name: `work:${work}`, dur: 0.3, play: (o) => workSound(o, work, 'medieval', 0.5) });
