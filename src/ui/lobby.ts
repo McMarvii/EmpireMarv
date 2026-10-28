@@ -86,7 +86,8 @@ function slotRows(slots: LobbySlot[], editable: boolean, connected: (i: number) 
 function optionsSummary(o: MatchOptions): string {
   const res = { low: 'wenig', standard: 'Standard', high: 'viel' }[o.startResources];
   const ki = { easy: 'leicht', normal: 'mittel', hard: 'schwer' }[o.difficulty];
-  return `Karte ${o.mapSize}×${o.mapSize} · Epochen ${o.startEpoch + 1}–${o.maxEpoch + 1} · Bevölkerung ${o.popLimit} · Rohstoffe ${res} · KI ${ki}${o.reveal ? ' · aufgedeckt' : ''}`;
+  const wonder = o.wonderVictory ? ` · Wundersieg ${o.wonderVictory} min` : ' · kein Wundersieg';
+  return `Karte ${o.mapSize}×${o.mapSize} · Epochen ${o.startEpoch + 1}–${o.maxEpoch + 1} · Bevölkerung ${o.popLimit} · Rohstoffe ${res} · KI ${ki}${o.reveal ? ' · aufgedeckt' : ''}${wonder}`;
 }
 
 // ------------------------------------------------------------------- host

@@ -25,6 +25,11 @@ export class Input {
   private selbox: HTMLElement;
   private cleanup: Array<() => void> = [];
 
+  /** Mouse position on screen, once the mouse has moved over the page. */
+  get pointer(): { x: number; y: number } | null {
+    return this.mouseX >= 0 ? { x: this.mouseX, y: this.mouseY } : null;
+  }
+
   constructor(
     private game: Game,
     private canvas: HTMLCanvasElement,
@@ -123,7 +128,7 @@ export class Input {
 
   private cursorFor(hoverId: number): string {
     const game = this.game;
-    if (game.mode === 'attackMove' || game.mode === 'patrol') return 'crosshair';
+    if (game.mode === 'attackMove' || game.mode === 'patrol' || game.mode === 'cast') return 'crosshair';
     if (game.mode === 'place') return 'copy';
     if (!hoverId || game.selectedOwnUnits().length === 0) return 'default';
     const e = game.world.get(hoverId);
@@ -172,6 +177,10 @@ export class Input {
     }
     if (game.mode === 'patrol') {
       game.patrolTo(e.clientX, e.clientY, e.shiftKey);
+      return;
+    }
+    if (game.mode === 'cast') {
+      game.castAt(e.clientX, e.clientY, e.shiftKey);
       return;
     }
     this.dragStart = { x: e.clientX, y: e.clientY };

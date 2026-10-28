@@ -15,6 +15,7 @@ export interface MatchOptions {
   popLimit: number;
   startResources: StartResources;
   reveal: boolean;
+  wonderVictory: number;
   seed: number;
 }
 
@@ -109,6 +110,9 @@ export const GUEST_COMMANDS = new Set<Command['type']>([
   'explore',
   'stop',
   'destroy',
+  'ability',
+  'convert',
+  'heal',
 ]);
 
 /** Input delay in ticks for a round-trip time: enough to cover half of it plus jitter. */
@@ -140,6 +144,7 @@ export function matchSettings(slots: LobbySlot[], o: MatchOptions): { settings: 
       startResources: o.startResources,
       aiDifficulty: o.difficulty,
       revealMap: o.reveal,
+      wonderVictory: o.wonderVictory,
       players,
     },
   };

@@ -18,7 +18,15 @@ export type Effect =
   | { kind: 'tower'; dmg?: number; range?: number }
   | { kind: 'research'; mul: number }
   | { kind: 'train'; mul: number }
-  | { kind: 'regen'; add: number };
+  | { kind: 'regen'; add: number }
+  /** Conversions of own units take this much longer (0.4 = +40 %). */
+  | { kind: 'convertResist'; add: number }
+  /** Healing by priests, the strategist and wonders is this much stronger. */
+  | { kind: 'heal'; add: number }
+  /** Calamities hurt own units and buildings this much less (fraction, capped). */
+  | { kind: 'calamityResist'; add: number }
+  /** Faith regenerates this much faster. */
+  | { kind: 'faith'; add: number };
 
 /** Glyph drawn on the tech icon. */
 export type TechGlyph =
@@ -75,7 +83,7 @@ export interface Tech {
 
 const INFANTRY: Role[] = ['assault', 'pike'];
 const FOOT: Role[] = ['assault', 'pike', 'ranged'];
-const ALL_UNITS: Role[] = ['citizen', 'scout', 'assault', 'pike', 'ranged', 'mounted', 'siege'];
+const ALL_UNITS: Role[] = ['citizen', 'scout', 'assault', 'pike', 'ranged', 'mounted', 'siege', 'strategist', 'warrior', 'priest', 'prophet'];
 
 export const BRANCHES: Branch[] = [
   // ------------------------------------------------------------ Schmiede
@@ -518,6 +526,75 @@ export const BRANCHES: Branch[] = [
       [17, 'Hydroponik'],
     ],
   },
+  // ------------------------------------------------------------ Tempel
+  {
+    id: 'glaubensschutz',
+    name: 'Glaubensschutz',
+    building: 'temple',
+    glyph: 'shield',
+    text: 'Eigene Einheiten zu bekehren dauert 40 % länger',
+    effects: [{ kind: 'convertResist', add: 0.4 }],
+    base: { food: 60, gold: 60 },
+    levels: [
+      [1, 'Amulette'],
+      [4, 'Ahnenkult'],
+      [7, 'Reliquien'],
+      [10, 'Bekenntnisschriften'],
+      [13, 'Gewissensfreiheit'],
+      [16, 'Psi-Abschirmung'],
+    ],
+  },
+  {
+    id: 'heilkunst',
+    name: 'Heilkunst',
+    building: 'temple',
+    glyph: 'cross',
+    text: 'Priester, Stratege und Kathedrale heilen 25 % stärker',
+    effects: [{ kind: 'heal', add: 0.25 }],
+    base: { food: 70, gold: 40 },
+    levels: [
+      [1, 'Kräuterkunde'],
+      [4, 'Heilbäder'],
+      [7, 'Hospitäler'],
+      [10, 'Feldlazarette'],
+      [13, 'Antibiotika'],
+      [16, 'Nanomedizin'],
+    ],
+  },
+  {
+    id: 'katastrophenschutz',
+    name: 'Katastrophenschutz',
+    building: 'temple',
+    glyph: 'wall',
+    text: 'Katastrophen richten 15 % weniger Schaden an',
+    effects: [{ kind: 'calamityResist', add: 0.15 }],
+    base: { wood: 60, stone: 60 },
+    levels: [
+      [2, 'Opfergaben'],
+      [5, 'Deiche'],
+      [8, 'Brandwachen'],
+      [11, 'Quarantäne'],
+      [14, 'Zivilschutz'],
+      [17, 'Kraftfelder'],
+    ],
+  },
+  {
+    id: 'glaubenseifer',
+    name: 'Glaubenseifer',
+    building: 'temple',
+    glyph: 'eye',
+    text: 'Priester und Propheten sammeln 20 % schneller Glauben',
+    effects: [{ kind: 'faith', add: 0.2 }],
+    base: { food: 50, gold: 70 },
+    levels: [
+      [2, 'Rituale'],
+      [5, 'Orakelstätten'],
+      [8, 'Pilgerfahrten'],
+      [11, 'Missionen'],
+      [14, 'Massenmedien'],
+      [17, 'Neuronale Netze'],
+    ],
+  },
 ];
 
 /** Finished techs of the current epoch a player needs before advancing. */
@@ -581,6 +658,10 @@ export interface Mods {
   research: number;
   train: number;
   regen: number;
+  convertResist: number;
+  heal: number;
+  calamityResist: number;
+  faith: number;
 }
 
 export function baseMods(): Mods {
@@ -599,6 +680,10 @@ export function baseMods(): Mods {
     research: 1,
     train: 1,
     regen: 0,
+    convertResist: 0,
+    heal: 0,
+    calamityResist: 0,
+    faith: 0,
   };
 }
 
@@ -649,6 +734,18 @@ export function modsFor(techs: Iterable<string>): Mods {
           break;
         case 'regen':
           m.regen += e.add;
+          break;
+        case 'convertResist':
+          m.convertResist += e.add;
+          break;
+        case 'heal':
+          m.heal += e.add;
+          break;
+        case 'calamityResist':
+          m.calamityResist = Math.min(0.75, m.calamityResist + e.add);
+          break;
+        case 'faith':
+          m.faith += e.add;
           break;
       }
     }

@@ -1,23 +1,28 @@
+import { ABILITIES, ABILITY_BY_ID, type Status } from '../data/abilities';
 import {
   BUILDABLE,
+  buildingCost,
   BUILDING_DEFS,
   buildingName,
   FARM_CAPACITY,
+  MORALE_MAX,
   MORALE_MAX_HOUSES,
   MORALE_PER_HOUSE,
   type BuildingType,
 } from '../data/buildings';
-import { epochLabel, epochNumeral, EPOCHS } from '../data/epochs';
+import { epochLabel, epochNumeral, EPOCHS, epochStyle } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
-import { bestTier, GATHER_LABEL, ROLE_DEFS, type Role } from '../data/units';
+import { bestTier, GATHER_LABEL, isFaithful, isHero, MAX_FAITH, ROLE_DEFS, type Role } from '../data/units';
+import { WONDERS, wonderOf } from '../data/wonders';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
 import { downloadReplay } from '../replay';
-import { buildingIcon, commandIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
+import { abilityIcon, buildingIcon, commandIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
-import type { Building, Entity, Unit } from '../sim/entities';
+import { convertTime } from '../sim/behavior';
+import { AURA_INSPIRED, AURA_LED, type Building, type Entity, type Unit } from '../sim/entities';
 import { FORMATION_LABEL, FORMATIONS, type Formation } from '../sim/formation';
-import { MAX_TECH_QUEUE, type GameEvent } from '../sim/world';
+import { MAX_TECH_QUEUE, TICK_RATE, type GameEvent } from '../sim/world';
 
 export interface CommandButton {
   key: string;
@@ -36,14 +41,30 @@ export interface CommandButton {
 }
 
 const SLOT_KEYS = ['Q', 'W', 'E', 'R'];
+/** The town centre keeps E for the advance: its heroes sit on R and T. */
+const TRAIN_KEYS: Partial<Record<BuildingType, string[]>> = { towncenter: ['Q', 'W', 'R', 'T'] };
 /** Order of the production bar. */
-const PROD_ORDER: BuildingType[] = ['towncenter', 'barracks', 'stable', 'workshop', 'smithy', 'academy', 'tower', 'storehouse'];
+const PROD_ORDER: BuildingType[] = ['towncenter', 'barracks', 'stable', 'workshop', 'temple', 'smithy', 'academy', 'tower', 'storehouse'];
+/** Priests' acts as buttons (also by right click). */
+const PRIEST_ACTS: Array<{ kind: 'convert' | 'heal'; key: string; name: string; text: string }> = [
+  { kind: 'convert', key: 'C', name: 'Bekehren', text: 'Dann Klick auf eine gegnerische Einheit: Mit vollem Glauben betet der Priester sie auf deine Seite (Helden nicht). Treffer werfen das Gebet zurück. Auch per Rechtsklick.' },
+  { kind: 'heal', key: 'H', name: 'Heilen', text: 'Dann Klick auf eine verwundete eigene oder verbündete Einheit. Untätige Priester heilen von selbst. Auch per Rechtsklick.' },
+];
 const FORMATION_KEYS: Record<Formation, string> = { line: 'N', block: 'O', wedge: 'V' };
 const FORMATION_HELP: Record<Formation, string> = {
   line: 'Breite Front, wenige Reihen: alle Schützen kommen zum Zug.',
   block: 'Kompaktes Quadrat: passt durch Engstellen, hält zusammen.',
   wedge: 'Spitze voran: bricht in die feindliche Linie ein.',
 };
+/** What heroes and the faithful do, for tooltips and the selection panel. */
+const ROLE_HELP: Partial<Record<Role, string>> = {
+  strategist: 'Aura: Einheiten in der Nähe +2 Moral und heilen langsam. Fähigkeiten: Sammelruf (M), Schildwall (W), Feldlazarett (Q).',
+  warrior: 'Aura: Einheiten in der Nähe +15 % Angriff. Fähigkeiten: Kampfschrei (K), Wirbelschlag (D), Blutrausch (U).',
+  priest: 'Bekehrt mit vollem Glauben gegnerische Einheiten (Rechtsklick oder C) und heilt Verbündete (Rechtsklick oder H). Greift nie an.',
+  prophet: 'Wirkt mit Glauben Katastrophen, die nur Gegner treffen: Seuche (S), Erdbeben (B), Feuersturm (F), Sturm (T).',
+};
+const STATUS_LABEL: Record<Status, string> = { stun: 'gelähmt', haste: 'Eile', shield: 'Schildwall', frenzy: 'Blutrausch', plague: 'Seuche', slow: 'gebremst' };
+
 /** Research buttons of a selected building; letters free while a building is selected. */
 const TECH_KEYS = ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'];
 
@@ -108,6 +129,7 @@ export class Hud {
       techBtn: q('btn-tech'),
       soundBtn: q('btn-sound'),
       prodbar: q('prodbar'),
+      wonders: q('wonders'),
     };
     this.els.hud.hidden = false;
     this.els.resources.innerHTML = RESOURCES.map(
@@ -197,6 +219,7 @@ export class Hud {
     }
     const clock = fmtTime(world.time) + (this.game.speed !== 1 ? ` · ${this.game.speed}×` : '');
     if (this.els.clock.textContent !== clock) this.els.clock.textContent = clock;
+    this.updateWonders();
 
     for (const ev of world.events) this.handleEvent(ev);
     world.events.length = 0;
@@ -208,6 +231,20 @@ export class Hud {
       this.updateGroups();
       this.updateProdbar();
     }
+  }
+
+  /** Topbar: every wonder counting down to victory, the closest first. Click jumps there. */
+  private updateWonders(): void {
+    const { world } = this.game;
+    const counting = world.buildings.filter((b) => !b.dead && b.type === 'wonder' && b.countdown > 0).sort((a, b) => a.countdown - b.countdown || a.id - b.id);
+    const el = this.els.wonders;
+    const html = counting
+      .map((b) => `<span style="color:${world.players[b.owner].color}">⌛ ${esc(buildingName(b.type, b.epoch))} ${fmtTime(b.countdown / TICK_RATE)}</span>`)
+      .join(' ');
+    el.hidden = !html;
+    if (el.innerHTML !== html) el.innerHTML = html;
+    const first = counting[0];
+    el.onclick = first ? () => this.game.centerOn(first.x, first.y) : null;
   }
 
   setPrefix(active: boolean): void {
@@ -335,6 +372,11 @@ export class Hud {
       return;
     }
     if (ev.type === 'gameover') return;
+    if (ev.type === 'wonder' && ev.x !== undefined && ev.y !== undefined) {
+      const { x, y } = ev;
+      this.message('wonder', ev.text, () => this.game.centerOn(x, y));
+      return;
+    }
     const tech = ev.tech ? TECH_BY_ID.get(ev.tech) : undefined;
     const icon = tech ? techIcon(tech, 32) : ev.epoch !== undefined ? epochIcon(ev.epoch, 32) : undefined;
     this.message(ev.type, ev.text, undefined, icon);
@@ -372,9 +414,13 @@ export class Hud {
           const q = e.queue.map((i) => `${i.role}${Math.floor(i.progress * 2)}`).join('');
           const tech = e.tech ? `${e.tech.id}${Math.floor(e.tech.progress)}` : '';
           const waiting = `${e.techQueue.map((j) => j.id).join('')}${e.pendingAdvance ? `a${e.pendingAdvance.ahead}` : ''}`;
-          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}${e.garrison.length}`;
+          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}${Math.ceil(e.countdown / TICK_RATE)}${e.garrison.length}`;
         }
-        if (e.kind === 'unit') return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}`;
+        if (e.kind === 'unit') {
+          const states = Object.values(e.status).filter((t) => (t ?? 0) > this.game.world.tick).length;
+          const convert = e.order.kind === 'convert' ? Math.floor(e.order.progress * 4) : '';
+          return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}${Math.floor(e.faith / 2)}${states}${e.aura}${convert}`;
+        }
         return `${Math.floor(e.amount)}`;
       })
       .join('');
@@ -438,30 +484,54 @@ export class Hud {
       else if (e.order.kind === 'attack') activity = 'kämpft';
       else if (e.order.kind === 'move') activity = 'unterwegs';
       else if (e.order.kind === 'patrol') activity = 'patrouilliert';
+      else if (e.order.kind === 'convert') {
+        const target = world.get(e.order.targetId);
+        const share = target && target.kind === 'unit' ? Math.min(99, Math.floor((e.order.progress / convertTime(world, target)) * 100)) : 0;
+        activity = e.faith < (MAX_FAITH.priest ?? 0) ? 'sammelt Glauben zum Bekehren' : `bekehrt ${share} %`;
+      } else if (e.order.kind === 'heal') activity = 'heilt';
+      else if (e.order.kind === 'cast') activity = `wirkt ${ABILITY_BY_ID.get(e.order.ability)!.name}`;
       else activity = 'untätig';
       if (e.queue.length) activity += `, dann ${e.queue.length} ${e.queue.length === 1 ? 'weiterer Befehl' : 'weitere Befehle'}`;
       const carry = e.carry && e.carryAmount > 0 ? ` · trägt ${Math.floor(e.carryAmount)} ${RES_LABEL[e.carry]}` : '';
       const pct = Math.round(e.morale * MORALE_PER_HOUSE * 100);
+      const stars = Math.min(MORALE_MAX, e.morale);
       const moraleLine =
         e.owner !== me
           ? ''
           : e.morale > 0
-            ? `<div class="morale-line up">${'★'.repeat(e.morale)}${'☆'.repeat(MORALE_MAX_HOUSES - e.morale)} Moral: +${pct} % Angriff, −${pct} % Schaden</div>`
+            ? `<div class="morale-line up">${'★'.repeat(stars)}${'☆'.repeat(Math.max(0, MORALE_MAX_HOUSES - stars))} Moral: +${pct} % Angriff, −${pct} % Schaden</div>`
             : '<div class="morale-line">☆ Keine Moral – eigene Häuser in der Nähe stärken Einheiten</div>';
+      const maxFaith = MAX_FAITH[e.role];
+      const faithBar =
+        maxFaith !== undefined
+          ? `<div class="faithbar"><div style="width:${(e.faith / maxFaith) * 100}%"></div><span>Glaube ${Math.floor(e.faith)} / ${maxFaith}</span></div>`
+          : '';
+      const states = [
+        ...(Object.keys(STATUS_LABEL) as Status[])
+          .filter((st) => (e.status[st] ?? 0) > world.tick)
+          .map((st) => `${STATUS_LABEL[st]} ${Math.ceil(((e.status[st] ?? 0) - world.tick) / TICK_RATE)} s`),
+        ...(e.aura & AURA_LED ? ['vom Strategen geführt'] : []),
+        ...(e.aura & AURA_INSPIRED ? ['vom Krieger angefeuert'] : []),
+      ];
+      const statusLine = states.length ? `<div class="status-line">${states.map((t) => esc(t)).join(' · ')}</div>` : '';
       return `<div class="sel-single">
         <img class="portrait" src="${unitIcon(e.role, s.epoch, owner!.color, 64)}">
         <div class="sel-info">
           <div class="sel-name">${esc(s.name)} ${ownerLine}</div>
-          <div class="sel-sub">${esc(def.label)} · ${epochTag(s.epoch)} · ${activity}${carry}</div>
+          <div class="sel-sub">${esc(def.label)} · ${epochTag(s.epoch)} · ${activity}${carry}${isHero(e.role) ? ' <span class="hero-tag">Held</span>' : ''}</div>
           ${hpBar(e.hp, e.maxHp)}
+          ${faithBar}
           ${moraleLine}
-          <div class="stats"><span>Angriff ${s.dmg}</span><span>Rüstung ${s.armor}</span><span>Reichweite ${s.range.toFixed(1)}</span><span>Tempo ${s.speed.toFixed(1)}</span></div>
+          ${statusLine}
+          <div class="stats">${isFaithful(e.role) ? '' : `<span>Angriff ${s.dmg}</span>`}<span>Rüstung ${s.armor}</span>${isFaithful(e.role) ? '' : `<span>Reichweite ${s.range.toFixed(1)}</span>`}<span>Tempo ${s.speed.toFixed(1)}</span></div>
           ${
-            e.role === 'scout'
-              ? '<div class="counter">Schnell und weitsichtig, kämpft kaum. <b>E</b>: Erkunden</div>'
-              : e.role !== 'citizen'
-                ? `<div class="counter"><b>Stark gegen:</b> ${esc(def.strongVs)} · <b>Schwach gegen:</b> ${esc(def.weakVs)}</div>`
-                : ''
+            ROLE_HELP[e.role]
+              ? `<div class="counter">${esc(ROLE_HELP[e.role]!)}</div>`
+              : e.role === 'scout'
+                ? '<div class="counter">Schnell und weitsichtig, kämpft kaum. <b>E</b>: Erkunden</div>'
+                : e.role !== 'citizen'
+                  ? `<div class="counter"><b>Stark gegen:</b> ${esc(def.strongVs)} · <b>Schwach gegen:</b> ${esc(def.weakVs)}</div>`
+                  : ''
           }
         </div></div>`;
     }
@@ -491,6 +561,10 @@ export class Hud {
         lines.push(n ? `Zuflucht: ${n} / ${def.garrison} Bürger · +${n} ${n === 1 ? 'Pfeil' : 'Pfeile'}` : `Zuflucht: 0 / ${def.garrison} Bürger (Z: Alarm)`);
       }
       if (e.type === 'house') lines.push('Der Kreis auf dem Boden zeigt, wie weit die Moral reicht.');
+      if (e.type === 'wonder') {
+        lines.push(`Wirkung: ${esc(WONDERS[epochStyle(e.epoch)].text)}`);
+        if (e.countdown > 0) lines.push(`<span class="warn">Wundersieg in ${fmtTime(e.countdown / TICK_RATE)}</span>`);
+      }
       if (e.popBlocked) lines.push('<span class="warn">Bevölkerungslimit erreicht</span>');
       let queue = '';
       if ((e.queue.length || e.pendingAdvance) && e.owner === me) {
@@ -577,18 +651,29 @@ export class Hud {
         const def = BUILDING_DEFS[type];
         const unlocked = world.buildingUnlocked(me, type);
         const name = buildingName(type, player.epoch);
+        const cost = buildingCost(type, player.epoch);
+        // Wonders: the one of the current era, each only once.
+        const problem = type === 'wonder' && unlocked ? world.wonderProblem(me) : null;
+        const wonder = type === 'wonder' ? wonderOf(player.epoch) : null;
+        const victory = world.settings.wonderVictory ?? 0;
         cmds.push({
           key: def.hotkey,
           icon: buildingIcon(type, player.epoch, color),
-          enabled: unlocked && canAfford(player.stock, def.cost),
+          enabled: unlocked && !problem && canAfford(player.stock, cost),
           locked: !unlocked,
           title: name,
           tooltip:
-            `<b>${esc(name)}</b> <kbd>${def.hotkey}</kbd><div>${costHtml(def.cost, player.stock)}</div><p>${esc(def.description)}</p>` +
+            `<b>${esc(name)}</b> <kbd>${def.hotkey}</kbd><div>${costHtml(cost, player.stock)}</div><p>${esc(def.description)}</p>` +
+            (wonder ? `<p><b>Wirkung:</b> ${esc(wonder.text)}</p><p class="dim">${victory ? `Wundersieg: ${victory} Minuten halten.` : 'Wundersieg ist in dieser Partie aus.'}</p>` : '') +
+            (problem ? `<p class="warn">${esc(problem)}</p>` : '') +
             (unlocked ? '' : `<p class="warn">Verfügbar ab: ${epochTag(def.minEpoch)}</p>`),
           action: () => {
             if (!unlocked) return;
-            if (!canAfford(player.stock, def.cost)) {
+            if (problem) {
+              this.message('warn', problem);
+              return;
+            }
+            if (!canAfford(player.stock, cost)) {
               this.message('warn', `Nicht genug Rohstoffe für ${name}.`);
               return;
             }
@@ -633,6 +718,7 @@ export class Hud {
             action: () => game.setFormation(f),
           });
         }
+        cmds.push(...this.abilityButtons(units));
         const inStep = units.filter((u) => u.lockstep).length * 2 >= units.length;
         cmds.push({
           key: 'L',
@@ -673,7 +759,8 @@ export class Hud {
     const b = sites[0] ?? null;
     if (b) {
       const def = BUILDING_DEFS[b.type];
-      def.trains.forEach((role, i) => cmds.push(this.trainButton(sites, role, SLOT_KEYS[i])));
+      const keys = TRAIN_KEYS[b.type] ?? SLOT_KEYS;
+      def.trains.forEach((role, i) => cmds.push(this.trainButton(sites, role, keys[i])));
       if (b.type === 'towncenter') {
         if (b.research || b.pendingAdvance) {
           cmds.push({
@@ -810,6 +897,57 @@ export class Hud {
     );
   }
 
+  /** Hero abilities, calamities and priestly acts of the selected units (never next to citizens' build keys). */
+  private abilityButtons(units: Unit[]): CommandButton[] {
+    const game = this.game;
+    const { world, me } = game;
+    const epoch = world.players[me].epoch;
+    const cmds: CommandButton[] = [];
+    for (const a of ABILITIES) {
+      const casters = units.filter((u) => u.role === a.role);
+      if (!casters.length) continue;
+      const locked = epoch < a.minEpoch;
+      const wait = a.faith ? 0 : Math.min(...casters.map((u) => Math.max(0, (u.ready[a.id] ?? 0) - world.tick))) / TICK_RATE;
+      const faith = a.faith ? Math.max(...casters.map((u) => u.faith)) : 0;
+      const ready = !locked && wait <= 0 && (!a.faith || faith >= a.faith);
+      cmds.push({
+        key: a.key,
+        icon: abilityIcon(a.id),
+        enabled: ready,
+        locked,
+        active: game.mode === 'cast' && game.casting === a.id,
+        badge: a.faith ? String(a.faith) : wait > 0 ? String(Math.ceil(wait)) : undefined,
+        title: a.name,
+        tooltip:
+          `<b>${esc(a.name)}</b> <kbd>${a.key}</kbd><p>${esc(a.text)}</p>` +
+          (a.faith ? `<p class="dim">Kostet ${a.faith} Glauben${a.target === 'ground' ? `, Reichweite ${a.range} – dann Klick auf das Ziel` : ''}.</p>` : `<p class="dim">Abklingzeit ${a.cooldown} s${a.radius ? `, Radius ${a.radius}` : ''}.</p>`) +
+          (locked ? `<p class="warn">Verfügbar ab: ${epochTag(a.minEpoch)}</p>` : wait > 0 ? `<p class="warn">Bereit in ${Math.ceil(wait)} s</p>` : ''),
+        action: () => {
+          if (locked) return;
+          if (!ready) {
+            this.message('warn', a.faith ? `Zu wenig Glauben für ${a.name}.` : `${a.name} lädt noch.`);
+            return;
+          }
+          game.useAbility(a.id);
+        },
+      });
+    }
+    if (units.some((u) => u.role === 'priest')) {
+      for (const act of PRIEST_ACTS) {
+        cmds.push({
+          key: act.key,
+          icon: abilityIcon(act.kind),
+          enabled: true,
+          active: game.mode === 'cast' && game.casting === act.kind,
+          title: act.name,
+          tooltip: `<b>${act.name}</b> <kbd>${act.key}</kbd><p>${esc(act.text)}</p>`,
+          action: () => game.beginCast(act.kind),
+        });
+      }
+    }
+    return cmds;
+  }
+
   private trainButton(sites: Building[], role: Role, key: string): CommandButton {
     const { world, me } = this.game;
     const player = world.players[me];
@@ -829,11 +967,14 @@ export class Hud {
     }
     const s = world.unitStatsFor(me, role, tier);
     const queued = sites.reduce((n, b) => n + b.queue.filter((q) => q.role === role).length, 0);
-    const nextTier = def.tiers[tier + 1];
+    // Heroes: the next title, not every yearly tier; and only one at a time.
+    const nextTier = def.tiers.slice(tier + 1).find((t) => t.name !== s.name);
+    const hero = isHero(role);
+    const taken = hero && world.hasHero(me, role);
     return {
       key,
       icon: unitIcon(role, s.epoch, player.color),
-      enabled: canAfford(player.stock, s.cost),
+      enabled: !taken && canAfford(player.stock, s.cost),
       badge: queued ? String(queued) : undefined,
       title: s.name,
       tooltip:
@@ -844,8 +985,10 @@ export class Hud {
           : role === 'scout'
             ? '<p>Schnell, große Sichtweite, kämpft kaum. Ideal zum Erkunden (Taste E).</p>'
             : `<p><b>Stark gegen:</b> ${esc(def.strongVs)}<br><b>Schwach gegen:</b> ${esc(def.weakVs)}</p>`) +
+        (hero ? `<p>${esc(ROLE_HELP[role] ?? '')}</p><p class="dim">Wird mit jeder Epoche stärker. Nur einer gleichzeitig.</p>` : '') +
+        (taken ? '<p class="warn">Schon da (oder in Ausbildung).</p>' : '') +
         (nextTier ? `<p class="dim">Nächste Stufe: ${esc(nextTier.name)} (${epochTag(nextTier.epoch)})</p>` : '') +
-        `<p class="dim">Umschalt+Klick: 5 Stück</p>`,
+        (hero ? '' : `<p class="dim">Umschalt+Klick: 5 Stück</p>`),
       action: (shift) => this.game.train(sites, role, shift ? 5 : 1),
     };
   }
@@ -1019,6 +1162,10 @@ export class Hud {
         <tr><td>Umschalt + Rechtsklick</td><td>Befehl anhängen (Wegpunkte, Ziele, Bauaufträge); gehaltene Umschalttaste zeigt die Pläne</td></tr>
         <tr><td>Rechts ziehen (Einheiten gewählt)</td><td>Ziel und Blickrichtung der Formation (Pfeil)</td></tr>
         <tr><td>N / O / V</td><td>Formation Linie / Block / Keil</td></tr>
+        <tr><td>M / W / Q</td><td>Stratege: Sammelruf / Schildwall / Feldlazarett</td></tr>
+        <tr><td>K / D / U</td><td>Krieger: Kampfschrei / Wirbelschlag / Blutrausch</td></tr>
+        <tr><td>Rechtsklick mit Priester / C / H</td><td>Gegner bekehren, Verbündete heilen</td></tr>
+        <tr><td>S / B / F / T, dann Klick</td><td>Prophet: Seuche / Erdbeben / Feuersturm / Sturm (nur Gegner)</td></tr>
         <tr><td>L</td><td>Gleichschritt an/aus (Armee ausgewählt)</td></tr>
         <tr><td>Z (Dorfzentrum oder Turm gewählt)</td><td>Zuflucht: Bürger gehen in Dorfzentrum und Türme (je 5, +1 Pfeil pro Bürger); nochmal = Entwarnung</td></tr>
         <tr><td>E</td><td>Erkunden (Einheiten ausgewählt)</td></tr>
@@ -1128,14 +1275,19 @@ export class Hud {
     const rows = world.players
       .map((p) => {
         const gathered = RESOURCES.reduce((s, r) => s + p.stats.gathered[r], 0);
-        return `<tr><td style="color:${p.color}">${esc(p.name)}</td><td>${epochTag(p.epoch)}</td><td>${Math.round(gathered)}</td><td>${p.stats.unitsTrained}</td><td>${p.stats.kills}</td><td>${p.stats.unitsLost}</td><td>${p.stats.buildingsLost}</td></tr>`;
+        return `<tr><td style="color:${p.color}">${esc(p.name)}</td><td>${epochTag(p.epoch)}</td><td>${Math.round(gathered)}</td><td>${p.stats.unitsTrained}</td><td>${p.stats.kills}</td><td>${p.stats.converted}</td><td>${p.stats.unitsLost}</td><td>${p.stats.buildingsLost}</td></tr>`;
       })
       .join('');
+    const vw = world.victoryWonder;
+    const how =
+      world.victory === 'wonder' && vw
+        ? `<p class="victory-how">Wundersieg: ${esc(vw.name)}, ${vw.owner === me ? 'von dir' : `von ${esc(world.players[vw.owner].name)}`} gehalten</p>`
+        : '';
     this.openOverlay(
       'gameover',
       `<h2 class="${won ? 'win' : 'lose'}">${won ? 'Sieg!' : 'Niederlage'}</h2>
-       <p>Spielzeit ${fmtTime(world.time)}</p>
-       <table class="stats-table"><tr><th>Spieler</th><th>Epoche</th><th>Gesammelt</th><th>Ausgebildet</th><th>Getötet</th><th>Verluste</th><th>Gebäude verloren</th></tr>${rows}</table>
+       ${how}<p>Spielzeit ${fmtTime(world.time)}</p>
+       <table class="stats-table"><tr><th>Spieler</th><th>Epoche</th><th>Gesammelt</th><th>Ausgebildet</th><th>Getötet</th><th>Bekehrt</th><th>Verluste</th><th>Gebäude verloren</th></tr>${rows}</table>
        <div class="dialog-buttons"><button data-act="watch">Weiter ansehen</button>${this.game.recorder ? '<button data-act="save">Wiedergabe speichern</button>' : ''}<button data-act="quit" class="primary">Hauptmenü</button></div>`,
     );
     this.bindOverlay({

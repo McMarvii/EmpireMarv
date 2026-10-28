@@ -1,5 +1,6 @@
 import type { Cost } from './resources';
 import type { Role } from './units';
+import { wonderCost, WONDERS, type WonderDef } from './wonders';
 
 export type BuildingType =
   | 'towncenter'
@@ -13,7 +14,9 @@ export type BuildingType =
   | 'wall'
   | 'gate'
   | 'smithy'
-  | 'academy';
+  | 'academy'
+  | 'temple'
+  | 'wonder';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -53,14 +56,14 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     cost: { wood: 300, stone: 200, gold: 100 },
     buildTime: 90,
     minEpoch: 0,
-    trains: ['citizen', 'scout'],
+    trains: ['citizen', 'scout', 'strategist', 'warrior'],
     dropoff: true,
     walkable: false,
     sight: 10,
     attack: { dmg: 6, range: 6, cooldown: 2 },
     garrison: 5,
     hotkey: 'Z',
-    description: 'Bildet Bürger und Späher aus, nimmt alle Rohstoffe an und erforscht den Aufstieg in die nächste Epoche.',
+    description: 'Bildet Bürger, Späher und Helden aus, nimmt alle Rohstoffe an und erforscht den Aufstieg in die nächste Epoche.',
   },
   house: {
     type: 'house',
@@ -288,6 +291,45 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     hotkey: 'G',
     description: 'Durchgang in der Mauer: lässt eigene und verbündete Einheiten durch, Gegner nicht.',
   },
+  temple: {
+    type: 'temple',
+    names: [
+      [1, 'Schrein'],
+      [3, 'Tempel'],
+      [7, 'Kloster'],
+      [10, 'Kirche'],
+      [13, 'Andachtshaus'],
+      [15, 'Meditationszentrum'],
+    ],
+    size: 3,
+    hp: 1400,
+    cost: { wood: 125, stone: 150, gold: 50 },
+    buildTime: 50,
+    minEpoch: 1,
+    trains: ['priest', 'prophet'],
+    dropoff: false,
+    walkable: false,
+    sight: 6,
+    hotkey: 'I',
+    description: 'Bildet Priester (bekehren, heilen) und Propheten (Katastrophen) aus; erforscht Glaubensschutz, Heilkunst und Schutz vor Katastrophen.',
+  },
+  wonder: {
+    type: 'wonder',
+    // Each era has its own wonder; a wonder keeps the era it was founded in (see data/wonders.ts).
+    names: (Object.values(WONDERS) as WonderDef[]).map((d, i) => [i * 3, d.name] as [number, string]),
+    size: 5,
+    hp: 8000,
+    // The real price grows with the era, see buildingCost().
+    cost: { food: 800, wood: 700, stone: 400 },
+    buildTime: 600,
+    minEpoch: 2,
+    trains: [],
+    dropoff: false,
+    walkable: false,
+    sight: 8,
+    hotkey: 'D',
+    description: 'Ein Wunder der aktuellen Ära mit eigener Wirkung; jedes Ära-Wunder einmal. Bei Wundersieg gewinnt, wer es lange genug hält.',
+  },
 };
 
 export const BUILDABLE: BuildingType[] = [
@@ -302,8 +344,15 @@ export const BUILDABLE: BuildingType[] = [
   'stable',
   'smithy',
   'academy',
+  'temple',
+  'wonder',
   'towncenter',
 ];
+
+/** What founding a building costs in an epoch: wonders grow with the era, everything else stays. */
+export function buildingCost(type: BuildingType, epoch: number): Cost {
+  return type === 'wonder' ? wonderCost(epoch) : BUILDING_DEFS[type].cost;
+}
 
 export function buildingName(type: BuildingType, epoch: number): string {
   const names = BUILDING_DEFS[type].names;
@@ -328,3 +377,5 @@ export const FARM_CAPACITY = 2;
 export const MORALE_RADIUS = 8;
 export const MORALE_PER_HOUSE = 0.04;
 export const MORALE_MAX_HOUSES = 5;
+/** Morale from houses, the strategist and the Sendeturm together is capped here. */
+export const MORALE_MAX = 7;

@@ -1,6 +1,7 @@
 import { epochNumeral, EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { ROLE_DEFS, type CombatRole } from '../data/units';
 import { epochIcon, unitIcon } from '../render/icons';
+import { WONDER_VICTORY_OPTIONS } from '../data/wonders';
 import { PLAYER_COLORS, type MatchOptions } from '../net/protocol';
 import { loadLastReplay, parseReplay, type Replay } from '../replay';
 import type { Difficulty, GameSettings, PlayerSetup, StartResources } from '../sim/world';
@@ -20,6 +21,8 @@ export interface MenuValues {
   popLimit: number;
   startResources: StartResources;
   reveal: boolean;
+  /** Minutes a wonder must stand to win; 0 = no wonder victory. */
+  wonderVictory: number;
   seed: number;
 }
 
@@ -32,6 +35,7 @@ const DEFAULTS: MenuValues = {
   popLimit: 120,
   startResources: 'standard',
   reveal: false,
+  wonderVictory: 10,
   seed: 0,
 };
 
@@ -91,6 +95,7 @@ export function toSettings(v: MenuValues): Partial<GameSettings> {
     startResources: v.startResources,
     aiDifficulty: v.difficulty,
     revealMap: v.reveal,
+    wonderVictory: v.wonderVictory,
     players,
   };
 }
@@ -156,6 +161,10 @@ export function settingsFields(v: MenuValues, single: boolean): string {
       ],
       v.startResources,
     )}</select></label>
+    <label>Wundersieg<select name="wonderVictory">${options(
+      WONDER_VICTORY_OPTIONS.map((m) => [m, m ? `Wunder ${m} Minuten halten` : 'Aus'] as [number, string]),
+      v.wonderVictory,
+    )}</select></label>
     <label>Kartennummer<input name="seed" type="number" min="0" placeholder="zufällig" value="${v.seed || ''}"></label>
     <label class="check"><input name="reveal" type="checkbox"${v.reveal ? ' checked' : ''}> Karte aufgedeckt</label>`;
 }
@@ -172,6 +181,7 @@ export function readValues(form: HTMLFormElement, base: MenuValues): MenuValues 
     popLimit: num('popLimit', base.popLimit),
     startResources: (data.get('startResources') as StartResources) ?? base.startResources,
     reveal: data.get('reveal') === 'on',
+    wonderVictory: num('wonderVictory', base.wonderVictory),
     seed: num('seed', 0),
   };
 }

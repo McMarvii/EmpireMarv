@@ -4,10 +4,14 @@ import type { Entity } from '../sim/entities';
 import type { GameEvent, SoundCue } from '../sim/world';
 import { audio, type AudioEngine } from './engine';
 import {
+  abilitySound,
   ackSound,
   blastSound,
+  calamitySound,
   collapseSound,
+  convertSound,
   deathSound,
+  healSound,
   impactSound,
   meleeSound,
   shotSound,
@@ -66,11 +70,59 @@ export class Heat {
 
 type CueKind = SoundCue['kind'];
 /** Shortest gap between two cues of one kind in ms, their mix level and rough length. */
-const CUE_GAP: Record<CueKind, number> = { shot: 35, melee: 45, impact: 60, blast: 70, death: 80, collapse: 250, work: 70 };
-const CUE_GAIN: Record<CueKind, number> = { shot: 0.8, melee: 0.8, impact: 0.6, blast: 1, death: 0.8, collapse: 1, work: 0.45 };
-const CUE_LEN: Record<CueKind, number> = { shot: 0.6, melee: 0.35, impact: 0.2, blast: 1.2, death: 0.5, collapse: 1.8, work: 0.15 };
-/** Heat per visible cue; work is not fighting. */
-const CUE_HEAT: Record<CueKind, number> = { shot: 1, melee: 1, impact: 0, blast: 1.5, death: 1.5, collapse: 2, work: 0 };
+const CUE_GAP: Record<CueKind, number> = {
+  shot: 35,
+  melee: 45,
+  impact: 60,
+  blast: 70,
+  death: 80,
+  collapse: 250,
+  work: 70,
+  ability: 150,
+  calamity: 400,
+  convert: 300,
+  heal: 250,
+};
+const CUE_GAIN: Record<CueKind, number> = {
+  shot: 0.8,
+  melee: 0.8,
+  impact: 0.6,
+  blast: 1,
+  death: 0.8,
+  collapse: 1,
+  work: 0.45,
+  ability: 1,
+  calamity: 1.1,
+  convert: 0.9,
+  heal: 0.6,
+};
+const CUE_LEN: Record<CueKind, number> = {
+  shot: 0.6,
+  melee: 0.35,
+  impact: 0.2,
+  blast: 1.2,
+  death: 0.5,
+  collapse: 1.8,
+  work: 0.15,
+  ability: 0.9,
+  calamity: 2.8,
+  convert: 1.5,
+  heal: 0.5,
+};
+/** Heat per visible cue; work and healing are not fighting. */
+const CUE_HEAT: Record<CueKind, number> = {
+  shot: 1,
+  melee: 1,
+  impact: 0,
+  blast: 1.5,
+  death: 1.5,
+  collapse: 2,
+  work: 0,
+  ability: 2,
+  calamity: 4,
+  convert: 1,
+  heal: 0,
+};
 
 /**
  * Turns one match into sound: world cues become positioned effects, game
@@ -151,6 +203,9 @@ export class GameAudio {
       case 'tech':
         this.ui('tech', 500);
         break;
+      case 'wonder':
+        this.ui('wonder', 1500);
+        break;
       case 'attack':
         this.heat.add(Heat.ENTER);
         this.ui('alarm', 4000);
@@ -203,6 +258,14 @@ export class GameAudio {
             return collapseSound(o, c.size ?? 2, r);
           case 'work':
             return workSound(o, c.work ?? 'build', epochStyle(epoch), r);
+          case 'ability':
+            return abilitySound(o, c.ability ?? 'rally', epochStyle(epoch), r);
+          case 'calamity':
+            return calamitySound(o, c.ability ?? 'quake', r);
+          case 'convert':
+            return convertSound(o, epochStyle(epoch));
+          case 'heal':
+            return healSound(o, r);
         }
       },
       { gain: gain * CUE_GAIN[c.kind] * zoom, pan, length: CUE_LEN[c.kind] },

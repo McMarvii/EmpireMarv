@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AIController } from '../src/sim/ai';
+import { createWorld } from '../src/sim/setup';
 import { World } from '../src/sim/world';
 import { run } from './helpers';
 
@@ -127,4 +128,46 @@ describe('simulation', () => {
     run(w, 300);
     expect(w.players.reduce((s, p) => s + p.stats.kills, 0)).toBeGreaterThan(0);
   }, 60000);
+
+  it('lets the AI use heroes, faith and wonders', () => {
+    const play = () => {
+      const w = createWorld({
+        seed: 7,
+        mapSize: 96,
+        startEpoch: 6,
+        startResources: 'high',
+        wonderVictory: 10,
+        aiDifficulty: 'hard',
+        players: [
+          { name: 'A', color: '#2f7de1', isAI: true, team: 0 },
+          { name: 'B', color: '#d9412b', isAI: true, team: 1 },
+        ],
+      });
+      const seen = { hero: false, priest: false, prophet: false, ability: 0, calamity: 0 };
+      for (let i = 0; i < 11 * 60 * 20 && !w.over; i++) {
+        w.step();
+        for (const c of w.cues) {
+          if (c.kind === 'ability') seen.ability++;
+          if (c.kind === 'calamity') seen.calamity++;
+        }
+        w.cues.length = 0;
+        w.events.length = 0;
+        for (const u of w.units) {
+          if (u.role === 'warrior' || u.role === 'strategist') seen.hero = true;
+          if (u.role === 'priest') seen.priest = true;
+          if (u.role === 'prophet') seen.prophet = true;
+        }
+      }
+      return { w, seen };
+    };
+    const { w, seen } = play();
+    expect(w.buildings.filter((b) => b.type === 'temple' && b.built).length).toBeGreaterThanOrEqual(2);
+    expect(seen).toMatchObject({ hero: true, priest: true, prophet: true });
+    expect(seen.ability).toBeGreaterThan(0);
+    expect(seen.calamity).toBeGreaterThan(0);
+    expect(w.buildings.some((b) => b.type === 'wonder')).toBe(true);
+    // All of it stays deterministic.
+    expect(play().w.checksum()).toBe(w.checksum());
+  }, 120000);
 });
+

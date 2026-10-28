@@ -77,6 +77,7 @@ const OPTIONS: MatchOptions = {
   popLimit: 120,
   startResources: 'standard',
   reveal: false,
+  wonderVictory: 5,
   seed: 21,
 };
 

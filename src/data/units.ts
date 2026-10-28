@@ -7,10 +7,34 @@ import type { BuildingType } from './buildings';
  * the rock-paper-scissors logic stays readable from the stone age to space.
  */
 export type CombatRole = 'assault' | 'pike' | 'ranged' | 'mounted' | 'siege';
+/** Heroes lead and the faithful heal, convert and curse – also outside the counter loop. */
+export type SpecialRole = 'strategist' | 'warrior' | 'priest' | 'prophet';
 /** Scouts sit outside the counter loop: fast, far-sighted and nearly harmless. */
-export type Role = 'citizen' | 'scout' | CombatRole;
+export type Role = 'citizen' | 'scout' | CombatRole | SpecialRole;
 
 export const COMBAT_ROLES: CombatRole[] = ['assault', 'pike', 'ranged', 'mounted', 'siege'];
+/** One of each per player at a time; they grow with every epoch. */
+export const HERO_ROLES: Role[] = ['strategist', 'warrior'];
+/** Units that live on faith points instead of weapons. */
+export const FAITH_ROLES: Role[] = ['priest', 'prophet'];
+
+export function isHero(role: Role): boolean {
+  return role === 'strategist' || role === 'warrior';
+}
+
+export function isFaithful(role: Role): boolean {
+  return role === 'priest' || role === 'prophet';
+}
+
+/** Roles that never pick a fight on their own. */
+export function isPeaceful(role: Role): boolean {
+  return role === 'citizen' || role === 'scout' || role === 'priest' || role === 'prophet';
+}
+
+/** Faith points: priests convert with a full store, prophets pay for calamities. */
+export const MAX_FAITH: Partial<Record<Role, number>> = { priest: 100, prophet: 200 };
+/** Faith regained per second. */
+export const FAITH_REGEN: Partial<Record<Role, number>> = { priest: 1.5, prophet: 1 };
 
 /** How a tier is drawn; the renderer picks a sprite per look. */
 export type Look =
@@ -39,7 +63,11 @@ export type Look =
   | 'trebuchet'
   | 'cannon'
   | 'rocket'
-  | 'beam';
+  | 'beam'
+  | 'strategist'
+  | 'warrior'
+  | 'priest'
+  | 'prophet';
 
 export type Projectile = 'none' | 'stone' | 'arrow' | 'bullet' | 'shell' | 'boulder' | 'laser';
 
@@ -72,6 +100,20 @@ export interface RoleDef {
 }
 
 export const MELEE_RANGE = 0.9;
+
+/**
+ * Heroes get a tier for every epoch from their first title on, so each
+ * advance makes them stronger; the title (and weapons) change by era.
+ */
+function heroTiers(look: Look, titles: Array<[number, string, Pick<UnitTier, 'projectile' | 'range'>?]>): UnitTier[] {
+  const tiers: UnitTier[] = [];
+  for (let epoch = titles[0][0]; epoch <= 17; epoch++) {
+    let title = titles[0];
+    for (const t of titles) if (t[0] <= epoch) title = t;
+    tiers.push({ epoch, name: title[1], look, ...title[2] });
+  }
+  return tiers;
+}
 
 export const ROLE_DEFS: Record<Role, RoleDef> = {
   citizen: {
@@ -274,6 +316,106 @@ export const ROLE_DEFS: Record<Role, RoleDef> = {
       { epoch: 14, name: 'Raketenartillerie', look: 'rocket', projectile: 'shell', range: 11 },
       { epoch: 16, name: 'Ionenkanone', look: 'beam', projectile: 'laser', range: 11 },
       { epoch: 17, name: 'Plasmaartillerie', look: 'beam', projectile: 'laser', range: 12 },
+    ],
+  },
+  strategist: {
+    role: 'strategist',
+    label: 'Held: Stratege',
+    producedAt: 'towncenter',
+    hp: 220,
+    dmg: 7,
+    armor: 2,
+    range: MELEE_RANGE,
+    sight: 9,
+    speed: 1.9,
+    cooldown: 1.2,
+    splash: 0,
+    cost: { food: 200, gold: 250 },
+    trainTime: 45,
+    strongVs: 'Führt: Einheiten in der Nähe heilen und kämpfen mutiger',
+    weakVs: 'Fernkampf, Übermacht',
+    tiers: heroTiers('strategist', [
+      [1, 'Häuptling'],
+      [3, 'Heerführer'],
+      [6, 'Feldherr'],
+      [9, 'Marschall'],
+      [12, 'General'],
+      [15, 'Kommandant'],
+    ]),
+  },
+  warrior: {
+    role: 'warrior',
+    label: 'Held: Krieger',
+    producedAt: 'towncenter',
+    hp: 320,
+    dmg: 16,
+    armor: 4,
+    range: MELEE_RANGE,
+    sight: 8,
+    speed: 2,
+    cooldown: 1.1,
+    splash: 0,
+    cost: { food: 250, gold: 200, iron: 100 },
+    trainTime: 50,
+    strongVs: 'Allen Fußtruppen; feuert Einheiten in der Nähe an',
+    weakVs: 'Übermacht, Belagerung aus der Ferne',
+    tiers: heroTiers('warrior', [
+      [1, 'Recke'],
+      [3, 'Kriegsheld'],
+      [6, 'Bannerritter'],
+      [9, 'Haudegen'],
+      [12, 'Kommandosoldat', { projectile: 'bullet', range: 4 }],
+      [16, 'Elitekämpfer', { projectile: 'laser', range: 4.5 }],
+    ]),
+  },
+  priest: {
+    role: 'priest',
+    label: 'Priester',
+    producedAt: 'temple',
+    hp: 55,
+    dmg: 0,
+    armor: 0,
+    range: MELEE_RANGE,
+    sight: 8,
+    speed: 1.5,
+    cooldown: 1.5,
+    splash: 0,
+    cost: { food: 50, gold: 100 },
+    trainTime: 30,
+    strongVs: 'Bekehrt Gegner, heilt Verbündete',
+    weakVs: 'Kavallerie, allem im Nahkampf',
+    tiers: [
+      { epoch: 1, name: 'Schamane', look: 'priest' },
+      { epoch: 4, name: 'Priester', look: 'priest' },
+      { epoch: 7, name: 'Mönch', look: 'priest' },
+      { epoch: 10, name: 'Pfarrer', look: 'priest' },
+      { epoch: 13, name: 'Feldgeistlicher', look: 'priest' },
+      { epoch: 16, name: 'Psioniker', look: 'priest' },
+    ],
+  },
+  prophet: {
+    role: 'prophet',
+    label: 'Prophet',
+    producedAt: 'temple',
+    hp: 50,
+    dmg: 0,
+    armor: 0,
+    range: MELEE_RANGE,
+    sight: 9,
+    speed: 1.4,
+    cooldown: 1.5,
+    splash: 0,
+    cost: { food: 50, gold: 150 },
+    trainTime: 40,
+    strongVs: 'Katastrophen gegen Armeen und Städte',
+    weakVs: 'Kavallerie, allem im Nahkampf',
+    tiers: [
+      { epoch: 2, name: 'Seher', look: 'prophet' },
+      { epoch: 5, name: 'Orakel', look: 'prophet' },
+      { epoch: 8, name: 'Prophet', look: 'prophet' },
+      { epoch: 11, name: 'Mystiker', look: 'prophet' },
+      { epoch: 14, name: 'Weissager', look: 'prophet' },
+      { epoch: 16, name: 'Technoprophet', look: 'prophet' },
     ],
   },
 };

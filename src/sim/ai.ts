@@ -1,11 +1,13 @@
-import { BUILDING_DEFS, FARM_CAPACITY, type BuildingType } from '../data/buildings';
+import { ABILITY_BY_ID, type AbilityId } from '../data/abilities';
+import { buildingCost, BUILDING_DEFS, FARM_CAPACITY, type BuildingType } from '../data/buildings';
 import { EPOCHS } from '../data/epochs';
 import { canAfford, RESOURCES, type Cost, type Res } from '../data/resources';
 import { RESEARCH_BUILDINGS, TECHS, type Tech } from '../data/techs';
-import { bestTier, unitStats, type CombatRole, type Role } from '../data/units';
+import { bestTier, COMBAT_ROLES, HERO_ROLES, isHero, MAX_FAITH, unitStats, type CombatRole, type Role } from '../data/units';
 import type { Building, ResourceNode, Unit } from './entities';
 import { cos, hypot, sin } from './fmath';
 import type { Point } from './pathfinding';
+import { abilityReady } from './powers';
 import { Rng } from './rng';
 import type { Controller, Difficulty, World } from './world';
 
@@ -42,6 +44,10 @@ const COUNTERS: Record<Role, CombatRole[]> = {
   ranged: ['mounted', 'assault'],
   mounted: ['pike'],
   siege: ['mounted', 'assault'],
+  strategist: ['ranged'],
+  warrior: ['ranged'],
+  priest: ['mounted'],
+  prophet: ['mounted'],
 };
 
 /**
@@ -86,6 +92,8 @@ export class AIController implements Controller {
     this.epoch(w, s);
     this.research(w, s);
     this.military(w, s);
+    this.heroes(w, s);
+    this.faithful(w, s);
     this.scout(w, s);
   }
 
@@ -276,12 +284,15 @@ export class AIController implements Controller {
       // Make sure someone is actually working on unfinished buildings.
       for (const b of pending) {
         const builders = citizens.filter((c) => c.order.kind === 'build' && c.order.targetId === b.id);
-        if (builders.length === 0) {
+        // A wonder takes a big crew; everything else one builder.
+        const crew = b.type === 'wonder' ? Math.min(8, Math.floor(citizens.length / 4)) : 1;
+        if (builders.length < crew) {
           const helper = this.pickWorker(s, b);
           if (helper) w.issue({ type: 'construct', player: id, ids: [helper.id], targetId: b.id });
         }
       }
-      return;
+      // A wonder site does not hold up the rest of the town.
+      if (pending.some((b) => b.type !== 'wonder')) return;
     }
     if (citizens.length < 6) return;
     if (segments.length === 0 && this.walls(w, s)) return;
@@ -296,6 +307,7 @@ export class AIController implements Controller {
       ['barracks', count('barracks') === 0 && citizens.length >= 8],
       ['smithy', count('smithy') === 0 && citizens.length >= 12],
       ['academy', count('academy') === 0 && citizens.length >= 15],
+      ['temple', count('temple') === 0 && player.epoch >= 1 && citizens.length >= 16 && s.army.length >= 4],
       ['storehouse', count('storehouse') < Math.min(3, 1 + Math.floor(citizens.length / 12))],
       ['house', count('house') < Math.min(6, 1 + Math.floor(s.army.length / 6))],
       ['workshop', count('workshop') === 0 && player.epoch >= 2 && citizens.length >= 14],
@@ -303,15 +315,17 @@ export class AIController implements Controller {
       ['tower', count('tower') < Math.min(3, Math.floor(player.epoch / 3)) && player.stock.stone > 300],
       ['barracks', count('barracks') < 2 && player.epoch >= 5 && citizens.length >= 24],
       ['stable', count('stable') < 2 && player.epoch >= 9 && citizens.length >= 30],
+      // Wonders: the AI saves up for them (see spendable), then builds.
+      ['wonder', this.wonderGoal(w, s) !== null],
     ];
     for (const [type, wanted] of wants) {
       if (!wanted || !w.buildingUnlocked(id, type)) continue;
-      if (!canAfford(player.stock, BUILDING_DEFS[type].cost)) continue;
+      if (!canAfford(player.stock, buildingCost(type, player.epoch))) continue;
       const where = type === 'storehouse' ? this.storehouseSpot(w, s) : s.base;
       if (!where) continue;
       const builder = this.pickWorker(s, where);
       if (!builder) return;
-      const [minR, maxR] = type === 'storehouse' ? [2, 6] : type === 'tower' ? [7, 11] : [5, 14];
+      const [minR, maxR] = type === 'storehouse' ? [2, 6] : type === 'tower' ? [7, 11] : type === 'wonder' ? [7, 18] : [5, 14];
       this.placeNear(w, s, type, where, [builder], minR, maxR);
       return;
     }
@@ -510,6 +524,8 @@ export class AIController implements Controller {
     const { player, tc, citizens } = s;
     if (!tc || tc.research || player.epoch >= w.settings.maxEpoch || w.isResearching(this.playerId)) return;
     if (citizens.length < Math.min(10 + player.epoch, 28)) return;
+    // With wonder victory on, a wonder of this era comes before the next epoch.
+    if ((w.settings.wonderVictory ?? 0) > 0 && this.wonderGoal(w, s)) return;
     const cost = EPOCHS[player.epoch + 1].advanceCost;
     if (canAfford(player.stock, cost)) w.issue({ type: 'advance', player: this.playerId, buildingId: tc.id });
   }
@@ -553,16 +569,31 @@ export class AIController implements Controller {
     }
   }
 
-  /** While saving for the next epoch, only spend what exceeds its price. */
+  /** While saving for the next epoch or a wonder, only spend what exceeds their price. */
   private spendable(w: World, s: ReturnType<AIController['snapshot']>, cost: Cost): boolean {
     const { player } = s;
     if (!canAfford(player.stock, cost)) return false;
-    if (player.epoch >= w.settings.maxEpoch || s.army.length < 4 + player.epoch) return true;
-    const reserve = EPOCHS[player.epoch + 1].advanceCost;
+    if (s.army.length < 4 + player.epoch) return true;
+    const reserve: Cost = player.epoch < w.settings.maxEpoch ? { ...EPOCHS[player.epoch + 1].advanceCost } : {};
+    const wonder = this.wonderGoal(w, s);
+    if (wonder) for (const r of RESOURCES) reserve[r] = Math.max(reserve[r] ?? 0, wonder[r] ?? 0);
     for (const r of RESOURCES) {
       if ((cost[r] ?? 0) > 0 && player.stock[r] - (cost[r] ?? 0) < (reserve[r] ?? 0)) return false;
     }
     return true;
+  }
+
+  /**
+   * The wonder worth saving for: an established empire without this era's
+   * wonder yet. With wonder victory on, the AI starts a whole era earlier.
+   */
+  private wonderGoal(w: World, s: ReturnType<AIController['snapshot']>): Cost | null {
+    const { player, citizens, buildings } = s;
+    const victory = (w.settings.wonderVictory ?? 0) > 0;
+    const from = victory ? (this.profile.think <= 12 ? 3 : 4) : 6;
+    if (player.epoch < from || citizens.length < 28 || !w.buildingUnlocked(this.playerId, 'wonder')) return null;
+    if (buildings.some((b) => b.type === 'wonder' && !b.built) || w.wonderProblem(this.playerId) !== null) return null;
+    return buildingCost('wonder', player.epoch);
   }
 
   // --------------------------------------------------------------- military
@@ -581,7 +612,7 @@ export class AIController implements Controller {
     for (const b of military) {
       if (b.queue.length >= 2) continue;
       if (!b.rally.length && s.tc) b.rally = [{ x: s.tc.x - 4 + (b.id % 3), y: s.tc.y + 4 }];
-      const roles = BUILDING_DEFS[b.type].trains.filter((r): r is CombatRole => r !== 'citizen' && bestTier(r, player.epoch) >= 0);
+      const roles = BUILDING_DEFS[b.type].trains.filter((r): r is CombatRole => COMBAT_ROLES.includes(r as CombatRole) && bestTier(r, player.epoch) >= 0);
       if (roles.length === 0) continue;
       const counts: Record<string, number> = {};
       for (const u of army) counts[u.role] = (counts[u.role] ?? 0) + 1;
@@ -611,9 +642,10 @@ export class AIController implements Controller {
       return;
     }
 
-    // Offence: waves grow with the epoch.
+    // Offence: waves grow with the epoch. A wonder counting down to someone else's victory cannot wait.
     const waveSize = this.profile.waveSize + player.epoch;
-    if (w.tick >= this.nextWave && home.length >= waveSize) {
+    const deadline = w.buildings.some((b) => !b.dead && b.type === 'wonder' && b.countdown > 0 && w.areEnemies(id, b.owner));
+    if ((w.tick >= this.nextWave && home.length >= waveSize) || (deadline && home.length >= Math.ceil(waveSize / 2))) {
       const target = this.attackTarget(w, s.base);
       if (target) {
         const ids = home.map((u) => u.id);
@@ -630,13 +662,126 @@ export class AIController implements Controller {
     }
   }
 
+  /** Heroes: one of each from the town centre once there is an army, abilities when they pay off. */
+  private heroes(w: World, s: ReturnType<AIController['snapshot']>): void {
+    const id = this.playerId;
+    const { tc, player } = s;
+    if (tc && !tc.research && !tc.pendingAdvance && player.epoch >= 1 && s.army.length >= 6 && tc.queue.length < 2) {
+      // The warrior first: he wins fights, the strategist keeps an army alive.
+      for (const role of [...HERO_ROLES].reverse()) {
+        if (w.hasHero(id, role)) continue;
+        const cost = unitStats(role, bestTier(role, player.epoch)).cost;
+        if (this.spendable(w, s, cost)) {
+          w.issue({ type: 'train', player: id, buildingId: tc.id, role });
+          break;
+        }
+      }
+    }
+    for (const h of s.army) {
+      if (!isHero(h.role)) continue;
+      const near = (r: number, enemy: boolean, hurt = false) => {
+        let n = 0;
+        w.forUnitsNear(h.x, h.y, r, (o) => {
+          if (o.dead || o === h || w.areEnemies(id, o.owner) !== enemy || hypot(o.x - h.x, o.y - h.y) > r) return;
+          if (enemy && !w.inSight(id, o)) return;
+          if (!hurt || o.hp < o.maxHp * 0.5) n++;
+        });
+        return n;
+      };
+      const use = (ability: AbilityId) => {
+        if (!abilityReady(w, h, ability)) return false;
+        w.issue({ type: 'ability', player: id, ids: [h.id], ability });
+        return true;
+      };
+      if (h.role === 'warrior') {
+        if (near(5, true) >= 3 && use('warcry')) continue;
+        if (near(2.5, true) >= 2 && use('whirlwind')) continue;
+        if (h.order.kind === 'attack' && near(4, true) >= 1) use('frenzy');
+      } else {
+        if (near(7, false, true) >= 3 && use('fieldheal')) continue;
+        if (near(8, true) >= 4 && use('shieldwall')) continue;
+        if (near(8, false) >= 5 && near(12, true) >= 3) use('rally');
+      }
+    }
+  }
+
+  /** Priests convert what is worth it and heal the rest of the time; prophets curse crowds and towns. */
+  private faithful(w: World, s: ReturnType<AIController['snapshot']>): void {
+    const id = this.playerId;
+    const { player, buildings } = s;
+    const temple = buildings.find((b) => b.type === 'temple' && b.built);
+    if (temple && temple.queue.length === 0 && s.army.length >= 4) {
+      const count = (role: Role) => s.army.filter((u) => u.role === role).length;
+      const prophets = player.epoch >= 8 ? 2 : 1;
+      const role: Role | null =
+        count('prophet') < prophets && bestTier('prophet', player.epoch) >= 0 ? 'prophet' : count('priest') < Math.min(3, 1 + Math.floor(s.army.length / 10)) ? 'priest' : null;
+      const cost = role ? unitStats(role, bestTier(role, player.epoch)).cost : {};
+      // The first of each kind even from the savings.
+      if (role && bestTier(role, player.epoch) >= 0 && (count(role) === 0 ? canAfford(player.stock, cost) : this.spendable(w, s, cost))) {
+        w.issue({ type: 'train', player: id, buildingId: temple.id, role });
+      }
+    }
+    for (const u of s.army) {
+      if (u.role === 'priest' && u.faith >= (MAX_FAITH.priest ?? 0) && u.order.kind !== 'convert') {
+        // The most valuable enemy in reach: siege and riders before infantry.
+        const value: Partial<Record<Role, number>> = { siege: 4, mounted: 3, prophet: 3, priest: 2, ranged: 1.5 };
+        let best: Unit | null = null;
+        let bestV = 0;
+        w.forUnitsNear(u.x, u.y, 9, (o) => {
+          if (o.dead || !w.areEnemies(id, o.owner) || isHero(o.role) || !w.inSight(id, o)) return;
+          const v = (value[o.role] ?? 1) - hypot(o.x - u.x, o.y - u.y) * 0.05;
+          if (v > bestV) {
+            bestV = v;
+            best = o;
+          }
+        });
+        if (best) w.issue({ type: 'convert', player: id, ids: [u.id], targetId: (best as Unit).id });
+      }
+      if (u.role === 'prophet' && u.order.kind !== 'cast') this.curse(w, u);
+    }
+  }
+
+  /** A prophet with faith to spare picks the densest enemy crowd, or an enemy town, in reach. */
+  private curse(w: World, u: Unit): void {
+    const id = this.playerId;
+    const epoch = w.players[id].epoch;
+    const can = (a: AbilityId) => abilityReady(w, u, a) && epoch >= ABILITY_BY_ID.get(a)!.minEpoch;
+    let best: Point | null = null;
+    let bestN = 0;
+    w.forUnitsNear(u.x, u.y, 12, (o) => {
+      if (o.dead || !w.areEnemies(id, o.owner) || !w.inSight(id, o)) return;
+      let n = 0;
+      w.forUnitsNear(o.x, o.y, 4, (p) => {
+        if (!p.dead && w.areEnemies(id, p.owner) && hypot(p.x - o.x, p.y - o.y) <= 4) n++;
+      });
+      if (n > bestN) {
+        bestN = n;
+        best = { x: o.x, y: o.y };
+      }
+    });
+    if (best && bestN >= 4) {
+      const p = best as Point;
+      const pick: AbilityId | undefined = (['firestorm', 'plague', 'storm'] as AbilityId[]).find(can);
+      if (pick) w.issue({ type: 'ability', player: id, ids: [u.id], ability: pick, x: p.x, y: p.y });
+      return;
+    }
+    if (!can('quake')) return;
+    for (const b of w.buildings) {
+      if (b.dead || !w.areEnemies(id, b.owner) || BUILDING_DEFS[b.type].line || hypot(b.x - u.x, b.y - u.y) > 12) continue;
+      w.issue({ type: 'ability', player: id, ids: [u.id], ability: 'quake', x: b.x, y: b.y });
+      return;
+    }
+  }
+
   private attackTarget(w: World, from: Point): Building | null {
     let best: Building | null = null;
     let bestD = Infinity;
     for (const b of w.buildings) {
       if (b.dead || !w.areEnemies(this.playerId, b.owner)) continue;
       // Walls are only attacked when they stand in the way, not marched to.
-      const d = hypot(b.x - from.x, b.y - from.y) - (b.type === 'towncenter' ? 6 : 0) + (BUILDING_DEFS[b.type].line ? 40 : 0);
+      // Wonders first (above all one counting down to victory), walls only in the way.
+      const wonder = b.type === 'wonder' ? 30 + (b.countdown > 0 ? 60 : 0) : 0;
+      const d = hypot(b.x - from.x, b.y - from.y) - (b.type === 'towncenter' ? 6 : 0) + (BUILDING_DEFS[b.type].line ? 40 : 0) - wonder;
       if (d < bestD) {
         bestD = d;
         best = b;

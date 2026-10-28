@@ -1,11 +1,14 @@
+import { STATUSES, STRATEGIST_AURA, WARRIOR_AURA } from '../data/abilities';
 import { BUILDING_DEFS, MORALE_RADIUS, type BuildingType } from '../data/buildings';
-import { orderTarget } from '../sim/behavior';
-import { rectOf, type Building, type Entity, type Order, type Plan, type ResourceNode, type Unit } from '../sim/entities';
+import { MAX_FAITH } from '../data/units';
+import { convertTime, orderTarget } from '../sim/behavior';
+import { rectOf, type Building, type Entity, type Hazard, type Order, type Plan, type ResourceNode, type Unit } from '../sim/entities';
+import { hasStatus } from '../sim/status';
 import { Terrain } from '../sim/map';
 import type { Point } from '../sim/pathfinding';
 import type { World } from '../sim/world';
 import { Camera, TILE_W } from './camera';
-import { TERRAIN_COLORS } from './colors';
+import { ABILITY_COLOR, alpha as withAlpha, TERRAIN_COLORS } from './colors';
 import { buildingTopZ, drawBuilding, drawNode, drawUnit, LINK_E, LINK_N, LINK_S, LINK_W } from './sprites';
 import type { View } from './view';
 
@@ -69,6 +72,16 @@ export interface Mark {
   age: number;
 }
 
+/** Cast mode: the area under the cursor and how far the casters reach. */
+export interface CastPreview {
+  at: Point | null;
+  /** Area radius in tiles (0: a single target). */
+  r: number;
+  color: string;
+  casters: Point[];
+  range: number;
+}
+
 /** Right-drag with units: target, direction arrow and the planned slots. */
 export interface OrderPreview {
   from: Point;
@@ -88,6 +101,7 @@ export interface RenderState {
   showPlans: boolean;
   preview: OrderPreview | null;
   marks: Mark[];
+  cast: CastPreview | null;
 }
 
 /** Waypoint colours by what happens there. */
@@ -252,6 +266,7 @@ export class Renderer {
         seed: b.id,
         links: line ? linkMask((x, y) => map.inBounds(x, y) && joins.get(y * map.width + x) === b.owner, b.tx, b.ty) : 0,
         open: BUILDING_DEFS[b.type].gate ? this.gateOpen(b) : false,
+        counting: b.type === 'wonder' && b.built && b.countdown > 0,
       };
       const selected = state.selection.has(b.id) || state.hoverId === b.id;
       if (selected) this.footprint(b.tx, b.ty, b.size, this.ringColor(b.owner), state.selection.has(b.id) ? 2 : 1);
@@ -332,6 +347,9 @@ export class Renderer {
         ctx.lineWidth = state.selection.has(u.id) ? 2 : 1;
         ctx.stroke();
       }
+      if (state.selection.has(u.id) && u.owner === this.view.me && (u.role === 'strategist' || u.role === 'warrior')) {
+        this.areaRing(x, y, u.role === 'strategist' ? STRATEGIST_AURA : WARRIOR_AURA, u.role === 'strategist' ? '#f2c84b' : '#ff7a3c', 0.55, true);
+      }
       const working = (u.order.kind === 'gather' && u.order.phase === 'work') || (u.order.kind === 'build' && u.attackAnim > 0);
       const look = {
         look: u.stats.look,
@@ -339,7 +357,8 @@ export class Renderer {
         color: world.players[u.owner].color,
         facing: u.facing,
         moving: u.moving,
-        attackAnim: u.order.kind === 'attack' ? u.attackAnim : 0,
+        // Gatherers and builders use the timer for their tool swing.
+        attackAnim: u.order.kind === 'gather' || u.order.kind === 'build' ? 0 : u.attackAnim,
         working,
         carry: u.carryAmount > 0 ? u.carry : null,
         seed: u.id,
@@ -369,6 +388,9 @@ export class Renderer {
       }
     }
 
+    this.drawHazards(time);
+    this.drawBeams(state, time);
+    this.drawStatuses(state, time);
     this.drawProjectiles(state);
     this.drawEffects();
 
@@ -380,6 +402,7 @@ export class Renderer {
     this.drawBars(state);
     if (state.placement) this.drawPlacement(state.placement, time);
     if (state.preview) this.drawPreview(state.preview);
+    if (state.cast) this.drawCast(state.cast, time);
     if (state.marker) {
       const m = state.marker;
       const [sx, sy] = project(m.x, m.y);
@@ -391,6 +414,272 @@ export class Renderer {
       ctx.stroke();
     }
     for (const m of state.marks) this.drawMark(m);
+  }
+
+  /** A circle of `r` tiles on the ground; dashed for reaches, solid for areas. */
+  private areaRing(x: number, y: number, r: number, color: string, strength: number, dashed: boolean, fill = 0.06): void {
+    const { ctx, camera } = this;
+    const [sx, sy] = camera.project(x, y);
+    const k = Math.SQRT2 * r * camera.zoom;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, k * 32, k * 16, 0, 0, Math.PI * 2);
+    if (fill > 0) {
+      ctx.fillStyle = withAlpha(color, fill * strength);
+      ctx.fill();
+    }
+    if (dashed) ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = withAlpha(color, 0.8 * strength);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  /** Calamities at work: plague clouds, earthquake cracks, fire and storms. */
+  private drawHazards(time: number): void {
+    const { ctx, camera, world } = this;
+    const zoom = camera.zoom;
+    for (const hz of world.hazards) {
+      if (hz.until <= world.tick) continue;
+      if (hz.owner !== this.view.me && !this.tileVisible(hz.x, hz.y)) continue;
+      const life = (world.tick - hz.start) / Math.max(1, hz.until - hz.start);
+      const fade = Math.min(1, (hz.until - world.tick) / 12, (world.tick - hz.start + 1) / 6);
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, fade);
+      this.drawHazard(hz, life, time, zoom);
+      ctx.restore();
+    }
+  }
+
+  private drawHazard(hz: Hazard, life: number, time: number, zoom: number): void {
+    const { ctx, camera } = this;
+    const [sx, sy] = camera.project(hz.x, hz.y);
+    const k = Math.SQRT2 * hz.r * zoom;
+    const rx = k * 32;
+    const ry = k * 16;
+    // Stable pseudo-random spots inside the area, per hazard.
+    const spot = (i: number): [number, number] => {
+      const a = (hz.id * 7.13 + i * 2.39) % (Math.PI * 2);
+      const d = 0.25 + (((hz.id * 13 + i * 37) % 70) / 100);
+      return [sx + Math.cos(a) * rx * d, sy + Math.sin(a) * ry * d];
+    };
+    const ground = (color: string) => {
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    switch (hz.kind) {
+      case 'plague': {
+        ground('rgba(120,170,40,0.16)');
+        for (let i = 0; i < 9; i++) {
+          const [px, py] = spot(i);
+          const drift = Math.sin(time * 0.8 + i) * 6 * zoom;
+          const r = (10 + 5 * Math.sin(time * 1.3 + i * 1.7)) * zoom;
+          ctx.beginPath();
+          ctx.arc(px + drift, py - 10 * zoom, r, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(150,200,60,0.22)';
+          ctx.fill();
+        }
+        break;
+      }
+      case 'quake': {
+        ground('rgba(90,60,30,0.2)');
+        // Cracks spreading from the centre as the quake goes on.
+        ctx.strokeStyle = 'rgba(40,25,10,0.85)';
+        ctx.lineWidth = 2 * zoom;
+        const reach = Math.min(1, 0.3 + life * 1.5);
+        for (let i = 0; i < 7; i++) {
+          const a = (i * Math.PI * 2) / 7 + hz.id;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          for (let j = 1; j <= 4; j++) {
+            const d = (j / 4) * reach;
+            const wob = (((hz.id + i * 5 + j * 11) % 9) - 4) * 0.05;
+            ctx.lineTo(sx + Math.cos(a + wob) * rx * d, sy + Math.sin(a + wob) * ry * d);
+          }
+          ctx.stroke();
+        }
+        for (let i = 0; i < 5; i++) {
+          const [px, py] = spot(i);
+          const t = (time * 1.4 + i * 0.3) % 1;
+          ctx.beginPath();
+          ctx.arc(px, py - t * 14 * zoom, (5 + t * 8) * zoom, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(140,115,80,${0.45 * (1 - t)})`;
+          ctx.fill();
+        }
+        break;
+      }
+      case 'firestorm': {
+        ground('rgba(255,110,20,0.2)');
+        const flame = (px: number, py: number, h: number, w: number, color: string) => {
+          ctx.beginPath();
+          ctx.moveTo(px, py - h);
+          ctx.quadraticCurveTo(px + w, py - h * 0.35, px, py);
+          ctx.quadraticCurveTo(px - w, py - h * 0.35, px, py - h);
+          ctx.fillStyle = color;
+          ctx.fill();
+        };
+        for (let i = 0; i < 14; i++) {
+          const [px, py] = spot(i);
+          const h = (16 + 8 * Math.sin(time * 9 + i * 1.3)) * zoom;
+          flame(px, py, h, 6 * zoom, 'rgba(255,100,20,0.85)');
+          flame(px, py, h * 0.6, 3.5 * zoom, 'rgba(255,220,110,0.95)');
+          // Embers drifting up.
+          const t = (time * 1.2 + i * 0.27) % 1;
+          ctx.beginPath();
+          ctx.arc(px + Math.sin(time * 3 + i) * 4 * zoom, py - h - t * 20 * zoom, 1.4 * zoom, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,180,60,${1 - t})`;
+          ctx.fill();
+        }
+        break;
+      }
+      case 'storm': {
+        ground('rgba(90,140,170,0.16)');
+        ctx.strokeStyle = 'rgba(200,235,245,0.7)';
+        ctx.lineWidth = 2 * zoom;
+        for (let i = 0; i < 3; i++) {
+          const a0 = time * 2.4 + (i * Math.PI * 2) / 3;
+          ctx.beginPath();
+          ctx.ellipse(sx, sy - 6 * zoom, rx * (0.35 + i * 0.22), ry * (0.35 + i * 0.22), 0, a0, a0 + 2.2);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(170,200,230,0.5)';
+        ctx.lineWidth = 1 * zoom;
+        for (let i = 0; i < 14; i++) {
+          const [px, py] = spot(i);
+          const t = (time * 2.5 + i * 0.19) % 1;
+          ctx.beginPath();
+          ctx.moveTo(px + 4 * zoom, py - (40 - t * 36) * zoom);
+          ctx.lineTo(px, py - (30 - t * 36) * zoom);
+          ctx.stroke();
+        }
+        break;
+      }
+    }
+  }
+
+  /** Priests at work: a golden beam to the unit they pray for, a green one to their patient. */
+  private drawBeams(state: RenderState, time: number): void {
+    const { ctx, camera, world } = this;
+    const zoom = camera.zoom;
+    for (const u of world.units) {
+      if (u.dead || (u.order.kind !== 'convert' && u.order.kind !== 'heal') || u.attackAnim <= 0) continue;
+      const t = world.get(u.order.targetId);
+      if (!t || t.kind !== 'unit' || !this.view.seesUnit(u) || !this.view.seesUnit(t)) continue;
+      const [ux, uy] = this.unitPos(u, state.alpha);
+      const [tx, ty] = this.unitPos(t, state.alpha);
+      const [ax, ay] = camera.project(ux, uy, 26 * UNIT_SCALE);
+      const [bx, by] = camera.project(tx, ty, 12 * UNIT_SCALE);
+      const convert = u.order.kind === 'convert';
+      const color = convert ? ABILITY_COLOR.convert : ABILITY_COLOR.heal;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 8 + u.id);
+      ctx.beginPath();
+      const mx = (ax + bx) / 2;
+      const my = (ay + by) / 2 - 12 * zoom;
+      ctx.moveTo(ax, ay);
+      ctx.quadraticCurveTo(mx + Math.sin(time * 5) * 6 * zoom, my, bx, by);
+      ctx.strokeStyle = withAlpha(color, 0.35 + 0.35 * pulse);
+      ctx.lineWidth = (3 + pulse * 2) * zoom;
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 1 * zoom;
+      ctx.stroke();
+      if (u.order.kind === 'convert' && u.order.progress > 0) {
+        // Progress ring around the unit being won over.
+        const [cx, cy] = camera.project(tx, ty);
+        const share = Math.min(1, u.order.progress / convertTime(world, t));
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, 10 * UNIT_SCALE * zoom, 5 * UNIT_SCALE * zoom, 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * share);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+  }
+
+  /** Stunned, shielded, plagued, hastened, raging and slowed units show it. */
+  private drawStatuses(state: RenderState, time: number): void {
+    const { ctx, camera, world } = this;
+    const zoom = camera.zoom;
+    const s = UNIT_SCALE * zoom;
+    for (const u of world.units) {
+      if (u.dead || !this.view.seesUnit(u)) continue;
+      let any = false;
+      for (const st of STATUSES) if ((u.status[st] ?? 0) > world.tick) any = true;
+      if (!any) continue;
+      const [x, y] = this.unitPos(u, state.alpha);
+      const [fx, fy] = camera.project(x, y);
+      if (!this.onScreen(fx, fy, 60 * zoom)) continue;
+      if (hasStatus(world, u, 'shield')) {
+        ctx.beginPath();
+        ctx.ellipse(fx, fy - 11 * s, 9 * s, 13 * s, 0, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(127,178,255,${0.12 + 0.06 * Math.sin(time * 4 + u.id)})`;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(160,200,255,0.65)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+      if (hasStatus(world, u, 'frenzy')) {
+        ctx.beginPath();
+        ctx.ellipse(fx, fy - 10 * s, 7 * s, 12 * s, 0, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,59,59,${0.16 + 0.1 * Math.sin(time * 10 + u.id)})`;
+        ctx.fill();
+      }
+      if (hasStatus(world, u, 'haste')) {
+        ctx.strokeStyle = 'rgba(242,200,75,0.8)';
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < 2; i++) {
+          const t = (time * 3 + i * 0.5 + u.id * 0.1) % 1;
+          ctx.beginPath();
+          ctx.moveTo(fx - (6 + t * 6) * s, fy - (4 + i * 6) * s);
+          ctx.lineTo(fx - (12 + t * 6) * s, fy - (4 + i * 6) * s);
+          ctx.stroke();
+        }
+      }
+      if (hasStatus(world, u, 'slow')) {
+        ctx.beginPath();
+        const a = time * 4 + u.id;
+        ctx.ellipse(fx, fy - 1 * s, 8 * s, 3.5 * s, 0, a, a + 4);
+        ctx.strokeStyle = 'rgba(111,214,232,0.8)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+      }
+      if (hasStatus(world, u, 'plague')) {
+        for (let i = 0; i < 3; i++) {
+          const t = (time * 0.9 + i * 0.33 + u.id * 0.07) % 1;
+          ctx.beginPath();
+          ctx.arc(fx + (i - 1) * 4 * s, fy - (10 + t * 16) * s, (1.2 + t * 1.6) * s, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(156,207,60,${0.8 * (1 - t)})`;
+          ctx.fill();
+        }
+      }
+      if (hasStatus(world, u, 'stun')) {
+        const hy = fy - 26 * s * (u.role === 'warrior' || u.role === 'strategist' ? 1.18 : 1);
+        for (let i = 0; i < 3; i++) {
+          const a = time * 5 + (i * Math.PI * 2) / 3;
+          const px = fx + Math.cos(a) * 6 * s;
+          const py = hy + Math.sin(a) * 2 * s;
+          ctx.fillStyle = '#ffe27a';
+          ctx.beginPath();
+          for (let j = 0; j < 8; j++) {
+            const r = (j % 2 === 0 ? 2.2 : 0.9) * s;
+            const b = (j * Math.PI) / 4;
+            if (j === 0) ctx.moveTo(px + Math.cos(b) * r, py + Math.sin(b) * r);
+            else ctx.lineTo(px + Math.cos(b) * r, py + Math.sin(b) * r);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  /** Cast mode: the reach of the selected casters and the area under the cursor. */
+  private drawCast(c: CastPreview, time: number): void {
+    for (const p of c.casters.slice(0, 8)) this.areaRing(p.x, p.y, c.range, c.color, 0.45, true, 0);
+    if (!c.at || c.r <= 0) return;
+    const inReach = c.casters.some((p) => Math.hypot(p.x - c.at!.x, p.y - c.at!.y) <= c.range);
+    this.areaRing(c.at.x, c.at.y, c.r, c.color, inReach ? 0.9 + 0.1 * Math.sin(time * 6) : 0.55, false, 0.28);
   }
 
   /** An ally's mark: rings pulsing outwards around a small flag. */
@@ -565,6 +854,50 @@ export class Renderer {
           ctx.fillStyle = `rgba(255,240,200,${0.7 * (1 - k)})`;
           ctx.fill();
           break;
+        case 'ring': {
+          const color = fx.ability ? ABILITY_COLOR[fx.ability] : '#ffffff';
+          const [gx, gy] = camera.project(fx.x, fx.y);
+          const r = Math.SQRT2 * fx.size * (0.25 + 0.75 * k) * zoom;
+          ctx.beginPath();
+          ctx.ellipse(gx, gy, r * 32, r * 16, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = withAlpha(color, 0.9 * (1 - k));
+          ctx.lineWidth = 3 * (1 - k) + 1;
+          ctx.stroke();
+          ctx.fillStyle = withAlpha(color, 0.15 * (1 - k));
+          ctx.fill();
+          break;
+        }
+        case 'convert': {
+          // A burst of golden light and rays.
+          const [gx, gy] = camera.project(fx.x, fx.y, 14 * UNIT_SCALE);
+          ctx.beginPath();
+          ctx.arc(gx, gy, (6 + 18 * k) * zoom, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,226,122,${0.55 * (1 - k)})`;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(255,240,180,${0.9 * (1 - k)})`;
+          ctx.lineWidth = 1.5;
+          for (let i = 0; i < 8; i++) {
+            const a = (i * Math.PI) / 4;
+            ctx.beginPath();
+            ctx.moveTo(gx + Math.cos(a) * 8 * zoom, gy + Math.sin(a) * 8 * zoom);
+            ctx.lineTo(gx + Math.cos(a) * (12 + 22 * k) * zoom, gy + Math.sin(a) * (12 + 22 * k) * zoom);
+            ctx.stroke();
+          }
+          break;
+        }
+        case 'heal': {
+          // Small green crosses rising.
+          ctx.fillStyle = `rgba(125,255,138,${0.9 * (1 - k)})`;
+          for (let i = 0; i < 3; i++) {
+            const [gx, gy] = camera.project(fx.x, fx.y, (12 + k * 26 + i * 6) * UNIT_SCALE * 0.6);
+            const px = gx + (i - 1) * 7 * zoom;
+            const a = 1.2 * zoom;
+            const b = 3.5 * zoom;
+            ctx.fillRect(px - a, gy - b, a * 2, b * 2);
+            ctx.fillRect(px - b, gy - a, b * 2, a * 2);
+          }
+          break;
+        }
         case 'collapse':
         case 'dust': {
           for (let i = 0; i < 6; i++) {
@@ -718,6 +1051,8 @@ export class Renderer {
       const tall = wide(u) ? 34 : 30;
       const [sx, sy] = camera.project(x, y, tall * UNIT_SCALE);
       bar(sx, sy, 22 * zoom, u.hp / u.maxHp, hpColor(u.hp / u.maxHp));
+      const maxFaith = MAX_FAITH[u.role];
+      if (selected && maxFaith && !this.world.areEnemies(this.view.me, u.owner)) bar(sx, sy + 5, 22 * zoom, u.faith / maxFaith, '#c78bff');
       // Morale: one gold pip per house in reach, right of the bar.
       if (selected && u.morale > 0 && u.owner === this.view.me) {
         for (let i = 0; i < u.morale; i++) {

@@ -10,6 +10,7 @@ const OPTIONS: MatchOptions = {
   popLimit: 200,
   startResources: 'low',
   reveal: true,
+  wonderVictory: 5,
   seed: 0,
 };
 
@@ -34,6 +35,7 @@ describe('lobby rules', () => {
     expect(settings.maxEpoch).toBe(2);
     expect(settings.aiDifficulty).toBe('hard');
     expect(settings.revealMap).toBe(true);
+    expect(settings.wonderVictory).toBe(5);
   });
 
   it('picks an input delay from the round trip', () => {

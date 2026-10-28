@@ -15,7 +15,19 @@ export const FORMATION_LABEL: Record<Formation, string> = { line: 'Linie', block
 export const DEFAULT_FORMATION: Formation = 'block';
 
 /** Rank from front to back. Units of one rank fill their own rows. */
-const RANK: Record<Role, number> = { pike: 0, assault: 0, mounted: 1, citizen: 2, scout: 2, ranged: 3, siege: 4 };
+const RANK: Record<Role, number> = {
+  pike: 0,
+  assault: 0,
+  warrior: 0,
+  mounted: 1,
+  strategist: 2,
+  citizen: 2,
+  scout: 2,
+  ranged: 3,
+  priest: 3,
+  prophet: 3,
+  siege: 4,
+};
 /** Distance between neighbours of a rank; riders and engines need more room. */
 const SPACING = [0.9, 1.2, 0.9, 0.9, 1.3];
 
