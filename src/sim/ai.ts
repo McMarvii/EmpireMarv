@@ -84,6 +84,10 @@ const COUNTERS: Record<Role, CombatRole[]> = {
   transport: [],
   warship: ['ranged'],
   bombard: ['mounted', 'ranged'],
+  // Balloons fly low enough for any gun; planes only fall to anti-air (and the air planner's fighters).
+  balloon: ['ranged'],
+  fighter: ['pike'],
+  bomber: ['pike'],
 };
 
 /**

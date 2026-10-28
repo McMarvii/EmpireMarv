@@ -13,7 +13,24 @@ import {
 import { epochStyle, EPOCHS, LAST_EPOCH } from '../data/epochs';
 import { canAfford, emptyStock, missingText, pay, refund, RESOURCES, multiplyCost, type Cost, type Res } from '../data/resources';
 import { modsFor, TECH_BY_ID, TECHS, TECHS_FOR_ADVANCE, type Tech } from '../data/techs';
-import { bestTier, CARRY_CAPACITY, isHero, isNaval, MAX_FAITH, ROLE_DEFS, TRANSPORT_CAPACITY, unitStats, type Look, type Projectile, type Role, type UnitStats } from '../data/units';
+import {
+  bestTier,
+  CARRY_CAPACITY,
+  domainOf,
+  isAir,
+  isConvertible,
+  isHero,
+  isNaval,
+  isPlane,
+  MAX_FAITH,
+  ROLE_DEFS,
+  TRANSPORT_CAPACITY,
+  unitStats,
+  type Look,
+  type Projectile,
+  type Role,
+  type UnitStats,
+} from '../data/units';
 import { resolveMapType, type MapChoice } from '../data/maps';
 import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
 import { canGather, isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
@@ -100,6 +117,9 @@ export interface ProjectileFx {
   attackerRole: Role | 'tower';
   dmg: number;
   splash: number;
+  /** Drawing only: shot from a plane (bombs fall) or at one (flak climbs). */
+  fromAir?: boolean;
+  toAir?: boolean;
 }
 
 /**
@@ -126,7 +146,7 @@ export interface SoundCue {
 const MAX_CUES = 256;
 
 export interface Effect {
-  kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit' | 'ring' | 'convert' | 'heal' | 'sink';
+  kind: 'explosion' | 'hit' | 'collapse' | 'dust' | 'laserhit' | 'ring' | 'convert' | 'heal' | 'sink' | 'crash';
   x: number;
   y: number;
   t: number;
@@ -196,6 +216,8 @@ export type Command =
   | { type: 'board'; player: number; ids: number[]; targetId: number; queue?: boolean }
   /** Transport ships sail to the coast near a point and put their passengers ashore. */
   | { type: 'unload'; player: number; ids: number[]; x: number; y: number; queue?: boolean }
+  /** Planes fly to an own airfield to refuel, reload and get repaired. */
+  | { type: 'refuel'; player: number; ids: number[]; targetId: number; queue?: boolean }
   | { type: 'train'; player: number; buildingId: number; role: Role; count?: number }
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
@@ -271,6 +293,8 @@ export class World {
   private grid: Unit[][];
   private gridCols: number;
   private lastAlertTick: number[] = [];
+  /** Not saved: only throttles a warning. */
+  private lastFuelWarn: number[] = [];
   private nextHazard = 1;
   /** Effects of each player's standing wonders. */
   private wonderFx: Array<Set<WonderEffect>> = [];
@@ -317,6 +341,7 @@ export class World {
       });
       this.statCache.push(new Map());
       this.lastAlertTick.push(-1000);
+      this.lastFuelWarn.push(-10000);
       this.wonderFx.push(new Set());
     });
 
@@ -466,6 +491,8 @@ export class World {
       lockstep: true,
       inside: 0,
       cargo: [],
+      fuel: stats.fuel,
+      ammo: stats.bombs,
       path: [],
       repathTick: -1000,
       scanTick: 0,
@@ -551,6 +578,8 @@ export class World {
       speed: base.speed * m.speed,
       range,
       sight: Math.max(base.sight + m.sight, range + 1.5),
+      fuel: base.fuel * this.players[owner].mods.fuel,
+      bombs: base.bombs > 0 ? base.bombs + this.players[owner].mods.bombs : 0,
     };
     cache.set(key, stats);
     return stats;
@@ -715,7 +744,8 @@ export class World {
     if (BUILDING_DEFS[b.type].walkable) return;
     const r = rectOf(b);
     for (const u of this.units) {
-      if (u.dead || distToRect(u.x, u.y, r) > 0) continue;
+      // Aircraft fly over the new roof.
+      if (u.dead || isAir(u.role) || distToRect(u.x, u.y, r) > 0) continue;
       const free = this.map.nearestPassable(u.x, u.y, 8, isNaval(u.role));
       if (free) {
         u.x = u.px = free.x + 0.5;
@@ -871,8 +901,13 @@ export class World {
     return n;
   }
 
-  /** Free tile next to a building, preferring the side facing `towards`; `naval`: on the water (ships from a harbour). */
-  findSpawnPoint(b: Building, towards: Point, skip = 0, naval = false): Point | null {
+  /**
+   * Free tile next to a building, preferring the side facing `towards`;
+   * ships come out on the water, aircraft start right on the airfield.
+   */
+  findSpawnPoint(b: Building, towards: Point, skip = 0, domain: 'land' | 'water' | 'air' = 'land'): Point | null {
+    if (domain === 'air') return this.parkingSpot(b, skip);
+    const naval = domain === 'water';
     const candidates: Array<Point & { d: number }> = [];
     for (let ring = 1; ring <= 4 && candidates.length <= skip; ring++) {
       for (let y = b.ty - ring; y < b.ty + b.size + ring; y++) {
@@ -887,6 +922,44 @@ export class World {
     candidates.sort((a, c) => a.d - c.d);
     const pick = candidates[Math.min(skip, candidates.length - 1)];
     return { x: pick.x, y: pick.y };
+  }
+
+  /** A place on an airfield (or above any building) for the n-th aircraft, so they don't stack. */
+  parkingSpot(b: Building, n: number): Point {
+    const cols = Math.max(1, b.size - 1);
+    const i = n % (cols * cols);
+    return { x: b.tx + 1 + (i % cols), y: b.ty + 1 + Math.floor(i / cols) };
+  }
+
+  /** The nearest finished airfield of a player, or null. */
+  nearestAirfield(owner: number, x: number, y: number): Building | null {
+    let best: Building | null = null;
+    let bestD = Infinity;
+    for (const b of this.buildings) {
+      if (b.dead || b.owner !== owner || b.type !== 'airfield' || !b.built) continue;
+      const d = distToRect(x, y, rectOf(b));
+      if (d < bestD) {
+        bestD = d;
+        best = b;
+      }
+    }
+    return best;
+  }
+
+  /** An own finished airfield the unit is right above, or null. */
+  airfieldUnder(u: Unit): Building | null {
+    for (const b of this.buildings) {
+      if (b.dead || b.owner !== u.owner || b.type !== 'airfield' || !b.built) continue;
+      if (distToRect(u.x, u.y, rectOf(b)) <= 0.3) return b;
+    }
+    return null;
+  }
+
+  /** Planes without fuel: one warning every half minute is enough. */
+  warnNoAirfield(u: Unit): void {
+    if (this.tick - this.lastFuelWarn[u.owner] < TICK_RATE * 30) return;
+    this.lastFuelWarn[u.owner] = this.tick;
+    this.emit({ type: 'warn', player: u.owner, text: 'Kein Flugplatz: Flugzeuge ohne Treibstoff sind kampfunfähig, bis einer steht.', x: u.x, y: u.y });
   }
 
   canPlace(owner: number, type: BuildingType, tx: number, ty: number): boolean {
@@ -963,7 +1036,7 @@ export class World {
         for (const u of this.ownUnits(cmd.player, cmd.ids)) {
           // Priests answer an attack order by converting; prophets do not fight at all.
           if (u.role === 'priest') {
-            if (target.kind === 'unit' && !isHero(target.role)) this.assign(u, { kind: 'convert', targetId: target.id }, cmd.queue ?? false);
+            if (target.kind === 'unit' && isConvertible(target.role)) this.assign(u, { kind: 'convert', targetId: target.id }, cmd.queue ?? false);
           } else if (u.role !== 'prophet' && canHit(u, target)) {
             this.assign(u, { kind: 'attack', targetId: target.id }, cmd.queue ?? false);
           }
@@ -972,7 +1045,7 @@ export class World {
       }
       case 'convert': {
         const target = this.get(cmd.targetId);
-        if (!target || target.kind !== 'unit' || isHero(target.role) || !this.areEnemies(cmd.player, target.owner)) return;
+        if (!target || target.kind !== 'unit' || !isConvertible(target.role) || !this.areEnemies(cmd.player, target.owner)) return;
         for (const u of this.ownUnits(cmd.player, cmd.ids)) {
           if (u.role === 'priest') this.assign(u, { kind: 'convert', targetId: target.id }, cmd.queue ?? false);
         }
@@ -980,7 +1053,8 @@ export class World {
       }
       case 'heal': {
         const target = this.get(cmd.targetId);
-        if (!target || target.kind !== 'unit' || this.areEnemies(cmd.player, target.owner)) return;
+        // Aircraft are mended at the airfield, not by priests.
+        if (!target || target.kind !== 'unit' || isAir(target.role) || this.areEnemies(cmd.player, target.owner)) return;
         for (const u of this.ownUnits(cmd.player, cmd.ids)) {
           if (u.role === 'priest' && u !== target) this.assign(u, { kind: 'heal', targetId: target.id }, cmd.queue ?? false);
         }
@@ -1010,6 +1084,16 @@ export class World {
           if (u.role === 'transport') this.assign(u, { kind: 'unload', x: cmd.x, y: cmd.y }, cmd.queue ?? false);
         }
         break;
+      case 'refuel': {
+        const field = this.get(cmd.targetId);
+        if (!field || field.kind !== 'building' || field.type !== 'airfield' || field.owner !== cmd.player || !field.built) return;
+        const units = this.ownUnits(cmd.player, cmd.ids);
+        for (const u of units) if (isPlane(u.role)) this.assign(u, { kind: 'refuel', targetId: field.id }, cmd.queue ?? false);
+        // Balloons need no fuel: they just fly there.
+        const others = units.filter((u) => !isPlane(u.role)).map((u) => u.id);
+        if (others.length) this.commandMove(cmd.player, others, field.x, field.y, false, cmd.queue ?? false);
+        break;
+      }
       case 'gather': {
         const target = this.get(cmd.targetId);
         if (!target) return;
@@ -1198,6 +1282,8 @@ export class World {
     const team = this.teamOf(player);
     return units.map((u) => {
       const slot = slots.get(u.id)!;
+      // Aircraft go anywhere on the map.
+      if (isAir(u.role)) return { x: Math.max(0.5, Math.min(this.map.width - 0.5, slot.x)), y: Math.max(0.5, Math.min(this.map.height - 0.5, slot.y)) };
       const naval = isNaval(u.role);
       if (this.map.passableFor(Math.floor(slot.x), Math.floor(slot.y), team, naval)) return { x: slot.x, y: slot.y };
       // Ships sent ashore stop at the nearest water, walkers sent to sea at the nearest shore.
@@ -1211,8 +1297,8 @@ export class World {
     if (units.length === 0) return;
     const starts = units.map((u) => (queue ? this.plannedEnd(u) : { x: u.x, y: u.y }));
     const targets = this.formationTargets(player, units, starts, x, y, facing);
-    // Everybody marching in step arrives together: the fast ones slow down to the group's pace.
-    const inStep = units.flatMap((u, i) => (u.lockstep ? [i] : []));
+    // Everybody marching in step arrives together: the fast ones slow down to the group's pace (aircraft fly ahead).
+    const inStep = units.flatMap((u, i) => (u.lockstep && !isAir(u.role) ? [i] : []));
     const pace =
       inStep.length > 1
         ? arrivalPace(
@@ -1350,7 +1436,7 @@ export class World {
     if (!ship || ship.kind !== 'unit' || ship.owner !== player || ship.role !== 'transport') return;
     // As many as there is room for; the rest stays ashore.
     const units = this.ownUnits(player, ids)
-      .filter((u) => !isNaval(u.role))
+      .filter((u) => domainOf(u.role) === 'land')
       .slice(0, Math.max(0, TRANSPORT_CAPACITY - ship.cargo.length));
     if (units.length === 0) return;
     for (const u of units) this.assign(u, { kind: 'board', targetId }, queue);
@@ -1783,6 +1869,7 @@ export class World {
       owner.stats.unitsLost++;
       this.cue({ kind: 'death', x: e.x, y: e.y, owner: e.owner, epoch: e.stats.epoch, look: e.stats.look });
       if (isNaval(e.role)) this.effects.push({ kind: 'sink', x: e.x, y: e.y, t: 0, dur: 2.6, size: e.role === 'fisher' ? 0.6 : 1 });
+      if (isAir(e.role)) this.effects.push({ kind: 'crash', x: e.x, y: e.y, t: 0, dur: 1.8, size: e.role === 'bomber' ? 1.2 : e.role === 'balloon' ? 0.9 : 0.8 });
       if (isHero(e.role)) this.emit({ type: 'warn', player: e.owner, text: `${e.stats.name} ist gefallen.`, x: e.x, y: e.y });
       if (e.cargo.length) {
         // A sunk transport takes its passengers down with it.
@@ -1863,6 +1950,10 @@ export class World {
       for (const a of ABILITIES) h.add(u.ready[a.id] ?? 0);
       if (u.order.kind === 'convert') h.add(u.order.progress);
       if (u.role === 'transport') for (const c of u.cargo) h.add(c.id);
+      if (isPlane(u.role)) {
+        h.add(u.fuel);
+        h.add(u.ammo);
+      }
     }
     for (const b of this.buildings) {
       if (b.dead) continue;

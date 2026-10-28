@@ -1,6 +1,6 @@
 import { MORALE_PER_HOUSE } from '../data/buildings';
 import { applyArmor, damageMultiplier } from '../data/combat';
-import { isFaithful, isNaval, MELEE_RANGE, type Projectile, type Role } from '../data/units';
+import { ANTI_AIR_EPOCH, isAir, isFaithful, isNaval, isPlane, MELEE_RANGE, type Projectile, type Role } from '../data/units';
 import { rectOf, type Building, type Entity, type Unit } from './entities';
 import { hypot } from './fmath';
 import { distToRect } from './pathfinding';
@@ -15,6 +15,8 @@ const PROJECTILE_SPEED: Record<Projectile, number> = {
   shell: 16,
   boulder: 7,
   laser: 60,
+  // Bombs simply fall: the flight time is fixed (see `fire`).
+  bomb: 0,
 };
 
 /** Area weapons fly to a fixed spot (and can miss movers); the rest home in. */
@@ -26,14 +28,30 @@ const HOMING: Record<Projectile, boolean> = {
   shell: false,
   boulder: false,
   laser: true,
+  bomb: false,
 };
+
+/** Seconds a bomb takes to fall. */
+const BOMB_FALL = 0.6;
 
 /**
  * Land and sea meet only at range: a sword cannot reach a ship and a ship
  * cannot ram a soldier, but bows, guns and towers fire across the shore.
+ * Planes fall only to anti-aircraft fire – fighters, anti-tank troops and
+ * towers from the world wars on – while balloons fly low enough for
+ * anything that shoots. Bombers only hit the ground, balloons nothing.
  */
 export function canHit(attacker: Unit | Building, target: Entity): boolean {
-  if (attacker.kind !== 'unit' || target.kind !== 'unit') return true;
+  if (attacker.kind === 'unit' && attacker.role === 'balloon') return false;
+  if (target.kind !== 'unit') return true;
+  if (isAir(target.role)) {
+    if (attacker.kind === 'building') return target.role === 'balloon' || (attacker.type === 'tower' && attacker.epoch >= ANTI_AIR_EPOCH);
+    if (attacker.role === 'bomber') return false;
+    if (attacker.role === 'fighter') return true;
+    if (target.role === 'balloon') return attacker.stats.range > MELEE_RANGE + 0.05;
+    return attacker.role === 'pike' && attacker.stats.epoch >= ANTI_AIR_EPOCH;
+  }
+  if (attacker.kind !== 'unit' || isAir(attacker.role)) return true;
   if (isNaval(attacker.role) === isNaval(target.role)) return true;
   return attacker.stats.range > MELEE_RANGE + 0.05;
 }
@@ -56,6 +74,7 @@ export function fire(w: World, attacker: Unit | Building, target: Entity): void 
     splash = attacker.stats.splash;
     epoch = attacker.stats.epoch;
     attacker.attackAnim = 0.35;
+    if (projectile === 'bomb') attacker.ammo = Math.max(0, attacker.ammo - 1);
   } else {
     role = 'tower';
     dmg = w.buildingAttackFor(attacker.owner, attacker.type)!.dmg;
@@ -74,6 +93,8 @@ export function fire(w: World, attacker: Unit | Building, target: Entity): void 
   const to = centerOf(target);
   w.cue({ kind: 'shot', x: from.x, y: from.y, owner: attacker.owner, epoch, look, projectile });
   const dist = hypot(to.x - from.x, to.y - from.y);
+  const fromAir = attacker.kind === 'unit' && isAir(attacker.role);
+  const toAir = target.kind === 'unit' && isAir(target.role);
   w.projectiles.push({
     kind: projectile,
     x0: from.x,
@@ -81,7 +102,7 @@ export function fire(w: World, attacker: Unit | Building, target: Entity): void 
     x1: to.x,
     y1: to.y,
     t: 0,
-    dur: Math.max(0.05, dist / PROJECTILE_SPEED[projectile]),
+    dur: projectile === 'bomb' ? BOMB_FALL : Math.max(0.05, dist / PROJECTILE_SPEED[projectile]),
     targetId: target.id,
     homing: HOMING[projectile],
     owner: attacker.owner,
@@ -89,6 +110,8 @@ export function fire(w: World, attacker: Unit | Building, target: Entity): void 
     attackerRole: role,
     dmg,
     splash,
+    fromAir,
+    toAir,
   });
 }
 
@@ -140,7 +163,8 @@ function splashDamage(
   skipId: number,
 ): void {
   w.forUnitsNear(x, y, radius, (u) => {
-    if (u.id === skipId || !w.areEnemies(owner, u.owner)) return;
+    // Blasts on the ground never reach what flies.
+    if (u.id === skipId || !w.areEnemies(owner, u.owner) || isAir(u.role)) return;
     if (hypot(u.x - x, u.y - y) <= radius) applyDamage(w, u, dmg, role, owner, attackerId);
   });
   for (const b of w.buildings) {
@@ -162,7 +186,9 @@ export function applyDamage(
   const armor = target.kind === 'unit' ? target.stats.armor : 1 + target.epoch * 0.6;
   const moraleDef = target.kind === 'unit' ? target.morale * MORALE_PER_HOUSE : 0;
   const shield = target.kind === 'unit' ? damageTaken(w, target) : 1;
-  const dmg = applyArmor(raw * damageMultiplier(role, cls), armor) * Math.max(0.2, 1 - moraleDef) * shield;
+  // Flugabwehr: anti-aircraft research pays off against planes.
+  const flak = target.kind === 'unit' && isPlane(target.role) && (role === 'pike' || role === 'tower') && attackerOwner >= 0 ? w.players[attackerOwner].mods.antiAir : 1;
+  const dmg = applyArmor(raw * flak * damageMultiplier(role, cls), armor) * Math.max(0.2, 1 - moraleDef) * shield;
   target.hp -= dmg;
   target.lastHitTick = w.tick;
   w.alertAttack(target.owner, target.x, target.y);
@@ -170,7 +196,14 @@ export function applyDamage(
   if (target.kind === 'unit' && target.hp > 0) {
     const attacker = w.get(attackerId);
     // Idle soldiers strike back; workers and the faithful keep doing their thing like in the classics.
-    if (attacker && attacker.kind !== 'resource' && target.role !== 'citizen' && !isFaithful(target.role) && target.order.kind === 'idle') {
+    if (
+      attacker &&
+      attacker.kind !== 'resource' &&
+      target.role !== 'citizen' &&
+      !isFaithful(target.role) &&
+      target.order.kind === 'idle' &&
+      canHit(target, attacker)
+    ) {
       target.order = { kind: 'attack', targetId: attacker.id, resume: null, leash: { x: target.x, y: target.y } };
     }
   }

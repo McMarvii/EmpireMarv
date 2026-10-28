@@ -3,7 +3,7 @@ import { ABILITY_BY_ID, CONVERT_RANGE, HEAL_RANGE, type AbilityId } from './data
 import { BUILDING_DEFS, buildingName, type BuildingType } from './data/buildings';
 import { EPOCHS } from './data/epochs';
 import { canAfford, type Stock } from './data/resources';
-import { isHero, isNaval, type Role } from './data/units';
+import { domainOf, isConvertible, isPlane, type Role } from './data/units';
 import type { NetSession } from './net/session';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
@@ -422,7 +422,7 @@ export class Game {
     const others = units.filter((u) => u.role !== 'citizen').map((u) => u.id);
     // Priests convert enemy units and heal friends; the rest of the selection does the usual.
     const priests = units.filter((u) => u.role === 'priest').map((u) => u.id);
-    if (priests.length && target && target.kind === 'unit' && world.areEnemies(this.me, target.owner) && !isHero(target.role)) {
+    if (priests.length && target && target.kind === 'unit' && world.areEnemies(this.me, target.owner) && isConvertible(target.role)) {
       this.issue({ type: 'convert', player: this.me, ids: priests, targetId: target.id, queue });
       const rest = ids.filter((id) => !priests.includes(id));
       if (rest.length) this.issue({ type: 'attack', player: this.me, ids: rest, targetId: target.id, queue });
@@ -438,11 +438,19 @@ export class Game {
       this.audio.ack('work', units);
       return;
     }
+    // Planes onto an own airfield: refuel, reload, get repaired.
+    const planes = units.filter((u) => isPlane(u.role)).map((u) => u.id);
+    if (target && target.kind === 'building' && target.type === 'airfield' && target.owner === this.me && target.built && planes.length) {
+      this.issue({ type: 'refuel', player: this.me, ids, targetId: target.id, queue });
+      this.setMarker(target.x, target.y, '#8dff5a');
+      this.audio.ack('move', units);
+      return;
+    }
     // Walkers onto an own transport ship: go aboard.
-    const walkers = units.filter((u) => !isNaval(u.role)).map((u) => u.id);
+    const walkers = units.filter((u) => domainOf(u.role) === 'land').map((u) => u.id);
     if (target && target.kind === 'unit' && target.owner === this.me && target.role === 'transport' && walkers.length) {
       this.issue({ type: 'board', player: this.me, ids: walkers, targetId: target.id, queue });
-      const rest = units.filter((u) => isNaval(u.role) && u.id !== target.id).map((u) => u.id);
+      const rest = units.filter((u) => domainOf(u.role) !== 'land' && u.id !== target.id).map((u) => u.id);
       if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
       this.setMarker(target.x, target.y, '#8dff5a');
       this.audio.ack('move', units);

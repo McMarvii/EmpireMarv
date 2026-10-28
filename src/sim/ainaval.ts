@@ -95,7 +95,7 @@ export class NavalPlanner {
   /** Sends troops to the harbour to be shipped over to an enemy building. */
   launch(w: World, s: AISnapshot, troops: Unit[], target: Point): void {
     const dock = this.homeDock(s)!;
-    const muster = w.findSpawnPoint(dock, s.base, 0, false) ?? { x: s.base.x, y: s.base.y };
+    const muster = w.findSpawnPoint(dock, s.base, 0, 'land') ?? { x: s.base.x, y: s.base.y };
     const ships = this.freeTransports(s).map((u) => u.id);
     this.landing = { target: { x: target.x, y: target.y }, troops: troops.map((u) => u.id), ships, phase: 'muster', since: w.tick, muster, nudged: w.tick };
     w.issue({ type: 'move', player: this.host.playerId, ids: this.landing.troops, x: muster.x, y: muster.y, attackMove: false });

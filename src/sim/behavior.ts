@@ -2,7 +2,22 @@ import { ABILITY_BY_ID, CONVERT_CLASS, CONVERT_RANGE, CONVERT_SETBACK, CONVERT_T
 import { BUILDING_DEFS, buildingName, FARM_CAPACITY } from '../data/buildings';
 import { epochLabel, EPOCHS } from '../data/epochs';
 import { TECH_BY_ID } from '../data/techs';
-import { bestTier, BUILD_RATE, FISHER_CAPACITY, gatherRate, isHero, isNaval, isPeaceful, MAX_FAITH, ROLE_DEFS, TRANSPORT_CAPACITY } from '../data/units';
+import {
+  bestTier,
+  BUILD_RATE,
+  domainOf,
+  FISHER_CAPACITY,
+  gatherRate,
+  isAir,
+  isConvertible,
+  isHero,
+  isNaval,
+  isPeaceful,
+  isPlane,
+  MAX_FAITH,
+  ROLE_DEFS,
+  TRANSPORT_CAPACITY,
+} from '../data/units';
 import { WONDER_GATHER, WONDER_RESEARCH, WONDER_TRAIN } from '../data/wonders';
 import { canHit, fire } from './combat';
 import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type Order, type PatrolOrder, type Plan, type ResourceNode, type Unit } from './entities';
@@ -19,10 +34,37 @@ const SNUG_REACH = 0.2;
 const SCAN_INTERVAL = 8;
 /** How close a unit gets to a transport ship to go aboard. */
 const BOARD_REACH = 2;
+/** At the airfield: a full tank takes this long, a bomb this long to load. */
+const REFUEL_TIME = 4;
+const RELOAD_TIME = 1;
+/** Share of their health planes get back per second at the airfield. */
+const REPAIR_RATE = 0.08;
 
 export function setPathTo(w: World, u: Unit, goal: PathGoal, maxNodes?: number): void {
-  u.path = w.pathfinder.find(u.x, u.y, goal, maxNodes, w.teamOf(u.owner), isNaval(u.role));
+  u.path = isAir(u.role) ? flightPath(w, u, goal) : w.pathfinder.find(u.x, u.y, goal, maxNodes, w.teamOf(u.owner), isNaval(u.role));
   u.repathTick = w.tick;
+}
+
+/** Aircraft need no search: straight to the goal (to within reach of a rectangle), kept on the map. */
+function flightPath(w: World, u: Unit, goal: PathGoal): Point[] {
+  let x: number;
+  let y: number;
+  if (goal.kind === 'point') {
+    x = goal.x;
+    y = goal.y;
+  } else {
+    const r = goal.rect;
+    const px = Math.max(r.x, Math.min(r.x + r.w, u.x));
+    const py = Math.max(r.y, Math.min(r.y + r.h, u.y));
+    const d = hypot(u.x - px, u.y - py);
+    if (d <= goal.reach) return [];
+    const k = d > 1e-6 ? (goal.reach * 0.9) / d : 0;
+    x = px + (u.x - px) * k;
+    y = py + (u.y - py) * k;
+  }
+  x = Math.max(0.5, Math.min(w.map.width - 0.5, x));
+  y = Math.max(0.5, Math.min(w.map.height - 0.5, y));
+  return [{ x, y }];
 }
 
 /** Distance from a unit to the edge of an entity (0 when touching). */
@@ -33,6 +75,7 @@ export function distTo(u: { x: number; y: number }, e: Entity): number {
 
 /** Whether a unit can walk straight to a point without crossing a blocked tile. */
 function straightClear(w: World, u: Unit, tx: number, ty: number): boolean {
+  if (isAir(u.role)) return w.map.inBounds(Math.floor(tx), Math.floor(ty));
   const team = w.teamOf(u.owner);
   const naval = isNaval(u.role);
   const steps = Math.max(1, Math.ceil(hypot(tx - u.x, ty - u.y) / 0.25));
@@ -74,8 +117,8 @@ function followPath(w: World, u: Unit): void {
     return;
   }
   const next = u.path[0];
-  // A building placed on the route: drop the path so the order logic re-plans.
-  if (!w.map.passableFor(Math.floor(next.x), Math.floor(next.y), w.teamOf(u.owner), isNaval(u.role)) && u.path.length > 1) {
+  // A building placed on the route: drop the path so the order logic re-plans (aircraft fly over it).
+  if (!isAir(u.role) && !w.map.passableFor(Math.floor(next.x), Math.floor(next.y), w.teamOf(u.owner), isNaval(u.role)) && u.path.length > 1) {
     u.path = [];
     u.repathTick = -1000;
     u.moving = false;
@@ -114,14 +157,16 @@ function goIdle(u: Unit): void {
  * only once no enemy unit is in reach, so a fight is finished before the
  * troops turn to the houses. Siege weapons prefer buildings.
  */
-export function findTarget(w: World, owner: number, x: number, y: number, radius: number, siege = false, from?: Unit): Entity | null {
+export function findTarget(w: World, owner: number, x: number, y: number, radius: number, siege = false, from?: Unit | Building): Entity | null {
   let best: Entity | null = null;
   let bestScore = Infinity;
+  // Fighters go for what flies first.
+  const hunter = from?.kind === 'unit' && from.role === 'fighter';
   w.forUnitsNear(x, y, radius, (o) => {
     if (!w.areEnemies(owner, o.owner) || !w.inSight(owner, o) || (from && !canHit(from, o))) return;
     const d = hypot(o.x - x, o.y - y);
     if (d > radius) return;
-    const score = d + (o.role === 'citizen' ? 3 : 0) + (siege ? 6 : 0);
+    const score = d + (o.role === 'citizen' ? 3 : 0) + (siege ? 6 : 0) + (hunter && !isAir(o.role) ? 8 : 0);
     if (score < bestScore) {
       bestScore = score;
       best = o;
@@ -143,6 +188,7 @@ export function findTarget(w: World, owner: number, x: number, y: number, radius
 
 export function updateUnit(w: World, u: Unit): void {
   u.cooldown = Math.max(0, u.cooldown - DT);
+  if (isPlane(u.role)) burnFuel(w, u);
   // Medizin: wounds heal once a unit has been out of combat for a while.
   const regen = w.players[u.owner].mods.regen;
   if (regen > 0 && u.hp < u.maxHp && w.tick - u.lastHitTick > 5 * TICK_RATE) u.hp = Math.min(u.maxHp, u.hp + regen * DT);
@@ -198,8 +244,80 @@ export function updateUnit(w: World, u: Unit): void {
     case 'unload':
       updateUnload(w, u);
       break;
+    case 'refuel':
+      updateRefuel(w, u);
+      break;
   }
   followPath(w, u);
+}
+
+/**
+ * Planes burn fuel while in the air. Parked idle over an own airfield they
+ * fill up instead. An empty tank or bomb bay sends them home: whatever they
+ * were doing waits until they are back in the air.
+ */
+function burnFuel(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind === 'refuel') return;
+  if (o.kind === 'idle' && w.airfieldUnder(u)) {
+    service(w, u);
+    return;
+  }
+  u.fuel = Math.max(0, u.fuel - DT);
+  if (u.fuel <= 0 || (u.stats.bombs > 0 && u.ammo <= 0)) {
+    u.order = { kind: 'refuel', targetId: 0, resume: o.kind === 'idle' ? null : o };
+    u.path = [];
+    u.repathTick = -1000;
+  }
+}
+
+/** One tick of ground service: fuel, bombs, repairs. True once the plane is ready again. */
+function service(w: World, u: Unit): boolean {
+  u.fuel = Math.min(u.stats.fuel, u.fuel + (u.stats.fuel / REFUEL_TIME) * DT);
+  if (u.ammo < u.stats.bombs && w.tick % (RELOAD_TIME * TICK_RATE) === u.id % (RELOAD_TIME * TICK_RATE)) u.ammo++;
+  u.hp = Math.min(u.maxHp, u.hp + u.maxHp * REPAIR_RATE * DT);
+  return u.fuel >= u.stats.fuel && u.ammo >= u.stats.bombs && u.hp >= u.maxHp;
+}
+
+/** Flying home to refuel: no fighting on the way, back to the old order once ready. */
+function updateRefuel(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'refuel') return;
+  let field = w.get(o.targetId);
+  if (!field || field.kind !== 'building' || field.type !== 'airfield' || field.owner !== u.owner || !field.built) {
+    // No airfield (yet): hover where it is, unable to fight, and look again now and then.
+    if (o.targetId !== 0 || w.tick % TICK_RATE === u.id % TICK_RATE) {
+      const next = w.nearestAirfield(u.owner, u.x, u.y);
+      o.targetId = next ? next.id : 0;
+      u.path = [];
+      if (!next && u.fuel <= 0) w.warnNoAirfield(u);
+    }
+    if (!o.targetId) return;
+    field = w.get(o.targetId)!;
+  }
+  const airfield = field as Building;
+  if (distToRect(u.x, u.y, rectOf(airfield)) > 0.3) {
+    if (u.path.length === 0) {
+      const spot = w.parkingSpot(airfield, u.id);
+      u.path = [{ x: spot.x, y: spot.y }];
+      u.repathTick = w.tick;
+    }
+    return;
+  }
+  if (u.path.length > 0) return;
+  if (!service(w, u)) return;
+  const resume = o.resume;
+  goIdle(u);
+  if (!resume) return;
+  if (resume.kind === 'attack') {
+    const t = w.get(resume.targetId);
+    if (t && t.kind !== 'resource' && w.areEnemies(u.owner, t.owner)) u.order = resume;
+    else if (resume.resume) u.order = resume.resume;
+  } else {
+    u.order = resume;
+  }
+  u.repathTick = -1000;
+  routeTo(w, u);
 }
 
 /** Turns a queued command into the unit's current order. */
@@ -243,11 +361,14 @@ export function startPlan(w: World, u: Unit, plan: Plan): void {
       u.order = u.role === 'priest' ? { kind: 'heal', targetId: plan.targetId } : { kind: 'idle' };
       break;
     case 'board':
-      u.order = isNaval(u.role) ? { kind: 'idle' } : { kind: 'board', targetId: plan.targetId };
+      u.order = domainOf(u.role) !== 'land' ? { kind: 'idle' } : { kind: 'board', targetId: plan.targetId };
       break;
     case 'unload':
       u.order = u.role === 'transport' ? { kind: 'unload', x: plan.x, y: plan.y } : { kind: 'idle' };
       if (u.role === 'transport') sailToShore(w, u, plan);
+      break;
+    case 'refuel':
+      u.order = isPlane(u.role) ? { kind: 'refuel', targetId: plan.targetId, resume: null } : { kind: 'idle' };
       break;
   }
 }
@@ -313,9 +434,9 @@ function updatePatrol(w: World, u: Unit): void {
   if (w.tick - u.repathTick >= TICK_RATE / 2) routeTo(w, u);
 }
 
-/** Units that would rather shell buildings than fight. */
+/** Units that would rather shell (or bomb) buildings than fight. */
 function isSiege(u: Unit): boolean {
-  return u.role === 'siege' || u.role === 'bombard';
+  return u.role === 'siege' || u.role === 'bombard' || u.role === 'bomber';
 }
 
 function scanDue(w: World, u: Unit): boolean {
@@ -383,7 +504,7 @@ function updateAttack(w: World, u: Unit): void {
   if (d <= u.stats.range) {
     u.path = [];
     face(u, t);
-    if (u.cooldown <= 0) {
+    if (u.cooldown <= 0 && (u.stats.bombs === 0 || u.ammo > 0)) {
       fire(w, u, t);
       u.cooldown = attackCooldown(w, u);
     }
@@ -394,7 +515,7 @@ function updateAttack(w: World, u: Unit): void {
   if (u.path.length === 0 || w.tick - u.repathTick >= interval) {
     // Across the shore the way ends at the water's edge: no need to search the whole coast.
     if (t.kind === 'unit') setPathTo(w, u, { kind: 'point', x: t.x, y: t.y }, isNaval(t.role) !== isNaval(u.role) ? 1500 : undefined);
-    else setPathTo(w, u, { kind: 'rect', rect: rectOf(t), reach: Math.max(APPROACH_REACH, u.stats.range * 0.9) });
+    else setPathTo(w, u, { kind: 'rect', rect: rectOf(t), reach: isAir(u.role) ? u.stats.range * 0.8 : Math.max(APPROACH_REACH, u.stats.range * 0.9) });
     if (u.path.length === 0) {
       // Already on the goal tile but a little short: step straight in.
       const k = (d - u.stats.range * 0.8) / Math.max(d, 1e-6);
@@ -435,7 +556,7 @@ function updateConvert(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'convert') return;
   const t = w.get(o.targetId);
-  if (!t || t.kind !== 'unit' || isHero(t.role) || !w.areEnemies(u.owner, t.owner) || !w.inSight(u.owner, t)) return goIdle(u);
+  if (!t || t.kind !== 'unit' || !isConvertible(t.role) || !w.areEnemies(u.owner, t.owner) || !w.inSight(u.owner, t)) return goIdle(u);
   if (!closeIn(w, u, t, CONVERT_RANGE)) {
     o.progress = 0;
     return;
@@ -461,7 +582,7 @@ function updateHeal(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'heal') return;
   const t = w.get(o.targetId);
-  if (!t || t.kind !== 'unit' || w.areEnemies(u.owner, t.owner) || t.hp >= t.maxHp) {
+  if (!t || t.kind !== 'unit' || isAir(t.role) || w.areEnemies(u.owner, t.owner) || t.hp >= t.maxHp) {
     goIdle(u);
     u.scanTick = w.tick;
     return;
@@ -480,7 +601,7 @@ function seekPatient(w: World, u: Unit): void {
   let best: Unit | null = null;
   let bestRatio = 1;
   w.forUnitsNear(u.x, u.y, u.stats.sight, (o) => {
-    if (o === u || o.dead || w.areEnemies(u.owner, o.owner) || hypot(o.x - u.x, o.y - u.y) > u.stats.sight) return;
+    if (o === u || o.dead || isAir(o.role) || w.areEnemies(u.owner, o.owner) || hypot(o.x - u.x, o.y - u.y) > u.stats.sight) return;
     const ratio = o.hp / o.maxHp;
     if (ratio < bestRatio) {
       bestRatio = ratio;
@@ -668,7 +789,8 @@ function frontierTile(w: World, u: Unit, skip: number[]): { x: number; y: number
   const map = w.map;
   const vis = w.players[u.owner].vis;
   const naval = isNaval(u.role);
-  const open = (x: number, y: number) => map.passableFor(x, y, -1, naval);
+  const air = isAir(u.role);
+  const open = (x: number, y: number) => air || map.passableFor(x, y, -1, naval);
   const ux = Math.floor(u.x);
   const uy = Math.floor(u.y);
   const fx = cos(u.facing);
@@ -941,12 +1063,12 @@ export function updateBuilding(w: World, b: Building): void {
     b.cooldown = Math.max(0, b.cooldown - DT);
     const atk = w.buildingAttackFor(b.owner, b.type)!;
     let target = b.targetId ? w.get(b.targetId) : undefined;
-    if (target && (target.kind === 'resource' || distTo(b, target) > atk.range + b.size / 2 || !w.inSight(b.owner, target))) {
+    if (target && (target.kind === 'resource' || distTo(b, target) > atk.range + b.size / 2 || !w.inSight(b.owner, target) || !canHit(b, target))) {
       target = undefined;
     }
     if (!target && w.tick >= b.scanTick) {
       b.scanTick = w.tick + SCAN_INTERVAL;
-      const found = findTarget(w, b.owner, b.x, b.y, atk.range + b.size / 2);
+      const found = findTarget(w, b.owner, b.x, b.y, atk.range + b.size / 2, false, b);
       target = found && found.kind === 'unit' ? found : undefined;
     }
     b.targetId = target ? target.id : 0;
@@ -1030,7 +1152,9 @@ export function updateBuilding(w: World, b: Building): void {
   item.progress += DT * player.mods.train * (w.wonderEffect(b.owner, 'train') ? WONDER_TRAIN : 1);
   if (item.progress < ROLE_DEFS[item.role].trainTime) return;
   const towards = b.rally[0] ?? { x: b.x + b.size, y: b.y + b.size };
-  const spot = w.findSpawnPoint(b, towards, 0, isNaval(item.role));
+  const domain = domainOf(item.role);
+  // Aircraft take turns on the airfield's parking places.
+  const spot = w.findSpawnPoint(b, towards, domain === 'air' ? player.stats.unitsTrained : 0, domain);
   if (!spot) return;
   b.queue.shift();
   if (b.pendingAdvance) b.pendingAdvance.ahead--;
@@ -1064,10 +1188,10 @@ export function separateUnits(w: World): void {
     if (working) continue;
     let pushX = 0;
     let pushY = 0;
-    const naval = isNaval(u.role);
+    const domain = domainOf(u.role);
     w.forUnitsNear(u.x, u.y, minDist, (o) => {
-      // Ships and walkers pass each other at the shore.
-      if (o === u || isNaval(o.role) !== naval) return;
+      // Ships and walkers pass each other at the shore, aircraft over everybody's heads.
+      if (o === u || domainOf(o.role) !== domain) return;
       const dx = u.x - o.x;
       const dy = u.y - o.y;
       const d = hypot(dx, dy);
@@ -1085,7 +1209,8 @@ export function separateUnits(w: World): void {
     if (pushX === 0 && pushY === 0) continue;
     const nx = u.x + pushX;
     const ny = u.y + pushY;
-    if (w.map.passableFor(Math.floor(nx), Math.floor(ny), w.teamOf(u.owner), naval)) {
+    const free = domain === 'air' ? w.map.inBounds(Math.floor(nx), Math.floor(ny)) : w.map.passableFor(Math.floor(nx), Math.floor(ny), w.teamOf(u.owner), domain === 'water');
+    if (free) {
       u.x = nx;
       u.y = ny;
     }
