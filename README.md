@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.7).** Wirtschaft, Kampf, 18 Epochen, 201 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg sowie **sechs Kartentypen**, **Seekrieg** mit Landungen und **Spielstände** funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.8).** Wirtschaft, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände sowie **Luftkrieg** und ein **geführtes Tutorial** funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -15,7 +15,7 @@ npm install
 npm run dev
 ```
 
-Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel starten** klicken.
+Dann <http://localhost:5173> öffnen, Einstellungen wählen und auf **Spiel starten** klicken. Wer neu ist, beginnt mit **Tutorial starten**.
 
 Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5173/?signal=local> öffnen. Im einen ein Spiel erstellen, den Einladungslink im anderen öffnen. Die Tabs finden sich dann über den Browser statt über den Vermittlungsserver.
 
@@ -30,10 +30,10 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 
 - **18 Epochen** mit eigenem Namen, Zeitraum, Baustil, eigenen Einheiten und einem Emblem mit römischer Ziffer (I–XVIII). Start- und Endepoche sind pro Partie wählbar – wie früher.
 - **Aufstieg braucht Gebäude und Forschung**: Jede Epoche verlangt Gebäude der bisherigen Epochen, z. B. für die Bronzezeit ein Kriegerlager, eine Werkstatt und zwei Hütten, und zwei erforschte Techniken der aktuellen Epoche. Der Tooltip zeigt die Checkliste.
-- **Technologiebaum mit 201 Techniken** in 30 Zweigen – Waffen, Rüstungen, Werkzeuge, Bergbau, Ackerbau, Medizin, Schrift, Mathematik, Antriebe, Glaubensschutz, Schiffbau … Jede Epoche schaltet neue Stufen frei, von Feuersteinklingen bis Nanoklingen. Geforscht wird in Schmiede, Akademie, Tempel, Hafen und den Produktionsgebäuden.
+- **Technologiebaum mit 221 Techniken** in 34 Zweigen – Waffen, Rüstungen, Werkzeuge, Bergbau, Ackerbau, Medizin, Schrift, Mathematik, Antriebe, Glaubensschutz, Schiffbau, Reichweite, Flugabwehr … Jede Epoche schaltet neue Stufen frei, von Feuersteinklingen bis Nanoklingen. Geforscht wird in Schmiede, Akademie, Tempel, Hafen, Flugplatz und den Produktionsgebäuden.
 - **5 Rohstoffe**: Nahrung, Holz, Stein, Gold, Eisen. Bürger sammeln, bauen und reparieren; Felder liefern unbegrenzt Nahrung. Rechtsklick auf Dorfzentrum oder Lager lagert die Ladung sofort ein.
 - **Kampfdreieck**, das über alle Epochen gleich bleibt: Sturminfanterie › Abwehrinfanterie › Kavallerie & Fahrzeuge › Fernkampf › Sturminfanterie. Belagerung und Artillerie zerstören Gebäude.
-- **15 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
+- **16 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
 - **Zuflucht**: Auf Knopfdruck im Dorfzentrum (`Z`) suchen sich alle Bürger einen Platz im nächsten Dorfzentrum oder Turm, bis zu 5 je Gebäude. Jeder Bürger darin schießt einen zusätzlichen Pfeil. Erneut drücken gibt Entwarnung, alle gehen an ihre Arbeit zurück.
 - **Mauern und Tore**, als Linie gezogen: Palisade, Lehmziegel, Zinnenmauer, Bastion, Beton, Energiebarriere. Tore lassen nur das eigene Team durch.
 - **Späher** mit großer Sichtweite und **Erkundenmodus** für jede Einheit.
@@ -45,10 +45,16 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 - **Seekrieg**: Der Hafen am Ufer baut Fischerboote, Transport-, Kriegs- und Belagerungsschiffe, je Ära vom Einbaum bis zum Hover-Transporter, von der Trireme bis zum Ionen-Schlachtschiff.
   - Land und See treffen sich nur auf Distanz: Bogen, Kanonen und Türme schießen auf Schiffe, Schiffe auf die Küste, Schwerter erreichen kein Schiff.
   - Transportschiffe bringen bis zu 10 Einheiten über das Wasser. Wird ein beladenes Schiff versenkt, geht die Ladung mit unter.
+- **Luftkrieg**: Ab der Revolutionszeit (XII) steigt aus der Werkstatt ein **Beobachtungsballon** auf, der weit über Wald, Wasser und Mauern sieht. Ballone fliegen tief, jeder Schütze trifft sie. Ab den Weltkriegen (XIV) baut der **Flugplatz** (`J`) Jäger und Bomber, je Epoche vom Propellerflugzeug bis zum Raumjäger.
+  - Flugzeuge fliegen frei über alles hinweg. Nur Flugabwehr trifft sie: Jäger, Abwehrinfanterie und Türme ab den Weltkriegen.
+  - Jäger beherrschen den Himmel und sind gegen Bodenziele schwach. Bomber werfen Bomben auf alles, was stillsteht.
+  - **Treibstoff und Bombenlast**: Ist der Tank oder der Bombenschacht leer, fliegt das Flugzeug von selbst zum nächsten Flugplatz und greift unterwegs nicht mehr an. Dort tankt es, lädt nach, wird repariert und kehrt zu seinem Auftrag zurück. Ohne Flugplatz bleibt es kampfunfähig in der Luft.
+  - Reichweite, Bordwaffen und Flugzeugbau werden am Flugplatz erforscht, die Flugabwehr am Turm.
+- **Geführtes Tutorial**: eine Übungspartie in 14 geprüften Schritten, von der Kamera über Sammeln, Bauen, Forschen und den Aufstieg bis zum Angriff auf ein Räuberlager. Was man schon kann, hakt es von selbst ab.
 - **Spielstände**: Partien gegen den Computer lassen sich speichern und später genau dort fortsetzen. Es gibt `Strg`+`S`, automatisches Speichern alle 5 Minuten und das Speichern als Datei; geladen wird im Hauptmenü unter „Spielstände“.
 - **Lesbarkeit**: Einheiten, Minen und Büsche hinter Gebäuden scheinen durch.
 - **Ton und Musik**, komplett im Browser erzeugt, ohne Audiodateien: Waffen klingen nach ihrer Epoche (Schleuder, Bogen, Muskete, Gewehr, Kanone, Laser), Bürger hacken, schürfen und hämmern, Einheiten antworten auf Befehle. Ein Alarm passend zur Ära (Kriegshorn, Glocke, Signalhorn, Sirene) und eine Fanfare beim Aufstieg. Die Musik wird für jede Ära neu komponiert, von der Knochenflöte bis zum Synthesizer, und wird im Kampf treibender. Man hört nur, was man sieht.
-- **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee. Sie setzt Helden und ihre Fähigkeiten ein, bekehrt, ruft Katastrophen auf deine Truppen, baut Wunder und greift fremde Wunder gezielt an. Zur See fischt sie, baut eine Flotte und setzt auf der Inselkarte ihre Armeen per Schiff über.
+- **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee. Sie setzt Helden und ihre Fähigkeiten ein, bekehrt, ruft Katastrophen auf deine Truppen, baut Wunder und greift fremde Wunder gezielt an. Zur See fischt sie, baut eine Flotte und setzt auf der Inselkarte ihre Armeen per Schiff über. In der Luft hält sie einen Ballon über der Front, fliegt Bombenangriffe mit Jägerbegleitung und jagt feindliche Flugzeuge über ihrer Basis.
 - **Formationen** Linie, Block und Keil: Infanterie vorn, Fernkampf und Belagerung hinten. Gruppen marschieren im Gleichschritt und kommen gleichzeitig an (mit `L` abschaltbar). Nach einem Sieg im Gefecht greifen Soldaten zuerst die nächste feindliche Einheit an, erst dann Gebäude. Rechts-Ziehen legt die Blickrichtung mit einem Pfeil fest.
 - **Befehlsketten** mit Umschalt: Wegpunkte, Angriffe, Sammeln und mehrere Bauaufträge nacheinander. Die Wegpunkte sind als Linien sichtbar. Dazu **Patrouille** und **Sammelpunkt-Ketten**.
 - **Gebäude-Hotkeys und Produktionsleiste**: `Tab` plus Bau-Taste springt zu Kaserne, Stall & Co. (untätige zuerst). Eine Leiste zeigt jedes Produktionsgebäude mit laufendem Auftrag, Warteschlange und untätigem Zustand. Mehrere Gebäude eines Typs bilden gemeinsam aus, Forschung und Aufstieg lassen sich einreihen.
@@ -79,10 +85,11 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 | `M` `W` `Q` / `K` `D` `U`       | Stratege: Sammelruf, Schildwall, Feldlazarett / Krieger: Kampfschrei, Wirbelschlag, Blutrausch |
 | `S` `B` `F` `T`, dann Klick     | Prophet: Seuche, Erdbeben, Feuersturm, Sturm (Kreis zeigt Fläche und Reichweite) |
 | Rechtsklick mit Priester        | Gegner bekehren, Verbündete heilen (auch `C` / `H`, dann Klick) |
-| `I` / `D` / `Q` (Bürger gewählt) | Tempel / Wunder / Hafen bauen (der Hafen rastet am Ufer ein) |
+| `I` / `D` / `Q` / `J` (Bürger gewählt) | Tempel / Wunder / Hafen / Flugplatz bauen (der Hafen rastet am Ufer ein) |
 | Rechtsklick mit Landeinheiten auf eigenes Transportschiff | Einsteigen (das Schiff kommt ans Ufer) |
 | Rechtsklick mit beladenem Transportschiff an Land | Dort entladen; `Y`: an der nächsten Küste absetzen |
 | Rechtsklick mit Fischerbooten auf Fisch | Fischen                                     |
+| Rechtsklick mit Flugzeugen auf eigenen Flugplatz | Tanken, Bomben laden, reparieren (leer fliegen sie von selbst zurück) |
 | `M` / `G`, dann ziehen          | Mauer / Tor als Linie bauen                         |
 | `Entf`                          | Auswahl abreißen bzw. entlassen                     |
 | `A`, `S`, `D` … (Gebäude gewählt) | Nächste Stufe eines Forschungszweigs              |
@@ -115,11 +122,12 @@ src/
   render/    Isometrische Darstellung, prozedurale Sprites, Minimap
   audio/     Prozedurale Klänge, generative Musik je Ära, Mischpult
   net/       Mehrspieler: Lockstep-Sitzungen, Protokoll, WebRTC, Vermittlung
-  ui/        HUD, Eingabe, Startmenü, Lobby, Chat, Wiedergabe-Leiste
+  ui/        HUD, Eingabe, Startmenü, Lobby, Chat, Wiedergabe-Leiste, Tutorial-Feld
   session.ts Woher Befehle kommen: Einzelspiel, Netz oder Wiedergabe
   replay.ts  Aufzeichnen, Speichern und Laden von Wiedergaben
   saves.ts   Spielstände: Schnappschuss, Browser-Speicher, Datei
-tests/       Vitest: Daten, Kartentypen, Wegfindung, Wirtschaft, Kampf, Seekrieg, Helden, Glaube, Wunder, KI-gegen-KI (auch auf Inseln), Klänge, Determinismus, Lockstep mit Latenz, Wiedergaben, Spielstände
+  tutorial.ts Die Übungspartie: Karte, Räuberlager, die 14 geprüften Schritte
+tests/       Vitest: Daten, Kartentypen, Wegfindung, Wirtschaft, Kampf, Seekrieg, Luftkrieg, Helden, Glaube, Wunder, KI-gegen-KI (auch auf Inseln und in der Luft), Klänge, Determinismus, Lockstep mit Latenz, Wiedergaben, Spielstände, Tutorial
 docs/        Game Design und Screenshots
 ```
 
