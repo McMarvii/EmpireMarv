@@ -1,6 +1,6 @@
 import { MORALE_PER_HOUSE } from '../data/buildings';
 import { applyArmor, damageMultiplier } from '../data/combat';
-import { isFaithful, type Projectile, type Role } from '../data/units';
+import { isFaithful, isNaval, MELEE_RANGE, type Projectile, type Role } from '../data/units';
 import { rectOf, type Building, type Entity, type Unit } from './entities';
 import { hypot } from './fmath';
 import { distToRect } from './pathfinding';
@@ -27,6 +27,16 @@ const HOMING: Record<Projectile, boolean> = {
   boulder: false,
   laser: true,
 };
+
+/**
+ * Land and sea meet only at range: a sword cannot reach a ship and a ship
+ * cannot ram a soldier, but bows, guns and towers fire across the shore.
+ */
+export function canHit(attacker: Unit | Building, target: Entity): boolean {
+  if (attacker.kind !== 'unit' || target.kind !== 'unit') return true;
+  if (isNaval(attacker.role) === isNaval(target.role)) return true;
+  return attacker.stats.range > MELEE_RANGE + 0.05;
+}
 
 function centerOf(e: Entity): { x: number; y: number } {
   return { x: e.x, y: e.y };

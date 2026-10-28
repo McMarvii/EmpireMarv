@@ -338,6 +338,29 @@ function glyph(ctx: CanvasRenderingContext2D, kind: TechGlyph, c: number, r: num
       L([[-0.7, 0.55], [-0.45, -0.2], [0, -0.6], [0.5, -0.3], [0.7, 0.55]], true);
       fill();
       break;
+    case 'anchor':
+      ctx.beginPath();
+      ctx.arc(c, c - 0.6 * r, 0.16 * r, 0, Math.PI * 2);
+      stroke();
+      L([[0, -0.44], [0, 0.75]]);
+      stroke();
+      L([[-0.35, -0.2], [0.35, -0.2]]);
+      stroke();
+      ctx.beginPath();
+      ctx.arc(c, c + 0.15 * r, 0.6 * r, 0.25, Math.PI - 0.25);
+      stroke();
+      L([[-0.72, 0.15], [-0.58, 0.38], [-0.4, 0.22]]);
+      stroke();
+      L([[0.72, 0.15], [0.58, 0.38], [0.4, 0.22]]);
+      stroke();
+      break;
+    case 'fish':
+      ctx.beginPath();
+      ctx.ellipse(c - 0.1 * r, c, 0.55 * r, 0.3 * r, 0, 0, Math.PI * 2);
+      fill();
+      L([[0.4, 0], [0.8, -0.35], [0.8, 0.35]], true);
+      fill();
+      break;
     case 'wheat':
       L([[0, 0.8], [0, -0.7]]);
       stroke();

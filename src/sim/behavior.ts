@@ -2,24 +2,26 @@ import { ABILITY_BY_ID, CONVERT_CLASS, CONVERT_RANGE, CONVERT_SETBACK, CONVERT_T
 import { BUILDING_DEFS, buildingName, FARM_CAPACITY } from '../data/buildings';
 import { epochLabel, EPOCHS } from '../data/epochs';
 import { TECH_BY_ID } from '../data/techs';
-import { bestTier, BUILD_RATE, gatherRate, isHero, isPeaceful, MAX_FAITH, ROLE_DEFS } from '../data/units';
+import { bestTier, BUILD_RATE, FISHER_CAPACITY, gatherRate, isHero, isNaval, isPeaceful, MAX_FAITH, ROLE_DEFS, TRANSPORT_CAPACITY } from '../data/units';
 import { WONDER_GATHER, WONDER_RESEARCH, WONDER_TRAIN } from '../data/wonders';
-import { fire } from './combat';
+import { canHit, fire } from './combat';
 import { rectOf, UNIT_RADIUS, type Building, type Entity, type GatherOrder, type Order, type PatrolOrder, type Plan, type ResourceNode, type Unit } from './entities';
 import { atan2, cos, hypot, sin } from './fmath';
 import { distToRect, type PathGoal, type Point, type Rect } from './pathfinding';
 import { castCalamity, healFactor, tickPowers } from './powers';
 import { attackCooldown, unitSpeed } from './status';
-import { DT, TICK_RATE, type World } from './world';
+import { DT, LANDING_REACH, TICK_RATE, type World } from './world';
 
 const WORK_REACH = 1.0;
 const APPROACH_REACH = 0.85;
 /** How close gatherers stand to a node's edge while working. */
 const SNUG_REACH = 0.2;
 const SCAN_INTERVAL = 8;
+/** How close a unit gets to a transport ship to go aboard. */
+const BOARD_REACH = 2;
 
-export function setPathTo(w: World, u: Unit, goal: PathGoal): void {
-  u.path = w.pathfinder.find(u.x, u.y, goal, undefined, w.teamOf(u.owner));
+export function setPathTo(w: World, u: Unit, goal: PathGoal, maxNodes?: number): void {
+  u.path = w.pathfinder.find(u.x, u.y, goal, maxNodes, w.teamOf(u.owner), isNaval(u.role));
   u.repathTick = w.tick;
 }
 
@@ -32,10 +34,11 @@ export function distTo(u: { x: number; y: number }, e: Entity): number {
 /** Whether a unit can walk straight to a point without crossing a blocked tile. */
 function straightClear(w: World, u: Unit, tx: number, ty: number): boolean {
   const team = w.teamOf(u.owner);
+  const naval = isNaval(u.role);
   const steps = Math.max(1, Math.ceil(hypot(tx - u.x, ty - u.y) / 0.25));
   for (let s = 1; s <= steps; s++) {
     const t = s / steps;
-    if (!w.map.passableFor(Math.floor(u.x + (tx - u.x) * t), Math.floor(u.y + (ty - u.y) * t), team)) return false;
+    if (!w.map.passableFor(Math.floor(u.x + (tx - u.x) * t), Math.floor(u.y + (ty - u.y) * t), team, naval)) return false;
   }
   return true;
 }
@@ -72,7 +75,7 @@ function followPath(w: World, u: Unit): void {
   }
   const next = u.path[0];
   // A building placed on the route: drop the path so the order logic re-plans.
-  if (!w.map.passableFor(Math.floor(next.x), Math.floor(next.y), w.teamOf(u.owner)) && u.path.length > 1) {
+  if (!w.map.passableFor(Math.floor(next.x), Math.floor(next.y), w.teamOf(u.owner), isNaval(u.role)) && u.path.length > 1) {
     u.path = [];
     u.repathTick = -1000;
     u.moving = false;
@@ -111,11 +114,11 @@ function goIdle(u: Unit): void {
  * only once no enemy unit is in reach, so a fight is finished before the
  * troops turn to the houses. Siege weapons prefer buildings.
  */
-export function findTarget(w: World, owner: number, x: number, y: number, radius: number, siege = false): Entity | null {
+export function findTarget(w: World, owner: number, x: number, y: number, radius: number, siege = false, from?: Unit): Entity | null {
   let best: Entity | null = null;
   let bestScore = Infinity;
   w.forUnitsNear(x, y, radius, (o) => {
-    if (!w.areEnemies(owner, o.owner) || !w.inSight(owner, o)) return;
+    if (!w.areEnemies(owner, o.owner) || !w.inSight(owner, o) || (from && !canHit(from, o))) return;
     const d = hypot(o.x - x, o.y - y);
     if (d > radius) return;
     const score = d + (o.role === 'citizen' ? 3 : 0) + (siege ? 6 : 0);
@@ -188,6 +191,13 @@ export function updateUnit(w: World, u: Unit): void {
       updateGarrison(w, u);
       if (u.inside) return;
       break;
+    case 'board':
+      updateBoard(w, u);
+      if (u.inside) return;
+      break;
+    case 'unload':
+      updateUnload(w, u);
+      break;
   }
   followPath(w, u);
 }
@@ -207,10 +217,12 @@ export function startPlan(w: World, u: Unit, plan: Plan): void {
       u.order = { kind: 'attack', targetId: t.id, resume: null, leash: null };
       break;
     }
-    case 'gather':
-      if (u.role !== 'citizen') return startPlan(w, u, { kind: 'move', x: plan.lx, y: plan.ly, attackMove: false });
+    case 'gather': {
+      const t = w.get(plan.targetId);
+      if (!t || !canGather(u, t)) return startPlan(w, u, { kind: 'move', x: plan.lx, y: plan.ly, attackMove: false });
       u.order = { kind: 'gather', targetId: plan.targetId, res: plan.res, phase: 'toNode', dropId: 0, lx: plan.lx, ly: plan.ly };
       break;
+    }
     case 'build':
       u.order = u.role === 'citizen' ? { kind: 'build', targetId: plan.targetId } : { kind: 'idle' };
       break;
@@ -230,7 +242,20 @@ export function startPlan(w: World, u: Unit, plan: Plan): void {
     case 'heal':
       u.order = u.role === 'priest' ? { kind: 'heal', targetId: plan.targetId } : { kind: 'idle' };
       break;
+    case 'board':
+      u.order = isNaval(u.role) ? { kind: 'idle' } : { kind: 'board', targetId: plan.targetId };
+      break;
+    case 'unload':
+      u.order = u.role === 'transport' ? { kind: 'unload', x: plan.x, y: plan.y } : { kind: 'idle' };
+      if (u.role === 'transport') setPathTo(w, u, { kind: 'point', x: plan.x, y: plan.y });
+      break;
   }
+}
+
+/** Citizens work the land, fishing boats the fishing grounds (and farms only take citizens). */
+export function canGather(u: Unit, target: Entity): boolean {
+  if (target.kind === 'resource') return target.nodeType === 'fish' ? u.role === 'fisher' : u.role === 'citizen';
+  return u.role === 'citizen' && target.kind === 'building' && target.type === 'farm';
 }
 
 /** Orders that never finish on their own; a queued command replaces them. */
@@ -248,6 +273,7 @@ export function orderTarget(w: World, o: Order | Plan): Point | null {
     case 'explore':
       return 'tx' in o && o.tx >= 0 ? { x: o.tx + 0.5, y: o.ty + 0.5 } : null;
     case 'cast':
+    case 'unload':
       return { x: o.x, y: o.y };
     case 'idle':
       return null;
@@ -271,7 +297,7 @@ function routeTo(w: World, u: Unit): void {
 function updatePatrol(w: World, u: Unit): void {
   const o = u.order as PatrolOrder;
   if (!isPeaceful(u.role) && scanDue(w, u)) {
-    const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
+    const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, isSiege(u), u);
     if (target) {
       u.order = { kind: 'attack', targetId: target.id, resume: o, leash: null };
       u.path = [];
@@ -287,6 +313,11 @@ function updatePatrol(w: World, u: Unit): void {
   if (w.tick - u.repathTick >= TICK_RATE / 2) routeTo(w, u);
 }
 
+/** Units that would rather shell buildings than fight. */
+function isSiege(u: Unit): boolean {
+  return u.role === 'siege' || u.role === 'bombard';
+}
+
 function scanDue(w: World, u: Unit): boolean {
   if (w.tick < u.scanTick) return false;
   u.scanTick = w.tick + SCAN_INTERVAL + (u.id % 4);
@@ -299,7 +330,7 @@ function updateIdle(w: World, u: Unit): void {
     return;
   }
   if (isPeaceful(u.role) || !scanDue(w, u)) return;
-  const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
+  const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, isSiege(u), u);
   if (target) {
     u.order = { kind: 'attack', targetId: target.id, resume: null, leash: { x: u.x, y: u.y } };
   }
@@ -309,7 +340,7 @@ function updateMove(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'move') return;
   if (o.attackMove && !isPeaceful(u.role) && scanDue(w, u)) {
-    const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, u.role === 'siege');
+    const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, isSiege(u), u);
     if (target) {
       u.order = { kind: 'attack', targetId: target.id, resume: { kind: 'move', x: o.x, y: o.y, attackMove: true }, leash: null };
       u.path = [];
@@ -340,7 +371,7 @@ function updateAttack(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'attack') return;
   const t = w.get(o.targetId);
-  if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner)) return endAttack(w, u);
+  if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner) || !canHit(u, t)) return endAttack(w, u);
   if (t.kind === 'unit' && !w.inSight(u.owner, t)) return endAttack(w, u);
   if (o.leash && hypot(u.x - o.leash.x, u.y - o.leash.y) > u.stats.sight + 6) {
     const back = o.leash;
@@ -361,7 +392,8 @@ function updateAttack(w: World, u: Unit): void {
   // Chase: re-plan often for moving targets, rarely for buildings.
   const interval = t.kind === 'unit' ? 10 : 40;
   if (u.path.length === 0 || w.tick - u.repathTick >= interval) {
-    if (t.kind === 'unit') setPathTo(w, u, { kind: 'point', x: t.x, y: t.y });
+    // Across the shore the way ends at the water's edge: no need to search the whole coast.
+    if (t.kind === 'unit') setPathTo(w, u, { kind: 'point', x: t.x, y: t.y }, isNaval(t.role) !== isNaval(u.role) ? 1500 : undefined);
     else setPathTo(w, u, { kind: 'rect', rect: rectOf(t), reach: Math.max(APPROACH_REACH, u.stats.range * 0.9) });
     if (u.path.length === 0) {
       // Already on the goal tile but a little short: step straight in.
@@ -480,10 +512,11 @@ function updateGather(w: World, u: Unit): void {
   if (o.kind !== 'gather') return;
   const player = w.players[u.owner];
 
+  const fishing = u.role === 'fisher';
   if (o.phase === 'toDrop') {
     let drop = w.get(o.dropId);
     if (!drop || drop.kind !== 'building' || !drop.built || drop.owner !== u.owner) {
-      drop = w.nearestDropoff(u.owner, u.x, u.y) ?? undefined;
+      drop = w.nearestDropoff(u.owner, u.x, u.y, fishing) ?? undefined;
       if (!drop) return goIdle(u);
       o.dropId = drop.id;
       u.path = [];
@@ -506,7 +539,7 @@ function updateGather(w: World, u: Unit): void {
     node &&
     (node.kind === 'resource' || (node.kind === 'building' && node.type === 'farm' && node.owner === u.owner && node.built));
   if (!validNode) {
-    const next = w.nearestResource(o.res, o.lx, o.ly, 10, u.owner);
+    const next = w.nearestResource(o.res, o.lx, o.ly, 10, u.owner, 0, fishing);
     if (next) {
       o.targetId = next.id;
       o.lx = next.x;
@@ -551,7 +584,7 @@ function updateGather(w: World, u: Unit): void {
       if (!reached) {
         // Node is fenced in by other nodes or buildings: skip it for a while and try another one.
         if (target.kind === 'resource') target.blockedUntil = w.tick + 60 * TICK_RATE;
-        const alt = isFarm ? null : w.nearestResource(o.res, u.x, u.y, 12, u.owner, target.id);
+        const alt = isFarm ? null : w.nearestResource(o.res, u.x, u.y, 12, u.owner, target.id, fishing);
         if (alt) {
           o.targetId = alt.id;
           o.lx = alt.x;
@@ -571,7 +604,7 @@ function updateGather(w: World, u: Unit): void {
     u.carry = o.res;
     u.carryAmount = 0;
   }
-  const bonus = player.mods.gather[o.res] * (isFarm ? player.mods.farm : 1);
+  const bonus = fishing ? player.mods.fishing : player.mods.gather[o.res] * (isFarm ? player.mods.farm : 1);
   const wonder = w.wonderEffect(u.owner, 'gather') ? WONDER_GATHER : 1;
   let amount = gatherRate(player.epoch) * player.gatherBonus * bonus * wonder * DT;
   if (target.kind === 'resource') {
@@ -583,9 +616,9 @@ function updateGather(w: World, u: Unit): void {
   u.carryAmount += amount;
   if (u.attackAnim <= 0) {
     u.attackAnim = 0.5;
-    w.cue({ kind: 'work', x: u.x, y: u.y, owner: u.owner, epoch: player.epoch, work: isFarm ? 'food' : o.res });
+    w.cue({ kind: 'work', x: u.x, y: u.y, owner: u.owner, epoch: player.epoch, work: fishing ? 'fish' : isFarm ? 'food' : o.res });
   }
-  if (u.carryAmount >= w.carryCapacity(u.owner)) {
+  if (u.carryAmount >= (fishing ? FISHER_CAPACITY : w.carryCapacity(u.owner))) {
     o.phase = 'toDrop';
     o.dropId = 0;
     u.path = [];
@@ -634,6 +667,8 @@ function nearSkipped(width: number, x: number, y: number, skip: number[]): boole
 function frontierTile(w: World, u: Unit, skip: number[]): { x: number; y: number } | null {
   const map = w.map;
   const vis = w.players[u.owner].vis;
+  const naval = isNaval(u.role);
+  const open = (x: number, y: number) => map.passableFor(x, y, -1, naval);
   const ux = Math.floor(u.x);
   const uy = Math.floor(u.y);
   const fx = cos(u.facing);
@@ -653,10 +688,10 @@ function frontierTile(w: World, u: Unit, skip: number[]): { x: number; y: number
         const i = map.idx(x, y);
         if (vis[i] !== 0 || nearSkipped(map.width, x, y, skip)) continue;
         const edge =
-          (map.inBounds(x + 1, y) && vis[i + 1] !== 0 && map.passable(x + 1, y)) ||
-          (map.inBounds(x - 1, y) && vis[i - 1] !== 0 && map.passable(x - 1, y)) ||
-          (map.inBounds(x, y + 1) && vis[i + map.width] !== 0 && map.passable(x, y + 1)) ||
-          (map.inBounds(x, y - 1) && vis[i - map.width] !== 0 && map.passable(x, y - 1));
+          (map.inBounds(x + 1, y) && vis[i + 1] !== 0 && open(x + 1, y)) ||
+          (map.inBounds(x - 1, y) && vis[i - 1] !== 0 && open(x - 1, y)) ||
+          (map.inBounds(x, y + 1) && vis[i + map.width] !== 0 && open(x, y + 1)) ||
+          (map.inBounds(x, y - 1) && vis[i - map.width] !== 0 && open(x, y - 1));
         if (!edge) continue;
         if (foundRing < 0) foundRing = r;
         const d = hypot(dx, dy);
@@ -771,6 +806,45 @@ function updateGarrison(w: World, u: Unit): void {
     if (w.tick - u.repathTick < TICK_RATE / 2) return;
     approach(w, u, rectOf(shelter), APPROACH_REACH);
   }
+}
+
+/** Off to a transport ship: walk to the shore next to it and go aboard. */
+function updateBoard(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'board') return;
+  const t = w.get(o.targetId);
+  if (!t || t.kind !== 'unit' || t.owner !== u.owner || t.role !== 'transport' || t.cargo.length >= TRANSPORT_CAPACITY) return goIdle(u);
+  if (hypot(t.x - u.x, t.y - u.y) <= BOARD_REACH) {
+    w.boardShip(u, t);
+    return;
+  }
+  // The ship may still be on its way: follow it along the shore.
+  if (u.path.length === 0 || w.tick - u.repathTick >= TICK_RATE) {
+    if (u.path.length === 0 && w.tick - u.repathTick < TICK_RATE / 2) return;
+    setPathTo(w, u, { kind: 'point', x: t.x, y: t.y });
+  }
+}
+
+/** Transport ship: sail as close to the point as the water allows, then put everybody ashore. */
+function updateUnload(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind !== 'unload') return;
+  if (u.cargo.length === 0) return goIdle(u);
+  if (u.path.length > 0) {
+    // Close enough already: no need to sail the last bit.
+    if (hypot(o.x - u.x, o.y - u.y) > LANDING_REACH + 0.5 || !w.landingSpot(u, o, 0)) return;
+    u.path = [];
+  }
+  if (w.landingSpot(u, o, 0)) {
+    w.unloadShip(u, o);
+    return goIdle(u);
+  }
+  if (w.tick - u.repathTick >= TICK_RATE * 2) {
+    setPathTo(w, u, { kind: 'point', x: o.x, y: o.y });
+    if (u.path.length > 0) return;
+  }
+  w.emit({ type: 'warn', player: u.owner, text: 'Hier gibt es kein Ufer zum Entladen.', x: u.x, y: u.y });
+  goIdle(u);
 }
 
 function updateBuild(w: World, u: Unit): void {
@@ -950,7 +1024,7 @@ export function updateBuilding(w: World, b: Building): void {
   item.progress += DT * player.mods.train * (w.wonderEffect(b.owner, 'train') ? WONDER_TRAIN : 1);
   if (item.progress < ROLE_DEFS[item.role].trainTime) return;
   const towards = b.rally[0] ?? { x: b.x + b.size, y: b.y + b.size };
-  const spot = w.findSpawnPoint(b, towards);
+  const spot = w.findSpawnPoint(b, towards, 0, isNaval(item.role));
   if (!spot) return;
   b.queue.shift();
   if (b.pendingAdvance) b.pendingAdvance.ahead--;
@@ -964,8 +1038,8 @@ export function updateBuilding(w: World, b: Building): void {
 function sendToRally(w: World, u: Unit, points: Point[]): void {
   points.forEach(({ x, y }, i) => {
     const queue = i > 0;
-    if (u.role === 'citizen' && i === points.length - 1) {
-      const node = w.resources.find((n) => !n.dead && n.nodeType !== 'fish' && x >= n.tx && x < n.tx + n.size && y >= n.ty && y < n.ty + n.size);
+    if ((u.role === 'citizen' || u.role === 'fisher') && i === points.length - 1) {
+      const node = w.resources.find((n) => !n.dead && canGather(u, n) && x >= n.tx && x < n.tx + n.size && y >= n.ty && y < n.ty + n.size);
       if (node) {
         w.issue({ type: 'gather', player: u.owner, ids: [u.id], targetId: node.id, queue });
         return;
@@ -984,8 +1058,10 @@ export function separateUnits(w: World): void {
     if (working) continue;
     let pushX = 0;
     let pushY = 0;
+    const naval = isNaval(u.role);
     w.forUnitsNear(u.x, u.y, minDist, (o) => {
-      if (o === u) return;
+      // Ships and walkers pass each other at the shore.
+      if (o === u || isNaval(o.role) !== naval) return;
       const dx = u.x - o.x;
       const dy = u.y - o.y;
       const d = hypot(dx, dy);
@@ -1003,7 +1079,7 @@ export function separateUnits(w: World): void {
     if (pushX === 0 && pushY === 0) continue;
     const nx = u.x + pushX;
     const ny = u.y + pushY;
-    if (w.map.passableFor(Math.floor(nx), Math.floor(ny), w.teamOf(u.owner))) {
+    if (w.map.passableFor(Math.floor(nx), Math.floor(ny), w.teamOf(u.owner), naval)) {
       u.x = nx;
       u.y = ny;
     }

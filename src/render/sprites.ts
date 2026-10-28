@@ -942,6 +942,7 @@ const GEOMETRY: Record<BuildingType, Geometry> = {
   academy: { inset: 0.25, wall: 42 },
   temple: { inset: 0.3, wall: 40 },
   wonder: { inset: 0.35, wall: 70 },
+  dock: { inset: 0.15, wall: 18 },
 };
 
 interface WallLook {

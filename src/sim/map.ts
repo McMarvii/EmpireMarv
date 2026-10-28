@@ -102,12 +102,12 @@ export class GameMap {
     return this.terrain[i] !== Terrain.Water && this.blocked[i] === 0;
   }
 
-  /** Like `passable`, but a team's own gates are open to its units. */
-  passableFor(x: number, y: number, team: number): boolean {
+  /** Like `passable`, but a team's own gates are open to its units; `naval`: for ships, which sail on free water only. */
+  passableFor(x: number, y: number, team: number, naval = false): boolean {
     if (!this.inBounds(x, y)) return false;
     const i = this.idx(x, y);
-    if (this.terrain[i] === Terrain.Water) return false;
-    return this.blocked[i] === 0 || (team >= 0 && this.blocked[i] === 1 && this.gateTeam[i] === team);
+    if ((this.terrain[i] === Terrain.Water) !== naval) return false;
+    return this.blocked[i] === 0 || (!naval && team >= 0 && this.blocked[i] === 1 && this.gateTeam[i] === team);
   }
 
   setGate(x: number, y: number, team: number): void {
@@ -171,10 +171,10 @@ export class GameMap {
   }
 
   /** Nearest passable tile to a point, searching outward ring by ring. */
-  nearestPassable(x: number, y: number, maxRadius = 12): { x: number; y: number } | null {
+  nearestPassable(x: number, y: number, maxRadius = 12, naval = false): { x: number; y: number } | null {
     const cx = Math.floor(x);
     const cy = Math.floor(y);
-    if (this.passable(cx, cy)) return { x: cx, y: cy };
+    if (this.passableFor(cx, cy, -1, naval)) return { x: cx, y: cy };
     for (let r = 1; r <= maxRadius; r++) {
       let best: { x: number; y: number } | null = null;
       let bestD = Infinity;
@@ -183,7 +183,7 @@ export class GameMap {
           if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
           const tx = cx + dx;
           const ty = cy + dy;
-          if (!this.passable(tx, ty)) continue;
+          if (!this.passableFor(tx, ty, -1, naval)) continue;
           const ex = tx + 0.5 - x;
           const ey = ty + 0.5 - y;
           const d = ex * ex + ey * ey;

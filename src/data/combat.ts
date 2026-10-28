@@ -12,15 +12,20 @@ export const DAMAGE_MULTIPLIER: Record<Role | 'tower', Partial<Record<TargetClas
   scout: { building: 0.2 },
   assault: { pike: 1.6, siege: 1.6, mounted: 0.7, citizen: 1.2, building: 0.5 },
   pike: { mounted: 2.2, assault: 0.7, building: 0.4 },
-  ranged: { assault: 1.6, pike: 1.3, mounted: 0.6, siege: 0.8, building: 0.25 },
+  ranged: { assault: 1.6, pike: 1.3, mounted: 0.6, siege: 0.8, building: 0.25, warship: 0.8, bombard: 0.8 },
   mounted: { ranged: 1.8, siege: 1.8, citizen: 1.3, pike: 0.55, building: 0.6, priest: 1.6, prophet: 1.6 },
-  siege: { building: 4, assault: 0.6, pike: 0.6, ranged: 0.6, mounted: 0.5, citizen: 0.6, siege: 1 },
+  siege: { building: 4, assault: 0.6, pike: 0.6, ranged: 0.6, mounted: 0.5, citizen: 0.6, siege: 1, warship: 1.2, bombard: 1.2, transport: 1.2 },
   strategist: { building: 0.4 },
   warrior: { assault: 1.25, pike: 1.25, ranged: 1.25, mounted: 1.1, siege: 1.3, citizen: 1.2, building: 0.6 },
   // The faithful do not fight; their weapons are faith and calamities.
   priest: {},
   prophet: {},
-  tower: { siege: 1.3, mounted: 0.9 },
+  // At sea: warships hunt ships, bombard ships shell the coast and are prey for warships.
+  fisher: {},
+  transport: {},
+  warship: { fisher: 1.5, transport: 1.6, warship: 1.2, bombard: 1.8, building: 0.3 },
+  bombard: { building: 3, warship: 0.5, fisher: 0.8, transport: 0.8, citizen: 0.8, assault: 0.8, pike: 0.8, ranged: 0.8, mounted: 0.8 },
+  tower: { siege: 1.3, mounted: 0.9, fisher: 1.2, transport: 1.2, warship: 1.2, bombard: 1.3 },
 };
 
 export function damageMultiplier(attacker: Role | 'tower', target: TargetClass): number {

@@ -48,6 +48,11 @@ const COUNTERS: Record<Role, CombatRole[]> = {
   warrior: ['ranged'],
   priest: ['mounted'],
   prophet: ['mounted'],
+  // Ships are fought on land only from the shore.
+  fisher: [],
+  transport: [],
+  warship: ['ranged'],
+  bombard: ['mounted', 'ranged'],
 };
 
 /**

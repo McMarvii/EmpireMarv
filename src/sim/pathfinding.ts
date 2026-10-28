@@ -71,9 +71,9 @@ export class Pathfinder {
    * goals) or a partial path towards the closest reachable tile when the goal
    * cannot be reached within the node budget.
    */
-  find(sx: number, sy: number, goal: PathGoal, maxNodes = 8000, team = -1): Point[] {
+  find(sx: number, sy: number, goal: PathGoal, maxNodes = 8000, team = -1, naval = false): Point[] {
     const map = this.map;
-    const pass = (x: number, y: number) => map.passableFor(x, y, team);
+    const pass = (x: number, y: number) => map.passableFor(x, y, team, naval);
     const W = map.width;
     const startX = Math.max(0, Math.min(W - 1, Math.floor(sx)));
     const startY = Math.max(0, Math.min(map.height - 1, Math.floor(sy)));
@@ -81,7 +81,8 @@ export class Pathfinder {
     let goalTileX = -1;
     let goalTileY = -1;
     if (goal.kind === 'point') {
-      const near = map.nearestPassable(goal.x, goal.y, 20);
+      // Ships sent inland stop at the nearest water.
+      const near = map.nearestPassable(goal.x, goal.y, naval ? 40 : 20, naval);
       if (!near) return [];
       goalTileX = near.x;
       goalTileY = near.y;
@@ -161,18 +162,18 @@ export class Pathfinder {
     if (found >= 0 && goal.kind === 'point' && pass(Math.floor(goal.x), Math.floor(goal.y))) {
       tiles[tiles.length - 1] = { x: goal.x, y: goal.y };
     }
-    return this.smooth({ x: sx, y: sy }, tiles, team);
+    return this.smooth({ x: sx, y: sy }, tiles, team, naval);
   }
 
   /** Drops waypoints that are visible from an earlier one (string pulling). */
-  private smooth(start: Point, pts: Point[], team: number): Point[] {
+  private smooth(start: Point, pts: Point[], team: number, naval: boolean): Point[] {
     if (pts.length <= 2) return pts;
     const out: Point[] = [];
     let anchor = start;
     let i = 0;
     while (i < pts.length) {
       let j = pts.length - 1;
-      while (j > i && !this.lineClear(anchor, pts[j], team)) j--;
+      while (j > i && !this.lineClear(anchor, pts[j], team, naval)) j--;
       out.push(pts[j]);
       anchor = pts[j];
       i = j + 1;
@@ -180,7 +181,7 @@ export class Pathfinder {
     return out;
   }
 
-  lineClear(a: Point, b: Point, team = -1): boolean {
+  lineClear(a: Point, b: Point, team = -1, naval = false): boolean {
     const dist = hypot(b.x - a.x, b.y - a.y);
     const steps = Math.ceil(dist / 0.2);
     // Sample the line and a slightly widened corridor so units don't clip corners.
@@ -189,7 +190,7 @@ export class Pathfinder {
       const x = a.x + (b.x - a.x) * t;
       const y = a.y + (b.y - a.y) * t;
       for (const [ox, oy] of PROBES) {
-        if (!this.map.passableFor(Math.floor(x + ox), Math.floor(y + oy), team)) return false;
+        if (!this.map.passableFor(Math.floor(x + ox), Math.floor(y + oy), team, naval)) return false;
       }
     }
     return true;

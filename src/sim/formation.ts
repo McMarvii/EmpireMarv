@@ -27,6 +27,11 @@ const RANK: Record<Role, number> = {
   priest: 3,
   prophet: 3,
   siege: 4,
+  // Ships keep their own formation: warships ahead, the rest behind.
+  warship: 1,
+  fisher: 2,
+  transport: 3,
+  bombard: 4,
 };
 /** Distance between neighbours of a rank; riders and engines need more room. */
 const SPACING = [0.9, 1.2, 0.9, 0.9, 1.3];

@@ -256,8 +256,18 @@ export function healSound(o: Out, r: number): void {
   tone(o, { at: 0.08, type: 'sine', f: 1760 * k, dur: 0.45, attack: 0.01, vol: 0.05 });
 }
 
+/** Going aboard or ashore: feet on planks (a ramp clanging in later eras) and a splash. */
+export function boardSound(o: Out, style: EraStyle, r: number): void {
+  const k = vary(r, 0.1);
+  const metal = style === 'modern' || style === 'future';
+  for (let i = 0; i < 3; i++) {
+    tone(o, { at: i * 0.09, f: (metal ? 420 : 150) * k, f2: metal ? 380 : 110, dur: metal ? 0.08 : 0.06, attack: 0.001, vol: metal ? 0.08 : 0.14 });
+  }
+  noise(o, { at: 0.05, dur: 0.3, attack: 0.02, vol: 0.08, filter: { type: 'lowpass', f: 800 * k } });
+}
+
 /** Citizens at work: axe on wood, pick on rock, rustling crops, hammering. */
-export function workSound(o: Out, work: Res | 'build', style: EraStyle, r: number): void {
+export function workSound(o: Out, work: Res | 'build' | 'fish', style: EraStyle, r: number): void {
   const k = vary(r, 0.15);
   switch (work) {
     case 'wood':
@@ -275,6 +285,12 @@ export function workSound(o: Out, work: Res | 'build', style: EraStyle, r: numbe
     }
     case 'food':
       noise(o, { dur: 0.14, attack: 0.03, vol: 0.12, filter: { type: 'bandpass', f: 3200 * k, q: 0.7 } });
+      break;
+    case 'fish':
+      // A net coming up: a splash and a few drops.
+      noise(o, { dur: 0.22, attack: 0.01, vol: 0.12, filter: { type: 'lowpass', f: 900 * k } });
+      tone(o, { at: 0.06, type: 'sine', f: 900 * k, f2: 1400 * k, dur: 0.05, attack: 0.002, vol: 0.05 });
+      tone(o, { at: 0.13, type: 'sine', f: 1100 * k, f2: 1700 * k, dur: 0.04, attack: 0.002, vol: 0.04 });
       break;
     case 'build':
       if (style === 'future') {
@@ -470,7 +486,7 @@ export function soundSamples(): Sample[] {
   for (const p of ['shell', 'boulder', 'laser'] as Projectile[]) out.push({ name: `blast:${p}`, dur: 1.6, play: (o) => blastSound(o, p, 1.5, 0.5) });
   for (const look of ['sword', 'citizen', 'tank', 'catapult', 'drone'] as Look[]) out.push({ name: `death:${look}`, dur: 1, play: (o) => deathSound(o, look, 0.5) });
   out.push({ name: 'collapse', dur: 2.2, play: (o) => collapseSound(o, 3, 0.5) });
-  for (const work of ['wood', 'stone', 'gold', 'iron', 'food', 'build'] as Array<Res | 'build'>) {
+  for (const work of ['wood', 'stone', 'gold', 'iron', 'food', 'fish', 'build'] as Array<Res | 'build' | 'fish'>) {
     out.push({ name: `work:${work}`, dur: 0.3, play: (o) => workSound(o, work, 'medieval', 0.5) });
   }
   out.push({ name: 'work:build:future', dur: 0.3, play: (o) => workSound(o, 'build', 'future', 0.5) });
