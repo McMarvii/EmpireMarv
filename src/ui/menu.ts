@@ -5,6 +5,7 @@ import { MAP_TYPES, type MapChoice } from '../data/maps';
 import { WONDER_VICTORY_OPTIONS } from '../data/wonders';
 import { PLAYER_COLORS, type MatchOptions } from '../net/protocol';
 import { loadLastReplay, parseReplay, type Replay } from '../replay';
+import { deleteSave, downloadSaveText, listSaves, parseSave, readSave, type SaveGame, type SaveSummary } from '../saves';
 import type { Difficulty, GameSettings, PlayerSetup, StartResources } from '../sim/world';
 import { GAME_VERSION } from '../version';
 
@@ -200,9 +201,11 @@ export interface MenuActions {
   /** `invite`: a link, a game id or a handshake code. */
   join(invite: string, name: string): void;
   replay(r: Replay): void;
+  /** Go on with a saved game. */
+  load(save: SaveGame): void;
 }
 
-type Tab = 'single' | 'multi' | 'replay';
+type Tab = 'single' | 'multi' | 'saves' | 'replay';
 
 function fmtTicks(ticks: number): string {
   const s = Math.floor(ticks / 20);
@@ -244,6 +247,7 @@ export function showMenu(root: HTMLElement, actions: MenuActions, tab?: Tab): vo
       <div class="menu-tabs" role="tablist">
         <button data-tab="single" role="tab">Einzelspieler</button>
         <button data-tab="multi" role="tab">Mehrspieler</button>
+        <button data-tab="saves" role="tab">Spielstände</button>
         <button data-tab="replay" role="tab">Wiedergaben</button>
       </div>
       <section data-pane="single">
@@ -268,6 +272,14 @@ export function showMenu(root: HTMLElement, actions: MenuActions, tab?: Tab): vo
           </div>
         </div>
         <p class="hint">Die Browser verbinden sich direkt (WebRTC). Nur der Verbindungsaufbau läuft über den öffentlichen PeerJS-Server; klappt der nicht, gibt es Codes zum Austauschen.</p>
+      </section>
+      <section data-pane="saves">
+        <div class="save-list"><p class="dim">Spielstände werden geladen …</p></div>
+        <div class="save-file">
+          <label class="file-btn">Spielstand-Datei öffnen …<input type="file" data-savefile accept=".json,application/json" hidden></label>
+          <span class="dim">Im Spiel: Menü → Spiel speichern, oder <kbd>Strg</kbd>+<kbd>S</kbd>. Nur Partien gegen den Computer.</span>
+        </div>
+        <p class="mp-error save-error" hidden></p>
       </section>
       <section data-pane="replay">
         <div class="mp-grid">
@@ -334,7 +346,7 @@ export function showMenu(root: HTMLElement, actions: MenuActions, tab?: Tab): vo
     el.hidden = true;
     actions.replay(last);
   };
-  const file = el.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const file = el.querySelector<HTMLInputElement>('section[data-pane="replay"] input[type="file"]')!;
   const error = el.querySelector<HTMLElement>('.mp-error')!;
   file.onchange = async () => {
     const f = file.files?.[0];
@@ -346,6 +358,93 @@ export function showMenu(root: HTMLElement, actions: MenuActions, tab?: Tab): vo
     } catch (e) {
       error.hidden = false;
       error.textContent = (e as Error).message;
+    }
+    file.value = '';
+  };
+
+  savesPane(el, actions);
+}
+
+function saveLine(s: SaveSummary): string {
+  const date = new Date(s.date).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+  const players = s.players.map((p) => `<b style="color:${p.color}"${p.alive ? '' : ' class="gone"'}>${esc(p.name)}</b>`).join(' · ');
+  return `<span class="dim">${date} · ${esc(s.map)} · ${epochNumeral(s.epoch)}. ${esc(EPOCHS[s.epoch]?.name ?? '')} · ${fmtTicks(s.ticks)} min</span><span>${players}</span>`;
+}
+
+/** The saved games in the browser, newest first: load, download, delete; or open a file. */
+function savesPane(el: HTMLElement, actions: MenuActions): void {
+  const list = el.querySelector<HTMLElement>('.save-list')!;
+  const error = el.querySelector<HTMLElement>('.save-error')!;
+  const fail = (e: unknown) => {
+    error.hidden = false;
+    error.textContent = (e as Error).message;
+  };
+  const go = (text: string) => {
+    const save = parseSave(text);
+    el.hidden = true;
+    actions.load(save);
+  };
+  const render = async () => {
+    let saves: Array<{ id: string; summary: SaveSummary }>;
+    try {
+      saves = await listSaves();
+    } catch (e) {
+      list.innerHTML = `<p class="dim">${esc((e as Error).message)} Spielstände lassen sich trotzdem als Datei speichern und öffnen.</p>`;
+      return;
+    }
+    if (!saves.length) {
+      list.innerHTML = '<p class="dim">Noch keine Spielstände. Im Spiel: Menü → Spiel speichern, oder <kbd>Strg</kbd>+<kbd>S</kbd>; alle 5 Spielminuten wird automatisch gespeichert.</p>';
+      return;
+    }
+    list.innerHTML = saves
+      .map(({ id, summary: s }) => {
+        const stale = s.game !== GAME_VERSION;
+        return `<div class="save-row">
+          <div class="save-info"><b>${esc(s.name)}</b>${saveLine(s)}${stale ? `<span class="warn">Aus Version ${esc(s.game)} – lässt sich nicht fortsetzen</span>` : ''}</div>
+          <div class="save-actions">
+            <button class="primary" data-load="${id}"${stale ? ' disabled' : ''}>Laden</button>
+            <button data-file="${id}" title="Als Datei herunterladen">Datei</button>
+            <button data-del="${id}" title="Löschen">✕</button>
+          </div>
+        </div>`;
+      })
+      .join('');
+    const byId = new Map(saves.map((x) => [x.id, x.summary]));
+    list.querySelectorAll<HTMLButtonElement>('[data-load]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          go(await readSave(b.dataset.load!));
+        } catch (e) {
+          fail(e);
+        }
+      };
+    });
+    list.querySelectorAll<HTMLButtonElement>('[data-file]').forEach((b) => {
+      b.onclick = async () => {
+        try {
+          downloadSaveText(await readSave(b.dataset.file!), byId.get(b.dataset.file!)!);
+        } catch (e) {
+          fail(e);
+        }
+      };
+    });
+    list.querySelectorAll<HTMLButtonElement>('[data-del]').forEach((b) => {
+      b.onclick = async () => {
+        if (!confirm(`Spielstand „${byId.get(b.dataset.del!)!.name}“ löschen?`)) return;
+        await deleteSave(b.dataset.del!).catch(fail);
+        void render();
+      };
+    });
+  };
+  void render();
+  const file = el.querySelector<HTMLInputElement>('input[data-savefile]')!;
+  file.onchange = async () => {
+    const f = file.files?.[0];
+    if (!f) return;
+    try {
+      go(await f.text());
+    } catch (e) {
+      fail(e);
     }
     file.value = '';
   };

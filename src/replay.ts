@@ -38,7 +38,12 @@ export function normalize<T>(value: T): T {
 export class Recorder {
   readonly replay: Replay;
 
-  constructor(settings: GameSettings, me: number) {
+  /** `resume`: a loaded game's recording, which simply goes on. */
+  constructor(settings: GameSettings, me: number, resume?: Replay) {
+    if (resume) {
+      this.replay = resume;
+      return;
+    }
     this.replay = {
       format: REPLAY_FORMAT,
       version: 1,

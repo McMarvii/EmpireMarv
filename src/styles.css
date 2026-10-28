@@ -1350,6 +1350,73 @@ table.help td:first-child {
   min-height: 1em;
 }
 
+/* ------------------------------------------------------------ saved games */
+
+.save-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.save-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.save-info .gone {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.save-info .warn {
+  color: var(--red);
+  font-size: 12px;
+}
+
+.save-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.save-actions button {
+  padding: 6px 12px;
+}
+
+.save-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.save-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.save-name input {
+  padding: 6px 8px;
+  font-size: 15px;
+}
+
 /* ------------------------------------------------------------ lobby */
 
 .lobby h2 {

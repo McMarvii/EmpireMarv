@@ -22,6 +22,21 @@ interface WallTile {
 
 const RING_RADIUS = 12;
 
+/** A computer player's plans, for saved games. */
+interface AIState {
+  nextThink: number;
+  nextWave: number;
+  nextRebalance: number;
+  attackers: number[];
+  rng: number;
+  nextScout: number;
+  scoutId: number;
+  wallPlan: WallTile[] | null;
+  ringCenter: Point;
+  siteProgress: Array<[number, { progress: number; tick: number }]>;
+  naval: unknown;
+}
+
 /** What the computer player sees of its own empire on each think. */
 export interface AISnapshot {
   player: Player;
@@ -123,6 +138,37 @@ export class AIController implements Controller, NavalHost {
 
   release(ids: number[]): void {
     for (const id of ids) this.attackers.delete(id);
+  }
+
+  saveState(): AIState {
+    return {
+      nextThink: this.nextThink,
+      nextWave: this.nextWave,
+      nextRebalance: this.nextRebalance,
+      attackers: [...this.attackers],
+      rng: this.rng.position,
+      nextScout: this.nextScout,
+      scoutId: this.scoutId,
+      wallPlan: this.wallPlan,
+      ringCenter: this.ringCenter,
+      siteProgress: [...this.siteProgress],
+      naval: this.naval.saveState(),
+    };
+  }
+
+  loadState(state: unknown): void {
+    const s = state as AIState;
+    this.nextThink = s.nextThink;
+    this.nextWave = s.nextWave;
+    this.nextRebalance = s.nextRebalance;
+    this.attackers = new Set(s.attackers);
+    this.rng.restore(s.rng);
+    this.nextScout = s.nextScout;
+    this.scoutId = s.scoutId;
+    this.wallPlan = s.wallPlan;
+    this.ringCenter = s.ringCenter;
+    this.siteProgress = new Map(s.siteProgress);
+    this.naval.loadState(s.naval);
   }
 
   /**

@@ -139,6 +139,37 @@ export interface Effect {
 export interface Controller {
   readonly playerId: number;
   update(world: World): void;
+  /** Saved games: what the controller has in mind, as plain data. */
+  saveState?(): unknown;
+  loadState?(state: unknown): void;
+}
+
+/**
+ * Everything a saved game needs to continue the match exactly where it
+ * stopped. Units on board or in shelter are saved with their hosts as ids.
+ */
+export interface WorldSnapshot {
+  tick: number;
+  nextId: number;
+  nextHazard: number;
+  rng: number;
+  map: { terrain: Uint8Array; blocked: Uint16Array; occupied: Uint16Array; shade: Uint8Array; gateTeam: Int16Array; version: number };
+  players: Player[];
+  startPositions: Point[];
+  /** In the order of `entities`, with cargo and garrison as ids. */
+  entities: unknown[];
+  units: number[];
+  buildings: number[];
+  resources: number[];
+  projectiles: ProjectileFx[];
+  hazards: Hazard[];
+  victory: World['victory'];
+  victoryWonder: World['victoryWonder'];
+  over: boolean;
+  winnerTeam: number | null;
+  lastAlertTick: number[];
+  wonderFx: WonderEffect[][];
+  controllers: Array<{ playerId: number; state: unknown }>;
 }
 
 /**
@@ -244,7 +275,8 @@ export class World {
   /** Effects of each player's standing wonders. */
   private wonderFx: Array<Set<WonderEffect>> = [];
 
-  constructor(settings: Partial<GameSettings> = {}) {
+  /** `generate`: false builds an empty world for a saved game to be poured into. */
+  constructor(settings: Partial<GameSettings> = {}, generate = true) {
     this.settings = { ...DEFAULT_SETTINGS, ...settings };
     const s = this.settings;
     s.startEpoch = Math.max(0, Math.min(LAST_EPOCH, s.startEpoch));
@@ -288,10 +320,90 @@ export class World {
       this.wonderFx.push(new Set());
     });
 
+    if (!generate) return;
     this.startPositions.push(...generateMap(this));
     this.setupStartingBases();
     this.rebuildGrid();
     updateVision(this);
+  }
+
+  // ------------------------------------------------------------- save games
+
+  snapshot(): WorldSnapshot {
+    const m = this.map;
+    return {
+      tick: this.tick,
+      nextId: this.nextId,
+      nextHazard: this.nextHazard,
+      rng: this.rng.position,
+      map: { terrain: m.terrain, blocked: m.blocked, occupied: m.occupied, shade: m.shade, gateTeam: m.gateTeam, version: m.version },
+      players: this.players,
+      startPositions: this.startPositions,
+      entities: [...this.entities.values()].map((e) =>
+        e.kind === 'unit' ? { ...e, cargo: e.cargo.map((c) => c.id) } : e.kind === 'building' ? { ...e, garrison: e.garrison.map((u) => u.id) } : e,
+      ),
+      units: this.units.map((u) => u.id),
+      buildings: this.buildings.map((b) => b.id),
+      resources: this.resources.map((n) => n.id),
+      projectiles: this.projectiles,
+      hazards: this.hazards,
+      victory: this.victory,
+      victoryWonder: this.victoryWonder,
+      over: this.over,
+      winnerTeam: this.winnerTeam,
+      lastAlertTick: this.lastAlertTick,
+      wonderFx: this.wonderFx.map((fx) => [...fx]),
+      controllers: this.controllers.map((c) => ({ playerId: c.playerId, state: c.saveState?.() ?? null })),
+    };
+  }
+
+  /** Pours a snapshot (decoded, not shared with a live world) into this empty world; controllers are the caller's job. */
+  loadSnapshot(snap: WorldSnapshot): void {
+    this.tick = snap.tick;
+    this.nextId = snap.nextId;
+    this.nextHazard = snap.nextHazard;
+    this.rng.restore(snap.rng);
+    const m = this.map;
+    m.terrain.set(snap.map.terrain);
+    m.blocked.set(snap.map.blocked);
+    m.occupied.set(snap.map.occupied);
+    m.shade.set(snap.map.shade);
+    m.gateTeam.set(snap.map.gateTeam);
+    m.version = snap.map.version;
+    m.computeRegions();
+    snap.players.forEach((p, i) => Object.assign(this.players[i], p));
+    this.startPositions.length = 0;
+    this.startPositions.push(...snap.startPositions);
+    this.entities.clear();
+    const cargo = new Map<Unit, number[]>();
+    const garrison = new Map<Building, number[]>();
+    for (const raw of snap.entities as Entity[]) {
+      const e = { ...raw } as Entity;
+      if (e.kind === 'unit') {
+        cargo.set(e, e.cargo as unknown as number[]);
+        e.cargo = [];
+      } else if (e.kind === 'building') {
+        garrison.set(e, e.garrison as unknown as number[]);
+        e.garrison = [];
+      }
+      this.entities.set(e.id, e);
+    }
+    const unitById = (id: number) => this.entities.get(id) as Unit;
+    for (const [u, ids] of cargo) u.cargo = ids.map(unitById);
+    for (const [b, ids] of garrison) b.garrison = ids.map(unitById);
+    this.units = snap.units.map(unitById);
+    this.buildings = snap.buildings.map((id) => this.entities.get(id) as Building);
+    this.resources = snap.resources.map((id) => this.entities.get(id) as ResourceNode);
+    this.projectiles = snap.projectiles;
+    this.hazards = snap.hazards;
+    this.victory = snap.victory;
+    this.victoryWonder = snap.victoryWonder;
+    this.over = snap.over;
+    this.winnerTeam = snap.winnerTeam;
+    this.lastAlertTick = snap.lastAlertTick;
+    this.wonderFx = snap.wonderFx.map((fx) => new Set(fx));
+    for (const cache of this.statCache) cache.clear();
+    this.rebuildGrid();
   }
 
   get time(): number {
@@ -533,8 +645,10 @@ export class World {
     p.techs.add(id);
     p.mods = modsFor(p.techs);
     this.statCache[owner].clear();
-    for (const u of this.units) {
-      if (u.dead || u.owner !== owner) continue;
+    // Units on board or in shelter count too (they are only missing from `units`).
+    for (const e of this.entities.values()) {
+      if (e.kind !== 'unit' || e.dead || e.owner !== owner) continue;
+      const u = e;
       const ratio = u.hp / u.maxHp;
       u.stats = this.unitStatsFor(owner, u.role, u.tier);
       u.maxHp = u.stats.hp;

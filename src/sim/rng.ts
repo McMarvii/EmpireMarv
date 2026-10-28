@@ -15,6 +15,11 @@ export class Rng {
     return this.state;
   }
 
+  /** Continues the sequence from a saved position. */
+  restore(state: number): void {
+    this.state = state >>> 0;
+  }
+
   next(): number {
     let t = (this.state = (this.state + 0x6d2b79f5) >>> 0);
     t = Math.imul(t ^ (t >>> 15), t | 1);

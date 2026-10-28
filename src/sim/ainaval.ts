@@ -30,6 +30,14 @@ interface Landing {
   nudged: number;
 }
 
+/** The planner's memory, for saved games (sea sizes are worked out again). */
+interface NavalState {
+  nextSiteSearch: number;
+  nextFleetOrders: number;
+  landing: Landing | null;
+  overseas: boolean | null;
+}
+
 /** Seas smaller than this are ponds: no harbour there. */
 const MIN_SEA = 120;
 const SEARCH_RADIUS = 28;
@@ -48,6 +56,18 @@ export class NavalPlanner {
   private overseas: boolean | null = null;
 
   constructor(private readonly host: NavalHost) {}
+
+  saveState(): NavalState {
+    return { nextSiteSearch: this.nextSiteSearch, nextFleetOrders: this.nextFleetOrders, landing: this.landing, overseas: this.overseas };
+  }
+
+  loadState(state: unknown): void {
+    const s = state as NavalState;
+    this.nextSiteSearch = s.nextSiteSearch;
+    this.nextFleetOrders = s.nextFleetOrders;
+    this.landing = s.landing;
+    this.overseas = s.overseas;
+  }
 
   update(w: World, s: AISnapshot): void {
     if (this.overseas === null) this.overseas = this.findOverseas(w, s);

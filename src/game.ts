@@ -1,6 +1,7 @@
 import { GameAudio } from './audio/director';
 import { ABILITY_BY_ID, CONVERT_RANGE, HEAL_RANGE, type AbilityId } from './data/abilities';
 import { BUILDING_DEFS, buildingName, type BuildingType } from './data/buildings';
+import { EPOCHS } from './data/epochs';
 import { canAfford, type Stock } from './data/resources';
 import { isHero, isNaval, type Role } from './data/units';
 import type { NetSession } from './net/session';
@@ -15,7 +16,8 @@ import { canGather } from './sim/behavior';
 import type { Building, Entity, Unit } from './sim/entities';
 import { formationSlots, type Formation } from './sim/formation';
 import { Terrain } from './sim/map';
-import { createWorld } from './sim/setup';
+import { AUTO_SAVE, AUTOSAVE_TICKS, downloadSaveText, makeSave, newSaveId, QUICK_SAVE, serializeSave, storeSave, type SaveGame } from './saves';
+import { createWorld, restoreWorld } from './sim/setup';
 import { DT, MAX_LINE, World, type Command, type GameSettings } from './sim/world';
 import { Hud } from './ui/hud';
 import { Input } from './ui/input';
@@ -37,6 +39,8 @@ export interface GameOptions {
   replay?: Replay;
   /** Fast-forward to this tick before showing the match (replay seek, rejoin). */
   startAt?: number;
+  /** Go on with a saved game. */
+  save?: SaveGame;
 }
 
 /** Steps run per frame at most, so a slow frame cannot snowball. */
@@ -104,15 +108,15 @@ export class Game {
     readonly options: GameOptions,
     private onExit: () => void,
   ) {
-    const settings = options.replay?.settings ?? options.settings;
-    this.world = createWorld(settings);
-    this.view = new View(this.world, options.me ?? options.replay?.me ?? 0);
+    const settings = options.save?.settings ?? options.replay?.settings ?? options.settings;
+    this.world = options.save ? restoreWorld(options.save.settings, options.save.world) : createWorld(settings);
+    this.view = new View(this.world, options.me ?? options.save?.me ?? options.replay?.me ?? 0);
     // Replays usually want to see what everybody did.
     this.view.revealAll = Boolean(options.replay);
     this.net = options.net ?? null;
     this.replay = options.replay ? new ReplaySession(options.replay) : null;
     this.session = this.net ?? this.replay ?? new LocalSession((cmd) => this.apply(cmd));
-    this.recorder = this.replay ? null : new Recorder(this.world.settings, this.me);
+    this.recorder = this.replay ? null : new Recorder(this.world.settings, this.me, options.save?.replay);
     if (this.replay) this.speed = 2;
     this.audio = new GameAudio(this);
     const canvas = root.querySelector<HTMLCanvasElement>('#game')!;
@@ -128,12 +132,19 @@ export class Game {
       if (this.net.paused) this.setPaused(true);
     }
     this.resize();
-    const start = this.world.startPositions[this.me];
-    this.camera.centerOn(start.x + 2, start.y + 2);
-    const tc = this.world.buildingsOf(this.me, 'towncenter')[0];
-    if (tc && !this.replay) this.select([tc.id]);
+    if (options.save) {
+      this.camera.x = options.save.camera.x;
+      this.camera.y = options.save.camera.y;
+      this.camera.zoom = options.save.camera.zoom;
+      this.hud.message('info', `Spielstand „${options.save.summary.name}“ geladen.`);
+    } else {
+      const start = this.world.startPositions[this.me];
+      this.camera.centerOn(start.x + 2, start.y + 2);
+      const tc = this.world.buildingsOf(this.me, 'towncenter')[0];
+      if (tc && !this.replay) this.select([tc.id]);
+    }
     if (options.startAt) this.catchUpTo = options.startAt;
-    if (!this.replay && !options.startAt) {
+    if (!this.replay && !options.startAt && !options.save) {
       this.hud.message('info', 'Willkommen! Bürger sammeln Rohstoffe – steige im Dorfzentrum in neue Epochen auf.');
     }
   }
@@ -258,6 +269,7 @@ export class Game {
     for (const cmd of cmds) this.apply(cmd);
     this.world.step();
     this.recorder?.stepped(this.world);
+    if (this.world.tick % AUTOSAVE_TICKS === 0 && this.catchUpTo === null && this.canSave()) void this.saveGame(AUTO_SAVE, 'Automatisch', true);
     this.session.stepped(this.world);
     return true;
   }
@@ -786,6 +798,55 @@ export class Game {
   sheltering(): boolean {
     const { world, me } = this;
     return world.buildings.some((b) => b.owner === me && b.garrison.length > 0) || world.units.some((u) => u.owner === me && !u.dead && u.order.kind === 'garrison');
+  }
+
+  /** Only single player matches against the computer can be saved; multiplayer has the rejoin. */
+  canSave(): boolean {
+    return !this.net && !this.replay && !this.world.over && this.recorder !== null;
+  }
+
+  /** The match as it is now, as save-game text (taken at once, so later ticks do not leak in). */
+  private saveText(name: string): { text: string; save: SaveGame } {
+    const save = makeSave(this.world, this.me, this.recorder!.replay, { x: this.camera.x, y: this.camera.y, zoom: this.camera.zoom }, name);
+    return { text: serializeSave(save), save };
+  }
+
+  /** Stores the match in the browser; `quiet` for the automatic saves. */
+  async saveGame(id: string, name: string, quiet = false): Promise<boolean> {
+    if (!this.canSave()) {
+      if (!quiet) this.hud.message('warn', 'Mehrspieler-Partien und Wiedergaben lassen sich nicht speichern.');
+      return false;
+    }
+    const { text, save } = this.saveText(name);
+    try {
+      await storeSave(id, text, save.summary);
+      if (!quiet) this.hud.message('info', `Gespeichert: ${name}.`);
+      return true;
+    } catch (e) {
+      this.hud.message('warn', `Speichern im Browser fehlgeschlagen (${(e as Error).message}). Im Menü geht es auch als Datei.`);
+      return false;
+    }
+  }
+
+  /** Strg+S: the quick save slot. */
+  quickSave(): void {
+    void this.saveGame(QUICK_SAVE, 'Schnellspeicherung');
+  }
+
+  /** A new named slot. */
+  saveAs(name: string): Promise<boolean> {
+    return this.saveGame(newSaveId(), name.trim() || this.defaultSaveName());
+  }
+
+  saveToFile(): void {
+    if (!this.canSave()) return;
+    const { text, save } = this.saveText(this.defaultSaveName());
+    downloadSaveText(text, save.summary);
+  }
+
+  defaultSaveName(): string {
+    const s = Math.floor(this.world.tick / 20);
+    return `${this.world.players[this.me].name}, ${EPOCHS[this.world.players[this.me].epoch].name}, ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
   /** Loaded transports put their passengers ashore at the nearest coast. */

@@ -1096,6 +1096,7 @@ export class Hud {
          <button data-act="resume" class="primary">Weiterspielen</button>
          <button data-act="help">Steuerung</button>
          <button data-act="sound">Ton &amp; Musik</button>
+         ${game.canSave() ? '<button data-act="savegame">Spiel speichern</button>' : ''}
          ${game.recorder ? '<button data-act="save">Wiedergabe speichern</button>' : ''}
          <button data-act="quit">${quit}</button>
        </div>`,
@@ -1104,9 +1105,37 @@ export class Hud {
       resume: () => game.menuPause(false),
       help: () => this.showHelp(),
       sound: () => this.showSound(),
+      savegame: () => this.showSaveGame(),
       save: () => game.recorder && downloadReplay(game.recorder.replay),
       quit: () => game.exitToMenu(),
     });
+  }
+
+  /** Name the save, then into the browser's storage or out as a file. */
+  showSaveGame(): void {
+    const { game } = this;
+    game.menuPause(true);
+    this.openOverlay(
+      'savegame',
+      `<h2>Spiel speichern</h2>
+       <label class="save-name">Name<input name="savename" maxlength="48" value="${esc(game.defaultSaveName())}"></label>
+       <p class="dim">Gespeichert wird im Browser; geladen wird im Hauptmenü unter „Spielstände“. <kbd>Strg</kbd>+<kbd>S</kbd> speichert schnell, alle 5 Spielminuten wird automatisch gespeichert.</p>
+       <div class="dialog-buttons">
+         <button data-act="store" class="primary">Speichern</button>
+         <button data-act="file">Als Datei herunterladen</button>
+         <button data-act="back">Zurück</button>
+       </div>`,
+    );
+    const input = this.els.overlay.querySelector<HTMLInputElement>('input[name="savename"]')!;
+    input.select();
+    const store = async () => {
+      if (await game.saveAs(input.value)) this.showPauseMenu();
+    };
+    input.onkeydown = (e) => {
+      if (e.key === 'Enter') void store();
+      if (e.key === 'Escape') this.showPauseMenu();
+    };
+    this.bindOverlay({ store: () => void store(), file: () => game.saveToFile(), back: () => this.showPauseMenu() });
   }
 
   /** The network match is over for this player (host gone, connection lost). */
@@ -1206,6 +1235,7 @@ export class Hud {
         <tr><td>F2</td><td>Technologiebaum</td></tr>
         <tr><td>Strg + M</td><td>Ton ein/aus (Lautstärke: Menü → Ton &amp; Musik)</td></tr>
         <tr><td>P / Esc</td><td>Pause / Menü (im Mehrspieler pausiert P für alle)</td></tr>
+        <tr><td>Strg + S</td><td>Schnell speichern (Einzelspieler; laden im Hauptmenü unter „Spielstände“)</td></tr>
         <tr><td>Enter / Umschalt + Enter</td><td>Mehrspieler: Chat an alle / ans Team (Tab wechselt beim Schreiben)</td></tr>
         <tr><td>Alt + Klick</td><td>Mehrspieler: Stelle für Verbündete markieren (auch auf der Minikarte)</td></tr>
       </table>

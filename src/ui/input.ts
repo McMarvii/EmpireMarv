@@ -350,6 +350,12 @@ export class Input {
   private onKeyDown(e: KeyboardEvent): void {
     const game = this.game;
     if (e.key === 'Shift') this.keys.add('Shift');
+    // Strg+S saves the match, never the web page.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      if (!game.hud.overlayOpen()) game.quickSave();
+      return;
+    }
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) {
       // A focused slider or checkbox (sound dialog) still lets Esc close and Ctrl+M mute.
