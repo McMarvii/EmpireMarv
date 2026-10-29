@@ -89,7 +89,8 @@ export class SpriteAtlas {
   paintedNow = 0;
 
   constructor(private gl: WebGL2RenderingContext) {
-    this.layers = Math.max(1, Math.min(6, gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number));
+    // Four layers of 2048² (64 MB) hold even big battles; older pictures make room when they fill.
+    this.layers = Math.max(1, Math.min(4, gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) as number));
     this.texture = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.texture);
     gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, SIZE, SIZE, this.layers);

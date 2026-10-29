@@ -205,6 +205,11 @@ export class Renderer {
     this.dropGl();
   }
 
+  /** The graphics card drawing with WebGL (null on the canvas). */
+  get device(): string | null {
+    return this.gl?.device ?? null;
+  }
+
   /** Atlas and batch figures of the WebGL output (null on the canvas). */
   glStats(): ReturnType<GlLayer['stats']> | null {
     return this.gl?.stats() ?? null;
@@ -259,7 +264,16 @@ export class Renderer {
   private renderGl(gl: GlLayer, scene: Scene, state: RenderState): void {
     const { ctx, camera } = this;
     const time = state.time;
-    gl.draw(scene, camera, this.view.vis(), time);
+    try {
+      gl.draw(scene, camera, this.view.vis(), time);
+    } catch (err) {
+      // A driver that fails mid-game: carry on with the canvas rather than stop the match.
+      console.error('WebGL-Fehler, zeichne mit Canvas weiter:', err);
+      this.dropGl();
+      this.onGraphicsLost?.();
+      this.renderCanvas(scene, state);
+      return;
+    }
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, camera.viewW, camera.viewH);
     for (const b of scene.rally) this.drawRally(b);

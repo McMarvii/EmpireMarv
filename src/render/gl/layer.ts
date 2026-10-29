@@ -24,6 +24,8 @@ export class GlLayer {
   /** The context went away (driver reset, too many contexts): the caller falls back to the canvas. */
   lost = false;
   onLost: (() => void) | null = null;
+  /** The graphics card as WebGL names it. */
+  readonly device: string;
   /** Milliseconds per frame for nicer pictures (sharper after zooming, the next animation step) … */
   softBudget = 3;
   /** … and for pictures that are missing altogether. */
@@ -42,7 +44,7 @@ export class GlLayer {
       return null;
     }
     try {
-      return new GlLayer(canvas, gl, map);
+      return new GlLayer(canvas, gl, map, name);
     } catch (err) {
       console.warn('WebGL nicht nutzbar, zeichne mit Canvas:', err);
       return null;
@@ -53,8 +55,10 @@ export class GlLayer {
     canvas: HTMLCanvasElement,
     private gl: WebGL2RenderingContext,
     map: GameMap,
+    device: string,
   ) {
     this.canvas = canvas;
+    this.device = device;
     this.atlas = new SpriteAtlas(gl);
     this.batch = new SpriteBatch(gl);
     this.terrain = new TerrainLayer(gl, map);

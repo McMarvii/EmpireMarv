@@ -17,6 +17,7 @@ import { WONDERS, wonderOf } from '../data/wonders';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
 import { downloadReplay } from '../replay';
+import { loadGraphics, loadPerf, saveGraphics, savePerf, type GraphicsMode } from '../render/graphics';
 import { abilityIcon, buildingIcon, commandIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
 import { convertTime } from '../sim/behavior';
@@ -137,6 +138,7 @@ export class Hud {
       soundBtn: q('btn-sound'),
       prodbar: q('prodbar'),
       wonders: q('wonders'),
+      perf: q('perf'),
     };
     this.els.hud.hidden = false;
     this.els.resources.innerHTML = RESOURCES.map(
@@ -152,6 +154,7 @@ export class Hud {
     this.els.soundBtn.onclick = () => this.toggleMute();
     this.updateSoundBtn();
     this.els.commands.onmouseleave = () => this.hideTooltip();
+    this.els.perf.hidden = !loadPerf();
   }
 
   destroy(): void {
@@ -160,6 +163,7 @@ export class Hud {
     this.els.prodbar.hidden = true;
     this.els.prodbar.innerHTML = '';
     this.els.hud.hidden = true;
+    this.els.perf.hidden = true;
     this.els.overlay.hidden = true;
     this.els.overlay.innerHTML = '';
     this.hideTooltip();
@@ -194,7 +198,7 @@ export class Hud {
     this.els.pauseBtn.textContent = paused ? '▶' : '❚❚';
     // In a network match someone else may resume; that must not close this player's menu.
     const kind = this.els.overlay.dataset.kind;
-    if (!paused && !this.game.net && (kind === 'pause' || kind === 'sound')) this.closeOverlay();
+    if (!paused && !this.game.net && (kind === 'pause' || kind === 'sound' || kind === 'graphics')) this.closeOverlay();
   }
 
   update(): void {
@@ -226,6 +230,7 @@ export class Hud {
     }
     const clock = fmtTime(world.time) + (this.game.speed !== 1 ? ` · ${this.game.speed}×` : '');
     if (this.els.clock.textContent !== clock) this.els.clock.textContent = clock;
+    this.updatePerf();
     this.updateWonders();
 
     for (const ev of world.events) this.handleEvent(ev);
@@ -1113,6 +1118,7 @@ export class Hud {
          <button data-act="resume" class="primary">Weiterspielen</button>
          <button data-act="help">Steuerung</button>
          <button data-act="sound">Ton &amp; Musik</button>
+         <button data-act="graphics">Grafik</button>
          ${game.canSave() ? '<button data-act="savegame">Spiel speichern</button>' : ''}
          ${game.recorder ? '<button data-act="save">Wiedergabe speichern</button>' : ''}
          <button data-act="quit">${quit}</button>
@@ -1122,6 +1128,7 @@ export class Hud {
       resume: () => game.menuPause(false),
       help: () => this.showHelp(),
       sound: () => this.showSound(),
+      graphics: () => this.showGraphics(),
       savegame: () => this.showSaveGame(),
       save: () => game.recorder && downloadReplay(game.recorder.replay),
       quit: () => game.exitToMenu(),
@@ -1214,6 +1221,65 @@ export class Hud {
     this.bindOverlay({ back: () => this.showPauseMenu(), resume: () => this.game.menuPause(false) });
   }
 
+  /** WebGL or canvas; applies at once and is remembered. */
+  showGraphics(): void {
+    const { game } = this;
+    game.menuPause(true);
+    const chosen = loadGraphics();
+    const device = game.renderer.device;
+    const now =
+      game.renderer.graphics === 'webgl'
+        ? `Gezeichnet wird gerade mit <b>WebGL</b>${device ? ` (${esc(device)})` : ''}.`
+        : `Gezeichnet wird gerade mit <b>Canvas</b>${chosen === 'canvas' ? '' : ' – WebGL 2 mit Grafikbeschleunigung ist in diesem Browser nicht verfügbar'}.`;
+    const option = (mode: GraphicsMode, label: string, text: string) =>
+      `<label class="gfx-option"><input type="radio" name="gfx" value="${mode}"${mode === chosen ? ' checked' : ''}><span><b>${label}</b><br><span class="dim">${text}</span></span></label>`;
+    this.openOverlay(
+      'graphics',
+      `<h2>Grafik</h2>
+       <div class="gfx-list">
+         ${option('auto', 'Automatisch (empfohlen)', 'WebGL, wenn die Grafikkarte es beschleunigt – sonst Canvas.')}
+         ${option('webgl', 'WebGL', 'Schnell auch bei großen Schlachten; Wasser mit Wellen und Brandung, weiche Geländeübergänge und weicher Nebel. Auch ohne Beschleunigung erzwingen (dann langsam).')}
+         ${option('canvas', 'Canvas', 'Die einfache Darstellung, läuft überall. Bei vielen Einheiten langsamer.')}
+         <label class="vol-mute"><input type="checkbox" data-perf${this.els.perf.hidden ? '' : ' checked'}> Bildrate anzeigen (F3)</label>
+       </div>
+       <p class="dim">${now}</p>
+       <div class="dialog-buttons"><button data-act="back">Zurück</button><button data-act="resume" class="primary">Weiterspielen</button></div>`,
+    );
+    this.els.overlay.querySelectorAll<HTMLInputElement>('input[name="gfx"]').forEach((input) => {
+      input.onchange = () => {
+        const mode = input.value as GraphicsMode;
+        saveGraphics(mode);
+        game.renderer.setGraphics(mode);
+        this.showGraphics();
+      };
+    });
+    this.els.overlay.querySelector<HTMLInputElement>('[data-perf]')!.onchange = () => this.togglePerf();
+    this.bindOverlay({ back: () => this.showPauseMenu(), resume: () => this.game.menuPause(false) });
+  }
+
+  togglePerf(): void {
+    this.els.perf.hidden = !this.els.perf.hidden;
+    savePerf(!this.els.perf.hidden);
+    this.lastPerf = 0;
+    this.updatePerf();
+  }
+
+  private lastPerf = 0;
+
+  /** The F3 readout: frame rate, drawing time and what draws. */
+  private updatePerf(): void {
+    if (this.els.perf.hidden) return;
+    const now = performance.now();
+    if (now - this.lastPerf < 500) return;
+    this.lastPerf = now;
+    const { perf, renderer } = this.game;
+    const gl = renderer.glStats();
+    const parts = [`${Math.round(perf.fps)} fps`, `Zeichnen ${perf.drawMs.toFixed(1)} ms`, renderer.graphics === 'webgl' ? 'WebGL' : 'Canvas'];
+    if (gl) parts.push(`${gl.sprites} Sprites`, `Atlas ${gl.full} %`);
+    parts.push(`${this.game.world.units.length} Einheiten`);
+    this.els.perf.textContent = parts.join(' · ');
+  }
+
   showHelp(): void {
     this.game.menuPause(true);
     this.openOverlay(
@@ -1251,6 +1317,7 @@ export class Hud {
         <tr><td>Pfeiltasten / Bildschirmrand / Mausrad</td><td>Kamera bewegen / zoomen</td></tr>
         <tr><td>+ / −</td><td>Spielgeschwindigkeit</td></tr>
         <tr><td>F2</td><td>Technologiebaum</td></tr>
+        <tr><td>F3</td><td>Bildrate anzeigen (Grafik: Menü → Grafik)</td></tr>
         <tr><td>Strg + M</td><td>Ton ein/aus (Lautstärke: Menü → Ton &amp; Musik)</td></tr>
         <tr><td>P / Esc</td><td>Pause / Menü (im Mehrspieler pausiert P für alle)</td></tr>
         <tr><td>Strg + S</td><td>Schnell speichern (Einzelspieler; laden im Hauptmenü unter „Spielstände“)</td></tr>

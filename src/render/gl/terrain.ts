@@ -127,8 +127,8 @@ void main() {
     float wave = noise(w, 1.3, vec2(t * 0.14, t * 0.09), 0) + noise(w, 3.1, -vec2(t * 0.4, -t * 0.28), 1) - 1.0;
     wcol *= 1.0 + wave * 0.16;
     // Sun glints.
-    float g = noise(w, 5.0, vec2(t * 1.75, t * 1.1), 2) * noise(w, 3.3, -vec2(t * 0.9, t * 1.0), 3);
-    wcol += vec3(0.85, 0.93, 1.0) * smoothstep(0.42, 0.6, g) * 0.35;
+    float g = noise(w, 7.0, vec2(t * 2.1, t * 1.3), 2) * noise(w, 4.3, -vec2(t * 1.2, t * 1.5), 3);
+    wcol += vec3(0.85, 0.93, 1.0) * smoothstep(0.58, 0.72, g) * 0.2;
     // Surf rolling in along the shore.
     float band = 1.0 - abs(water - 0.55) * 2.2;
     float surf = smoothstep(0.0, 0.6, band) * (0.55 + 0.45 * sin(t * 1.6 + noise(w, 2.0, vec2(0.0), 1) * 9.0));

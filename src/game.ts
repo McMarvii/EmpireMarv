@@ -93,6 +93,8 @@ export class Game {
   preview: OrderPreview | null = null;
   lastAlert: { x: number; y: number; time: number } | null = null;
   animTime = 0;
+  /** Frame rate and milliseconds to draw a frame, smoothed (for the F3 readout). */
+  readonly perf = { fps: 0, drawMs: 0 };
   /** Fast-forwarding up to this tick (rejoin, replay seek); the screen shows progress meanwhile. */
   catchUpTo: number | null = null;
   /** The world waits for commands that have not arrived (lockstep). */
@@ -215,6 +217,8 @@ export class Game {
     for (const id of [...this.selection]) if (!this.world.get(id)) this.selection.delete(id);
     if (this.placement) this.refreshPlacement();
 
+    if (dt > 0) this.perf.fps += (1 / dt - this.perf.fps) * 0.05;
+    const drawStart = performance.now();
     this.renderer.render({
       selection: this.selection,
       hoverId: this.input.hoverId,
@@ -227,6 +231,7 @@ export class Game {
       marks: this.marks,
       cast: this.castPreview(),
     });
+    this.perf.drawMs += (performance.now() - drawStart - this.perf.drawMs) * 0.05;
     if (this.marker && (this.marker.t += dt) > 0.6) this.marker = null;
     for (const m of this.marks) m.age += dt;
     this.marks = this.marks.filter((m) => m.age < MARK_TIME);

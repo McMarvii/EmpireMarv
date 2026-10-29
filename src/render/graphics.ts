@@ -23,3 +23,22 @@ export function saveGraphics(mode: GraphicsMode): void {
     // Without storage the choice lasts for this session.
   }
 }
+
+const PERF_KEY = 'empiremarv.perf';
+
+/** Whether the frame rate readout (F3) is shown. */
+export function loadPerf(): boolean {
+  try {
+    return localStorage.getItem(PERF_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function savePerf(on: boolean): void {
+  try {
+    localStorage.setItem(PERF_KEY, on ? '1' : '0');
+  } catch {
+    // Without storage the choice lasts for this session.
+  }
+}

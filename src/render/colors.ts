@@ -2,13 +2,18 @@ import type { EraStyle } from '../data/epochs';
 
 const rgbCache = new Map<string, [number, number, number]>();
 
-function rgb(hex: string): [number, number, number] {
-  let c = rgbCache.get(hex);
+/** Components of "#rgb", "#rrggbb" or "rgb(r,g,b)" (what shade returns, so shades can be shaded again). */
+function rgb(color: string): [number, number, number] {
+  let c = rgbCache.get(color);
   if (!c) {
-    const h = hex.replace('#', '');
-    const full = h.length === 3 ? h.replace(/(.)/g, '$1$1') : h;
-    c = [parseInt(full.slice(0, 2), 16), parseInt(full.slice(2, 4), 16), parseInt(full.slice(4, 6), 16)];
-    rgbCache.set(hex, c);
+    const m = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(color);
+    if (m) c = [Number(m[1]), Number(m[2]), Number(m[3])];
+    else {
+      const h = color.replace('#', '');
+      const full = h.length === 3 ? h.replace(/(.)/g, '$1$1') : h;
+      c = [parseInt(full.slice(0, 2), 16), parseInt(full.slice(2, 4), 16), parseInt(full.slice(4, 6), 16)];
+    }
+    rgbCache.set(color, c);
   }
   return c;
 }
