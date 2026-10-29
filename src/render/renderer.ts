@@ -9,8 +9,23 @@ import type { Point } from '../sim/pathfinding';
 import type { World } from '../sim/world';
 import { Camera, TILE_W } from './camera';
 import { ABILITY_COLOR, alpha as withAlpha, TERRAIN_COLORS } from './colors';
-import { ALTITUDE, airPose, drawAirShadow, drawAircraft, type AirPose } from './planes';
-import { buildingTopZ, drawBuilding, drawNode, drawUnit, LINK_E, LINK_N, LINK_S, LINK_W } from './sprites';
+import { ALTITUDE, airPose, type AirPose } from './planes';
+import {
+  airShadowSprite,
+  aircraftSprite,
+  areaRingSprite,
+  buildingSprite,
+  footprintSprite,
+  moraleRingSprite,
+  nodeSprite,
+  paintAreaRing,
+  paintMoraleRing,
+  ringSprite,
+  unitSprite,
+  type Scene,
+  type SceneSprite,
+} from './scene';
+import { buildingTopZ, drawBuilding, LINK_E, LINK_N, LINK_S, LINK_W, type BuildingLook, type UnitLook } from './sprites';
 import type { View } from './view';
 
 export interface LineSegment {
@@ -183,16 +198,212 @@ export class Renderer {
   }
 
   render(state: RenderState): void {
+    const scene = this.buildScene(state, false);
+    this.renderCanvas(scene, state);
+  }
+
+  /**
+   * Everything on the map this frame, in drawing order. `keyed` folds looks
+   * and fills in the keys the WebGL atlas caches by.
+   */
+  private buildScene(state: RenderState, keyed: boolean): Scene {
+    const { world, camera } = this;
+    const project = camera.project;
+    const zoom = camera.zoom;
+    const vis = this.view.vis();
+    const map = world.map;
+    const time = state.time;
+    const scene: Scene = { ground: [], drawables: [], ghosts: [], airborne: [], rally: [] };
+    // Screen outlines of solid buildings, and things that may hide behind them.
+    const hulls: Array<{ depth: number; pts: Array<[number, number]> }> = [];
+    const behind: Array<{ depth: number; probes: Array<[number, number]>; sprite: SceneSprite; ring?: string; x: number; y: number }> = [];
+    // Tiles of visible walls, gates and towers, so wall segments can join up.
+    const joins = new Map<number, number>();
+    for (const b of world.buildings) {
+      if (b.dead || !(BUILDING_DEFS[b.type].line || b.type === 'tower') || !this.view.sees(b)) continue;
+      for (let y = b.ty; y < b.ty + b.size; y++) for (let x = b.tx; x < b.tx + b.size; x++) joins.set(y * map.width + x, b.owner);
+    }
+    for (const b of world.buildings) {
+      if (!this.view.sees(b)) continue;
+      const [sx, sy] = project(b.x, b.y);
+      if (!this.onScreen(sx, sy, b.size * TILE_W * zoom)) continue;
+      const line = BUILDING_DEFS[b.type].line;
+      const look: BuildingLook = {
+        type: b.type,
+        epoch: b.epoch,
+        color: world.players[b.owner].color,
+        tx: b.tx,
+        ty: b.ty,
+        size: b.size,
+        progress: b.progress,
+        built: b.built,
+        hpRatio: b.hp / b.maxHp,
+        seed: b.id,
+        links: line ? linkMask((x, y) => map.inBounds(x, y) && joins.get(y * map.width + x) === b.owner, b.tx, b.ty) : 0,
+        open: BUILDING_DEFS[b.type].gate ? this.gateOpen(b) : false,
+        counting: b.type === 'wonder' && b.built && b.countdown > 0,
+      };
+      const selected = state.selection.has(b.id) || state.hoverId === b.id;
+      if (selected) scene.ground.push(footprintSprite(b.tx, b.ty, b.size, this.ringColor(b.owner), state.selection.has(b.id) ? 2 : 1, keyed));
+      // Morale reach of houses: when one is selected and while a new one is being placed.
+      if (b.type === 'house' && b.owner === this.view.me && b.built && (state.selection.has(b.id) || state.placement?.type === 'house')) {
+        scene.ground.push(moraleRingSprite(b.x, b.y, MORALE_RADIUS, state.selection.has(b.id) ? 0.9 : 0.5, keyed));
+      }
+      const sprite = buildingSprite(look, b.x, b.y, b.id, keyed);
+      if (BUILDING_DEFS[b.type].walkable) {
+        scene.ground.push(sprite);
+      } else {
+        sprite.depth = b.tx + b.ty + b.size;
+        scene.drawables.push(sprite);
+        const top = buildingTopZ(b.type, b.epoch, b.size) * (b.built ? 1 : Math.min(1, b.progress * 1.2));
+        const e = b.size;
+        hulls.push({
+          depth: b.tx + b.ty + e,
+          pts: [
+            project(b.tx, b.ty + e),
+            project(b.tx + e, b.ty + e),
+            project(b.tx + e, b.ty),
+            project(b.tx + e, b.ty, top),
+            project(b.tx, b.ty, top),
+            project(b.tx, b.ty + e, top),
+          ],
+        });
+      }
+      if (state.selection.has(b.id) && b.owner === this.view.me && b.rally.length) scene.rally.push(b);
+    }
+
+    for (const n of world.resources) {
+      if (n.dead) continue;
+      const i = map.idx(Math.floor(n.x), Math.floor(n.y));
+      if (vis[i] === 0) continue;
+      const [sx, sy] = project(n.x, n.y);
+      if (!this.onScreen(sx, sy, 80 * zoom)) continue;
+      if (state.hoverId === n.id || state.selection.has(n.id)) scene.ground.push(footprintSprite(n.tx, n.ty, n.size, '#ffd24d', 1, keyed));
+      const look = { nodeType: n.nodeType, tx: n.tx, ty: n.ty, size: n.size, ratio: n.amount / n.maxHp, variant: n.variant };
+      const sprite = nodeSprite(look, n.x, n.y, n.id, keyed);
+      scene.drawables.push(sprite);
+      if (n.nodeType !== 'tree') behind.push({ depth: sprite.depth, probes: [project(n.x, n.y, 4), project(n.x, n.y, 14)], sprite, x: n.x, y: n.y });
+    }
+
+    this.airPoses.clear();
+    for (const u of world.units) {
+      if (u.dead || !this.view.seesUnit(u)) continue;
+      const [x, y] = this.unitPos(u, state.alpha);
+      const [sx, sy] = project(x, y);
+      if (!this.onScreen(sx, sy, 60 * zoom)) continue;
+      const ringColor = this.ringColor(u.owner);
+      const ringWidth = state.selection.has(u.id) ? 2 : 1;
+      if (isAir(u.role)) {
+        const landed = !u.moving && world.airfieldUnder(u) !== null;
+        const pose = airPose(u.stats.look, x, y, u.facing, u.moving, u.id, time, landed);
+        this.airPoses.set(u.id, pose);
+        if (state.selection.has(u.id) || state.hoverId === u.id) {
+          scene.ground.push(ringSprite(pose.x, pose.y, 9 * UNIT_SCALE * 1.5, 4.5 * UNIT_SCALE * 1.5, ringColor, ringWidth, keyed));
+        }
+        if (!pose.landed) scene.ground.push(airShadowSprite(u.stats.look, pose.x, pose.y, pose.z, UNIT_SCALE, keyed));
+        const look: UnitLook = {
+          look: u.stats.look,
+          epoch: u.stats.epoch,
+          color: world.players[u.owner].color,
+          facing: pose.facing,
+          moving: u.moving || !pose.landed,
+          attackAnim: u.attackAnim,
+          working: false,
+          carry: null,
+          seed: u.id,
+        };
+        const sprite = aircraftSprite(look, pose.x, pose.y, pose.z, UNIT_SCALE, keyed);
+        // Parked planes sit on their airfield like anything else on the ground.
+        if (pose.landed) {
+          sprite.depth = x + y + 4;
+          scene.drawables.push(sprite);
+        } else {
+          sprite.depth = pose.x + pose.y;
+          scene.airborne.push(sprite);
+        }
+        continue;
+      }
+      if (state.selection.has(u.id) || state.hoverId === u.id) {
+        const ring = isNaval(u.role) ? 2.3 : wide(u) ? 1.4 : 1;
+        scene.ground.push(ringSprite(x, y, 9 * UNIT_SCALE * ring, 4.5 * UNIT_SCALE * (ring > 2 ? 1.6 : 1), ringColor, ringWidth, keyed));
+      }
+      if (state.selection.has(u.id) && u.owner === this.view.me && (u.role === 'strategist' || u.role === 'warrior')) {
+        scene.ground.push(areaRingSprite(x, y, u.role === 'strategist' ? STRATEGIST_AURA : WARRIOR_AURA, u.role === 'strategist' ? '#f2c84b' : '#ff7a3c', 0.55, true, keyed));
+      }
+      const working = (u.order.kind === 'gather' && u.order.phase === 'work') || (u.order.kind === 'build' && u.attackAnim > 0);
+      const look: UnitLook = {
+        look: u.stats.look,
+        epoch: u.stats.epoch,
+        color: world.players[u.owner].color,
+        facing: u.facing,
+        moving: u.moving,
+        // Gatherers and builders use the timer for their tool swing.
+        attackAnim: u.order.kind === 'gather' || u.order.kind === 'build' ? 0 : u.attackAnim,
+        working,
+        carry: u.carryAmount > 0 ? u.carry : null,
+        seed: u.id,
+        cargo: u.cargo.length,
+      };
+      const sprite = unitSprite(look, x, y, UNIT_SCALE, keyed);
+      scene.drawables.push(sprite);
+      behind.push({ depth: x + y, probes: [project(x, y, 4), project(x, y, 14 * UNIT_SCALE)], sprite, ring: world.players[u.owner].color, x, y });
+    }
+
+    scene.drawables.sort((a, b) => a.depth - b.depth);
+    scene.airborne.sort((a, b) => a.depth - b.depth);
+    // X-ray: whatever stands behind a building shows through it.
+    for (const g of behind) {
+      if (!hulls.some((h) => h.depth > g.depth && g.probes.some((p) => inConvex(h.pts, p)))) continue;
+      scene.ghosts.push({ ...g.sprite, alpha: 0.5 });
+      if (g.ring) scene.ghosts.push(ringSprite(g.x, g.y, 7 * UNIT_SCALE, 3.5 * UNIT_SCALE, g.ring, 1.5, keyed));
+    }
+    return scene;
+  }
+
+  private paintSprite(s: SceneSprite, time: number): void {
+    const { ctx, camera } = this;
+    if (s.alpha < 1) {
+      ctx.save();
+      ctx.globalAlpha = s.alpha;
+      s.paint(ctx, camera.project, camera.zoom, time);
+      ctx.restore();
+    } else {
+      s.paint(ctx, camera.project, camera.zoom, time);
+    }
+  }
+
+  /** The canvas output: paints the whole scene every frame. */
+  private renderCanvas(scene: Scene, state: RenderState): void {
+    const { ctx, camera } = this;
+    const time = state.time;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    // The canvas has a CSS background, so clearing is enough (and much cheaper than a fill).
+    ctx.clearRect(0, 0, camera.viewW, camera.viewH);
+    const fogPath = this.drawTerrain(time);
+    for (const s of scene.ground) this.paintSprite(s, time);
+    for (const b of scene.rally) this.drawRally(b);
+    for (const s of scene.drawables) this.paintSprite(s, time);
+    for (const s of scene.ghosts) this.paintSprite(s, time);
+    this.drawHazards(time);
+    this.drawBeams(state, time);
+    this.drawStatuses(state, time);
+    this.drawProjectiles(state);
+    this.drawEffects();
+    // Explored but unseen ground (and what is remembered there) is dimmed.
+    ctx.fillStyle = 'rgba(5,8,12,0.5)';
+    ctx.fill(fogPath);
+    // Above it all: what flies.
+    for (const s of scene.airborne) this.paintSprite(s, time);
+    this.drawOverlays(state);
+  }
+
+  /** Terrain, batched per colour, with unexplored ground black; returns the explored-but-unseen tiles. */
+  private drawTerrain(time: number): Path2D {
     const { ctx, world, camera } = this;
     const project = camera.project;
     const zoom = camera.zoom;
     const vis = this.view.vis();
     const map = world.map;
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    // The canvas has a CSS background, so clearing is enough (and much cheaper than a fill).
-    ctx.clearRect(0, 0, camera.viewW, camera.viewH);
-
-    // --- terrain, batched per colour ---------------------------------------
     const range = this.visibleRange();
     const paths = new Map<string, Path2D>();
     const fogPath = new Path2D();
@@ -206,9 +417,10 @@ export class Renderer {
       path.lineTo(bx + 0.5, by);
       path.lineTo(cx, cy + 0.5);
       path.lineTo(dx - 0.5, dy);
-      path.closePath();
+      // No closePath: fill() closes every subpath anyway, and on a Path2D with
+      // thousands of subpaths Chromium makes each call cost more than the last.
     };
-    const waterPhase = Math.floor(state.time * 1.2);
+    const waterPhase = Math.floor(time * 1.2);
     for (let y = range.y0; y <= range.y1; y++) {
       for (let x = range.x0; x <= range.x1; x++) {
         const i = map.idx(x, y);
@@ -238,216 +450,53 @@ export class Renderer {
     // Unexplored ground goes black before sprites, so trees on the border keep their crowns.
     ctx.fillStyle = '#07090c';
     ctx.fill(blackPath);
+    return fogPath;
+  }
 
-    // --- ground layer: farms, selection rings, rally points ---------------
-    const drawables: Array<{ depth: number; draw: () => void }> = [];
-    // Screen outlines of solid buildings, and things that may hide behind them.
-    const hulls: Array<{ depth: number; pts: Array<[number, number]> }> = [];
-    const ghosts: Array<{ depth: number; probes: Array<[number, number]>; draw: () => void; ring?: string }> = [];
-    const time = state.time;
-    // Tiles of visible walls, gates and towers, so wall segments can join up.
-    const joins = new Map<number, number>();
-    for (const b of world.buildings) {
-      if (b.dead || !(BUILDING_DEFS[b.type].line || b.type === 'tower') || !this.view.sees(b)) continue;
-      for (let y = b.ty; y < b.ty + b.size; y++) for (let x = b.tx; x < b.tx + b.size; x++) joins.set(y * map.width + x, b.owner);
+  /** Rally chain of a selected building: dashed line through the waypoints, flag at the end. */
+  private drawRally(b: Building): void {
+    const { ctx, camera, world } = this;
+    const project = camera.project;
+    const zoom = camera.zoom;
+    const [sx, sy] = project(b.x, b.y);
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    for (const p of b.rally) ctx.lineTo(...project(p.x, p.y));
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const p of b.rally.slice(0, -1)) {
+      const [wx, wy] = project(p.x, p.y);
+      ctx.beginPath();
+      ctx.ellipse(wx, wy, 3 * zoom, 1.5 * zoom, 0, 0, Math.PI * 2);
+      ctx.fillStyle = '#eee';
+      ctx.fill();
     }
-    for (const b of world.buildings) {
-      if (!this.view.sees(b)) continue;
-      const [sx, sy] = project(b.x, b.y);
-      if (!this.onScreen(sx, sy, b.size * TILE_W * zoom)) continue;
-      const line = BUILDING_DEFS[b.type].line;
-      const look = {
-        type: b.type,
-        epoch: b.epoch,
-        color: world.players[b.owner].color,
-        tx: b.tx,
-        ty: b.ty,
-        size: b.size,
-        progress: b.progress,
-        built: b.built,
-        hpRatio: b.hp / b.maxHp,
-        seed: b.id,
-        links: line ? linkMask((x, y) => map.inBounds(x, y) && joins.get(y * map.width + x) === b.owner, b.tx, b.ty) : 0,
-        open: BUILDING_DEFS[b.type].gate ? this.gateOpen(b) : false,
-        counting: b.type === 'wonder' && b.built && b.countdown > 0,
-      };
-      const selected = state.selection.has(b.id) || state.hoverId === b.id;
-      if (selected) this.footprint(b.tx, b.ty, b.size, this.ringColor(b.owner), state.selection.has(b.id) ? 2 : 1);
-      // Morale reach of houses: when one is selected and while a new one is being placed.
-      if (b.type === 'house' && b.owner === this.view.me && b.built && (state.selection.has(b.id) || state.placement?.type === 'house')) {
-        this.moraleRing(b.x, b.y, state.selection.has(b.id) ? 0.9 : 0.5);
-      }
-      if (BUILDING_DEFS[b.type].walkable) {
-        drawBuilding(ctx, project, zoom, look, time);
-      } else {
-        drawables.push({ depth: b.tx + b.ty + b.size, draw: () => drawBuilding(ctx, project, zoom, look, time) });
-        const top = buildingTopZ(b.type, b.epoch, b.size) * (b.built ? 1 : Math.min(1, b.progress * 1.2));
-        const e = b.size;
-        hulls.push({
-          depth: b.tx + b.ty + e,
-          pts: [
-            project(b.tx, b.ty + e),
-            project(b.tx + e, b.ty + e),
-            project(b.tx + e, b.ty),
-            project(b.tx + e, b.ty, top),
-            project(b.tx, b.ty, top),
-            project(b.tx, b.ty + e, top),
-          ],
-        });
-      }
-      if (state.selection.has(b.id) && b.owner === this.view.me && b.rally.length) {
-        // Rally chain: dashed line through the waypoints, flag at the end.
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        for (const p of b.rally) ctx.lineTo(...project(p.x, p.y));
-        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.setLineDash([]);
-        for (const p of b.rally.slice(0, -1)) {
-          const [wx, wy] = project(p.x, p.y);
-          ctx.beginPath();
-          ctx.ellipse(wx, wy, 3 * zoom, 1.5 * zoom, 0, 0, Math.PI * 2);
-          ctx.fillStyle = '#eee';
-          ctx.fill();
-        }
-        const last = b.rally[b.rally.length - 1];
-        const [rx, ry] = project(last.x, last.y);
-        ctx.beginPath();
-        ctx.moveTo(rx, ry);
-        ctx.lineTo(rx, ry - 16 * zoom);
-        ctx.strokeStyle = '#eee';
-        ctx.stroke();
-        ctx.fillStyle = world.players[this.view.me].color;
-        ctx.fillRect(rx, ry - 16 * zoom, 9 * zoom, 6 * zoom);
-      }
-    }
+    const last = b.rally[b.rally.length - 1];
+    const [rx, ry] = project(last.x, last.y);
+    ctx.beginPath();
+    ctx.moveTo(rx, ry);
+    ctx.lineTo(rx, ry - 16 * zoom);
+    ctx.strokeStyle = '#eee';
+    ctx.stroke();
+    ctx.fillStyle = world.players[this.view.me].color;
+    ctx.fillRect(rx, ry - 16 * zoom, 9 * zoom, 6 * zoom);
+  }
 
-    for (const n of world.resources) {
-      if (n.dead) continue;
-      const i = map.idx(Math.floor(n.x), Math.floor(n.y));
-      if (vis[i] === 0) continue;
-      const [sx, sy] = project(n.x, n.y);
-      if (!this.onScreen(sx, sy, 80 * zoom)) continue;
-      if (state.hoverId === n.id || state.selection.has(n.id)) this.footprint(n.tx, n.ty, n.size, '#ffd24d', 1);
-      const look = { nodeType: n.nodeType, tx: n.tx, ty: n.ty, size: n.size, ratio: n.amount / n.maxHp, variant: n.variant };
-      const drawIt = () => drawNode(ctx, project, zoom, look, time);
-      drawables.push({ depth: n.tx + n.ty + n.size, draw: drawIt });
-      if (n.nodeType !== 'tree') ghosts.push({ depth: n.tx + n.ty + n.size, probes: [project(n.x, n.y, 4), project(n.x, n.y, 14)], draw: drawIt });
-    }
-
-    const unitScale = zoom * UNIT_SCALE;
-    // Aircraft are drawn after everything on the ground, their shadows right away.
-    const airborne: Array<{ depth: number; draw: () => void }> = [];
-    this.airPoses.clear();
-    for (const u of world.units) {
-      if (u.dead || !this.view.seesUnit(u)) continue;
-      const [x, y] = this.unitPos(u, state.alpha);
-      const [sx, sy] = project(x, y);
-      if (!this.onScreen(sx, sy, 60 * zoom)) continue;
-      if (isAir(u.role)) {
-        const landed = !u.moving && world.airfieldUnder(u) !== null;
-        const pose = airPose(u.stats.look, x, y, u.facing, u.moving, u.id, time, landed);
-        this.airPoses.set(u.id, pose);
-        if (state.selection.has(u.id) || state.hoverId === u.id) {
-          const [gx, gy] = project(pose.x, pose.y);
-          ctx.beginPath();
-          ctx.ellipse(gx, gy, 9 * unitScale * 1.5, 4.5 * unitScale * 1.5, 0, 0, Math.PI * 2);
-          ctx.strokeStyle = this.ringColor(u.owner);
-          ctx.lineWidth = state.selection.has(u.id) ? 2 : 1;
-          ctx.stroke();
-        }
-        if (!pose.landed) drawAirShadow(ctx, project, unitScale, u.stats.look, pose.x, pose.y, pose.z);
-        const look = {
-          look: u.stats.look,
-          epoch: u.stats.epoch,
-          color: world.players[u.owner].color,
-          facing: pose.facing,
-          moving: u.moving || !pose.landed,
-          attackAnim: u.attackAnim,
-          working: false,
-          carry: null,
-          seed: u.id,
-        };
-        const draw = () => drawAircraft(ctx, project, unitScale, pose.x, pose.y, look, time, pose.z);
-        // Parked planes sit on their airfield like anything else on the ground.
-        if (pose.landed) drawables.push({ depth: x + y + 4, draw });
-        else airborne.push({ depth: pose.x + pose.y, draw });
-        continue;
-      }
-      if (state.selection.has(u.id) || state.hoverId === u.id) {
-        ctx.beginPath();
-        const ring = isNaval(u.role) ? 2.3 : wide(u) ? 1.4 : 1;
-        ctx.ellipse(sx, sy, 9 * unitScale * ring, 4.5 * unitScale * (ring > 2 ? 1.6 : 1), 0, 0, Math.PI * 2);
-        ctx.strokeStyle = this.ringColor(u.owner);
-        ctx.lineWidth = state.selection.has(u.id) ? 2 : 1;
-        ctx.stroke();
-      }
-      if (state.selection.has(u.id) && u.owner === this.view.me && (u.role === 'strategist' || u.role === 'warrior')) {
-        this.areaRing(x, y, u.role === 'strategist' ? STRATEGIST_AURA : WARRIOR_AURA, u.role === 'strategist' ? '#f2c84b' : '#ff7a3c', 0.55, true);
-      }
-      const working = (u.order.kind === 'gather' && u.order.phase === 'work') || (u.order.kind === 'build' && u.attackAnim > 0);
-      const look = {
-        look: u.stats.look,
-        epoch: u.stats.epoch,
-        color: world.players[u.owner].color,
-        facing: u.facing,
-        moving: u.moving,
-        // Gatherers and builders use the timer for their tool swing.
-        attackAnim: u.order.kind === 'gather' || u.order.kind === 'build' ? 0 : u.attackAnim,
-        working,
-        carry: u.carryAmount > 0 ? u.carry : null,
-        seed: u.id,
-        cargo: u.cargo.length,
-      };
-      const drawIt = () => drawUnit(ctx, project, unitScale, x, y, look, time);
-      drawables.push({ depth: x + y, draw: drawIt });
-      ghosts.push({ depth: x + y, probes: [project(x, y, 4), project(x, y, 14 * UNIT_SCALE)], draw: drawIt, ring: world.players[u.owner].color });
-    }
-
-    drawables.sort((a, b) => a.depth - b.depth);
-    for (const d of drawables) d.draw();
-
-    // X-ray: whatever stands behind a building shows through it.
-    for (const g of ghosts) {
-      if (!hulls.some((h) => h.depth > g.depth && g.probes.some((p) => inConvex(h.pts, p)))) continue;
-      ctx.save();
-      ctx.globalAlpha = 0.5;
-      g.draw();
-      ctx.restore();
-      if (g.ring) {
-        const [fx, fy] = g.probes[0];
-        ctx.beginPath();
-        ctx.ellipse(fx, fy + 4 * zoom, 7 * unitScale, 3.5 * unitScale, 0, 0, Math.PI * 2);
-        ctx.strokeStyle = g.ring;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
-    }
-
-    this.drawHazards(time);
-    this.drawBeams(state, time);
-    this.drawStatuses(state, time);
-    this.drawProjectiles(state);
-    this.drawEffects();
-
-    // Explored but unseen ground (and what is remembered there) is dimmed.
-    ctx.fillStyle = 'rgba(5,8,12,0.5)';
-    ctx.fill(fogPath);
-
-    // Above it all: what flies.
-    airborne.sort((a, b) => a.depth - b.depth);
-    for (const a of airborne) a.draw();
-
+  /** What lies on top of the map: plans, bars, placement, previews and marks. */
+  private drawOverlays(state: RenderState): void {
+    const { ctx, camera } = this;
+    const zoom = camera.zoom;
     this.drawPlans(state);
     this.drawBars(state);
-    if (state.placement) this.drawPlacement(state.placement, time);
+    if (state.placement) this.drawPlacement(state.placement, state.time);
     if (state.preview) this.drawPreview(state.preview);
-    if (state.cast) this.drawCast(state.cast, time);
+    if (state.cast) this.drawCast(state.cast, state.time);
     if (state.marker) {
       const m = state.marker;
-      const [sx, sy] = project(m.x, m.y);
+      const [sx, sy] = camera.project(m.x, m.y);
       const r = Math.max(0, 1 - m.t / 0.6) * 14 * zoom;
       ctx.beginPath();
       ctx.ellipse(sx, sy, r, r / 2, 0, 0, Math.PI * 2);
@@ -460,20 +509,7 @@ export class Renderer {
 
   /** A circle of `r` tiles on the ground; dashed for reaches, solid for areas. */
   private areaRing(x: number, y: number, r: number, color: string, strength: number, dashed: boolean, fill = 0.06): void {
-    const { ctx, camera } = this;
-    const [sx, sy] = camera.project(x, y);
-    const k = Math.SQRT2 * r * camera.zoom;
-    ctx.beginPath();
-    ctx.ellipse(sx, sy, k * 32, k * 16, 0, 0, Math.PI * 2);
-    if (fill > 0) {
-      ctx.fillStyle = withAlpha(color, fill * strength);
-      ctx.fill();
-    }
-    if (dashed) ctx.setLineDash([6, 5]);
-    ctx.strokeStyle = withAlpha(color, 0.8 * strength);
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.setLineDash([]);
+    paintAreaRing(this.ctx, this.camera.project, this.camera.zoom, x, y, r, color, strength, dashed, fill);
   }
 
   /** Calamities at work: plague clouds, earthquake cracks, fire and storms. */
@@ -756,18 +792,7 @@ export class Renderer {
 
   /** Dashed ground circle showing how far a house's morale bonus reaches. */
   private moraleRing(x: number, y: number, strength: number): void {
-    const { ctx, camera } = this;
-    const [sx, sy] = camera.project(x, y);
-    const k = Math.SQRT2 * MORALE_RADIUS * camera.zoom;
-    ctx.beginPath();
-    ctx.ellipse(sx, sy, k * 32, k * 16, 0, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(242,200,75,${0.08 * strength})`;
-    ctx.fill();
-    ctx.setLineDash([6, 5]);
-    ctx.strokeStyle = `rgba(242,200,75,${0.75 * strength})`;
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.setLineDash([]);
+    paintMoraleRing(this.ctx, this.camera.project, this.camera.zoom, x, y, MORALE_RADIUS, strength);
   }
 
   /** Gates swing open while a unit of the owner's team is close. */
@@ -791,19 +816,6 @@ export class Renderer {
     if (owner === this.view.me) return '#8dff5a';
     if (owner < 0) return '#ffd24d';
     return this.world.areEnemies(this.view.me, owner) ? '#ff5a4d' : '#5ad1ff';
-  }
-
-  private footprint(tx: number, ty: number, size: number, color: string, width: number): void {
-    const p = this.camera.project;
-    const ctx = this.ctx;
-    ctx.beginPath();
-    const pts = [p(tx, ty), p(tx + size, ty), p(tx + size, ty + size), p(tx, ty + size)];
-    ctx.moveTo(pts[0][0], pts[0][1]);
-    for (const [x, y] of pts.slice(1)) ctx.lineTo(x, y);
-    ctx.closePath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.stroke();
   }
 
   private drawProjectiles(state: RenderState): void {
