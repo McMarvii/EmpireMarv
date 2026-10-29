@@ -6,6 +6,7 @@ import { formationSlots, type Formation } from '../sim/formation';
 import type { Project } from './camera';
 import { ABILITY_COLOR, shade } from './colors';
 import { drawBuilding, drawUnit, LINK_E, LINK_W, VEHICLE_LOOKS } from './sprites';
+import { AIR_LOOKS } from './planes';
 import { SHIP_LOOKS } from './ships';
 
 const cache = new Map<string, string>();
@@ -31,11 +32,19 @@ export function unitIcon(role: Role, epoch: number, color: string, size = 44): s
   return render(`u:${role}:${tier}:${color}:${size}`, size, (ctx) => {
     const vehicle = VEHICLE_LOOKS.has(t.look);
     const ship = SHIP_LOOKS.has(t.look);
+    const air = AIR_LOOKS.has(t.look);
     // Sized for a 44 px button; smaller and larger icons scale along so the figure always fits.
     const fit = size / 44;
-    const scale = fit * (ship ? 0.6 : vehicle ? 0.9 : t.look === 'horse' || t.look === 'chariot' || t.look === 'scouthorse' ? 1.15 : 1.5);
+    const scale = fit * (ship ? 0.6 : air ? (t.look === 'bomber' ? 0.62 : t.look === 'balloon' ? 1.15 : 0.85) : vehicle ? 0.9 : t.look === 'horse' || t.look === 'chariot' || t.look === 'scouthorse' ? 1.15 : 1.5);
     const cx = size / 2;
-    const cy = size * (ship ? 0.66 : vehicle ? 0.68 : 0.88);
+    const cy = size * (ship ? 0.66 : air ? (t.look === 'balloon' ? 0.42 : 0.55) : vehicle ? 0.68 : 0.88);
+    if (air) {
+      // A patch of sky behind the craft.
+      ctx.beginPath();
+      ctx.arc(cx, size / 2, size * 0.44, 0, Math.PI * 2);
+      ctx.fillStyle = '#7fb3d9';
+      ctx.fill();
+    }
     if (ship) {
       // A patch of sea under the hull.
       ctx.beginPath();
@@ -50,7 +59,7 @@ export function unitIcon(role: Role, epoch: number, color: string, size = 44): s
       scale,
       0,
       0,
-      { look: t.look, epoch: t.epoch, color, facing: Math.PI / 4 - 0.6, moving: false, attackAnim: 0, working: false, carry: null, seed: 1 },
+      { look: t.look, epoch: t.epoch, color, facing: Math.PI / 4 - 0.6, moving: air, attackAnim: 0, working: false, carry: null, seed: 1 },
       0.3,
     );
   });
@@ -374,6 +383,15 @@ function glyph(ctx: CanvasRenderingContext2D, kind: TechGlyph, c: number, r: num
       stroke();
       L([[0.72, 0.15], [0.58, 0.38], [0.4, 0.22]]);
       stroke();
+      break;
+    case 'plane':
+      // Fuselage, wings and tailplane seen from above.
+      L([[0, -0.8], [0, 0.75]]);
+      stroke();
+      L([[-0.8, -0.05], [0, -0.3], [0.8, -0.05], [0.8, 0.1], [0, -0.05], [-0.8, 0.1]], true);
+      fill();
+      L([[-0.35, 0.6], [0, 0.5], [0.35, 0.6], [0.35, 0.72], [0, 0.65], [-0.35, 0.72]], true);
+      fill();
       break;
     case 'fish':
       ctx.beginPath();

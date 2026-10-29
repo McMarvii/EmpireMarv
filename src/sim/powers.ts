@@ -12,7 +12,7 @@ import {
   WHIRLWIND_DMG,
   type AbilityId,
 } from '../data/abilities';
-import { FAITH_REGEN, isHero, MAX_FAITH } from '../data/units';
+import { FAITH_REGEN, isAir, isHero, MAX_FAITH } from '../data/units';
 import { WONDER_HEAL } from '../data/wonders';
 import { applyDamage, harm } from './combat';
 import { AURA_INSPIRED, AURA_LED, rectOf, type Hazard, type Unit } from './entities';
@@ -118,7 +118,10 @@ export function useAbility(w: World, u: Unit, id: AbilityId): boolean {
     case 'whirlwind': {
       const dmg = u.stats.dmg * WHIRLWIND_DMG * attackBoost(w, u);
       const hit: Unit[] = [];
-      enemies((o) => hit.push(o));
+      // A sweep of the blade does not reach the sky.
+      enemies((o) => {
+        if (!isAir(o.role)) hit.push(o);
+      });
       for (const o of hit) applyDamage(w, o, dmg, u.role, u.owner, u.id);
       u.attackAnim = 0.35;
       break;
@@ -166,8 +169,11 @@ export function updateHazards(w: World): void {
     const ticks = (hz.until - hz.start) || 1;
     const share = CALAMITY_DAMAGE[hz.kind];
     const hitUnits: Unit[] = [];
+    // Storms and fire reach into the sky, the plague and the quake stay on the ground.
+    const grounded = hz.kind === 'plague' || hz.kind === 'quake';
     w.forUnitsNear(hz.x, hz.y, hz.r, (o) => {
-      if (!o.dead && w.areEnemies(hz.owner, o.owner) && hypot(o.x - hz.x, o.y - hz.y) <= hz.r) hitUnits.push(o);
+      if (o.dead || (grounded && isAir(o.role))) return;
+      if (w.areEnemies(hz.owner, o.owner) && hypot(o.x - hz.x, o.y - hz.y) <= hz.r) hitUnits.push(o);
     });
     for (const o of hitUnits) {
       if (o.dead || !once(hz.kind, o.id)) continue;

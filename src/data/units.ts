@@ -11,8 +11,10 @@ export type CombatRole = 'assault' | 'pike' | 'ranged' | 'mounted' | 'siege';
 export type SpecialRole = 'strategist' | 'warrior' | 'priest' | 'prophet';
 /** Ships: they sail on water only and come from the harbour. */
 export type NavalRole = 'fisher' | 'transport' | 'warship' | 'bombard';
+/** Aircraft: they fly over land, water and walls alike. */
+export type AirRole = 'balloon' | 'fighter' | 'bomber';
 /** Scouts sit outside the counter loop: fast, far-sighted and nearly harmless. */
-export type Role = 'citizen' | 'scout' | CombatRole | SpecialRole | NavalRole;
+export type Role = 'citizen' | 'scout' | CombatRole | SpecialRole | NavalRole | AirRole;
 
 export const COMBAT_ROLES: CombatRole[] = ['assault', 'pike', 'ranged', 'mounted', 'siege'];
 /** One of each per player at a time; they grow with every epoch. */
@@ -22,10 +24,28 @@ export const FAITH_ROLES: Role[] = ['priest', 'prophet'];
 
 export const NAVAL_ROLES: NavalRole[] = ['fisher', 'transport', 'warship', 'bombard'];
 
+export const AIR_ROLES: AirRole[] = ['balloon', 'fighter', 'bomber'];
+
 /** Ships move on water and nowhere else. */
 export function isNaval(role: Role): boolean {
   return role === 'fisher' || role === 'transport' || role === 'warship' || role === 'bombard';
 }
+
+/** Aircraft fly straight over everything; nothing on the ground blocks them. */
+export function isAir(role: Role): boolean {
+  return role === 'balloon' || role === 'fighter' || role === 'bomber';
+}
+
+/**
+ * Planes (not balloons): only anti-aircraft fire reaches them, and they burn
+ * fuel and drop bombs until they have to go home to the airfield.
+ */
+export function isPlane(role: Role): boolean {
+  return role === 'fighter' || role === 'bomber';
+}
+
+/** The epoch (XIV) from which towers and anti-tank troops can shoot at planes. */
+export const ANTI_AIR_EPOCH = 13;
 
 /** Places on a transport ship. */
 export const TRANSPORT_CAPACITY = 10;
@@ -36,13 +56,31 @@ export function isHero(role: Role): boolean {
   return role === 'strategist' || role === 'warrior';
 }
 
+/** Priests win over people, not heroes and not pilots out of reach in the sky. */
+export function isConvertible(role: Role): boolean {
+  return !isHero(role) && !isAir(role);
+}
+
+/** Where a role moves: on land, on water or in the air. */
+export function domainOf(role: Role): 'land' | 'water' | 'air' {
+  return isAir(role) ? 'air' : isNaval(role) ? 'water' : 'land';
+}
+
 export function isFaithful(role: Role): boolean {
   return role === 'priest' || role === 'prophet';
 }
 
 /** Roles that never pick a fight on their own. */
 export function isPeaceful(role: Role): boolean {
-  return role === 'citizen' || role === 'scout' || role === 'priest' || role === 'prophet' || role === 'fisher' || role === 'transport';
+  return (
+    role === 'citizen' ||
+    role === 'scout' ||
+    role === 'priest' ||
+    role === 'prophet' ||
+    role === 'fisher' ||
+    role === 'transport' ||
+    role === 'balloon'
+  );
 }
 
 /** Faith points: priests convert with a full store, prophets pay for calamities. */
@@ -85,9 +123,12 @@ export type Look =
   | 'fishingboat'
   | 'transportship'
   | 'warship'
-  | 'bombardship';
+  | 'bombardship'
+  | 'balloon'
+  | 'fighter'
+  | 'bomber';
 
-export type Projectile = 'none' | 'stone' | 'arrow' | 'bullet' | 'shell' | 'boulder' | 'laser';
+export type Projectile = 'none' | 'stone' | 'arrow' | 'bullet' | 'shell' | 'boulder' | 'laser' | 'bomb';
 
 export interface UnitTier {
   epoch: number;
@@ -102,7 +143,11 @@ export interface RoleDef {
   role: Role;
   label: string;
   /** Where it moves; missing means on land. */
-  domain?: 'water';
+  domain?: 'water' | 'air';
+  /** Planes: seconds of flight on a full tank. */
+  fuel?: number;
+  /** Bombers: bombs per sortie. */
+  bombs?: number;
   producedAt: BuildingType;
   hp: number;
   dmg: number;
@@ -541,6 +586,83 @@ export const ROLE_DEFS: Record<Role, RoleDef> = {
       { epoch: 16, name: 'Ionen-Schlachtschiff', look: 'bombardship', projectile: 'laser' },
     ],
   },
+  balloon: {
+    role: 'balloon',
+    label: 'Ballon',
+    producedAt: 'workshop',
+    domain: 'air',
+    hp: 80,
+    dmg: 0,
+    armor: 0,
+    range: MELEE_RANGE,
+    sight: 13,
+    speed: 1.3,
+    cooldown: 1.5,
+    splash: 0,
+    cost: { wood: 120, gold: 60 },
+    trainTime: 24,
+    strongVs: 'Sieht weit über Wald, Wasser und Mauern hinweg',
+    weakVs: 'Allem, was schießt – Ballone fliegen tief',
+    tiers: [
+      { epoch: 11, name: 'Beobachtungsballon', look: 'balloon' },
+      { epoch: 12, name: 'Luftschiff', look: 'balloon' },
+      { epoch: 15, name: 'Höhenluftschiff', look: 'balloon' },
+      { epoch: 17, name: 'Stratosphärensonde', look: 'balloon' },
+    ],
+  },
+  fighter: {
+    role: 'fighter',
+    label: 'Jäger',
+    producedAt: 'airfield',
+    domain: 'air',
+    hp: 90,
+    dmg: 10,
+    armor: 1,
+    range: 4,
+    sight: 8,
+    speed: 4.2,
+    cooldown: 1,
+    splash: 0,
+    fuel: 50,
+    cost: { wood: 80, gold: 70, iron: 60 },
+    trainTime: 24,
+    strongVs: 'Bombern, Ballonen und anderen Jägern',
+    weakVs: 'Flugabwehr – gegen Bodenziele nur schwach',
+    tiers: [
+      { epoch: 13, name: 'Jagdflugzeug', look: 'fighter', projectile: 'bullet' },
+      { epoch: 14, name: 'Düsenjäger', look: 'fighter', projectile: 'bullet', range: 4.5 },
+      { epoch: 15, name: 'Mehrzweckjet', look: 'fighter', projectile: 'bullet', range: 5 },
+      { epoch: 16, name: 'Drohnenjäger', look: 'fighter', projectile: 'laser', range: 5 },
+      { epoch: 17, name: 'Raumjäger', look: 'fighter', projectile: 'laser', range: 5.5 },
+    ],
+  },
+  bomber: {
+    role: 'bomber',
+    label: 'Bomber',
+    producedAt: 'airfield',
+    domain: 'air',
+    hp: 160,
+    dmg: 34,
+    armor: 2,
+    range: 0.8,
+    sight: 8,
+    speed: 2.6,
+    cooldown: 4.5,
+    splash: 1.4,
+    fuel: 70,
+    bombs: 4,
+    cost: { wood: 120, gold: 120, iron: 100 },
+    trainTime: 32,
+    strongVs: 'Gebäuden und Stellungen – trifft, was stillsteht',
+    weakVs: 'Jägern, Flugabwehr; Bodentruppen in Bewegung',
+    tiers: [
+      { epoch: 13, name: 'Bomber', look: 'bomber', projectile: 'bomb' },
+      { epoch: 14, name: 'Strategischer Bomber', look: 'bomber', projectile: 'bomb' },
+      { epoch: 15, name: 'Tarnkappenbomber', look: 'bomber', projectile: 'bomb' },
+      { epoch: 16, name: 'Drohnenbomber', look: 'bomber', projectile: 'bomb' },
+      { epoch: 17, name: 'Orbitalbomber', look: 'bomber', projectile: 'bomb' },
+    ],
+  },
 };
 
 export interface UnitStats {
@@ -560,6 +682,10 @@ export interface UnitStats {
   splash: number;
   cost: Cost;
   trainTime: number;
+  /** Planes: seconds of flight on a full tank (0: no fuel needed). */
+  fuel: number;
+  /** Bombers: bombs per sortie (0: none). */
+  bombs: number;
 }
 
 /** Index of the newest tier of a role available in an epoch, or -1. */
@@ -611,6 +737,8 @@ export function unitStats(role: Role, tier: number): UnitStats {
     splash: def.splash,
     cost: isCitizen ? def.cost : scaleCost(def.cost, 1 + 0.12 * e),
     trainTime: def.trainTime,
+    fuel: def.fuel ?? 0,
+    bombs: def.bombs ?? 0,
   };
   statsCache.set(key, stats);
   return stats;

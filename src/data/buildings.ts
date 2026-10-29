@@ -17,7 +17,8 @@ export type BuildingType =
   | 'academy'
   | 'temple'
   | 'wonder'
-  | 'dock';
+  | 'dock'
+  | 'airfield';
 
 export interface BuildingDef {
   type: BuildingType;
@@ -140,12 +141,12 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     cost: { wood: 200, stone: 50 },
     buildTime: 50,
     minEpoch: 2,
-    trains: ['siege'],
+    trains: ['siege', 'balloon'],
     dropoff: false,
     walkable: false,
     sight: 6,
     hotkey: 'W',
-    description: 'Baut Belagerungswaffen und Artillerie – stark gegen Gebäude.',
+    description: 'Baut Belagerungswaffen und Artillerie – stark gegen Gebäude. Ab der Revolutionszeit auch Beobachtungsballone.',
   },
   storehouse: {
     type: 'storehouse',
@@ -360,6 +361,28 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     hotkey: 'Q',
     description: 'Steht am Ufer im Wasser. Baut Fischerboote sowie Transport-, Kriegs- und Belagerungsschiffe und nimmt den Fang der Fischer an.',
   },
+  airfield: {
+    type: 'airfield',
+    names: [
+      [13, 'Flugfeld'],
+      [14, 'Fliegerhorst'],
+      [15, 'Luftwaffenstützpunkt'],
+      [16, 'Drohnenbasis'],
+      [17, 'Raumhafen'],
+    ],
+    size: 4,
+    hp: 1600,
+    cost: { wood: 250, stone: 150, iron: 150 },
+    buildTime: 60,
+    minEpoch: 13,
+    trains: ['fighter', 'bomber'],
+    dropoff: false,
+    walkable: false,
+    sight: 8,
+    // J as in Jäger: the one letter no other card uses.
+    hotkey: 'J',
+    description: 'Baut Jäger und Bomber. Flugzeuge kehren hierher zurück, um aufzutanken, Bomben zu laden und repariert zu werden.',
+  },
 };
 
 export const BUILDABLE: BuildingType[] = [
@@ -376,6 +399,7 @@ export const BUILDABLE: BuildingType[] = [
   'academy',
   'temple',
   'dock',
+  'airfield',
   'wonder',
   'towncenter',
 ];

@@ -12,7 +12,7 @@ import {
 } from '../data/buildings';
 import { epochLabel, epochNumeral, EPOCHS, epochStyle } from '../data/epochs';
 import { canAfford, RES_COLOR, RES_LABEL, RESOURCES, type Cost } from '../data/resources';
-import { bestTier, GATHER_LABEL, isFaithful, isHero, MAX_FAITH, ROLE_DEFS, TRANSPORT_CAPACITY, type Role } from '../data/units';
+import { bestTier, GATHER_LABEL, isFaithful, isHero, isPlane, MAX_FAITH, ROLE_DEFS, TRANSPORT_CAPACITY, type Role } from '../data/units';
 import { WONDERS, wonderOf } from '../data/wonders';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
@@ -44,7 +44,7 @@ const SLOT_KEYS = ['Q', 'W', 'E', 'R'];
 /** The town centre keeps E for the advance: its heroes sit on R and T. */
 const TRAIN_KEYS: Partial<Record<BuildingType, string[]>> = { towncenter: ['Q', 'W', 'R', 'T'] };
 /** Order of the production bar. */
-const PROD_ORDER: BuildingType[] = ['towncenter', 'barracks', 'stable', 'workshop', 'temple', 'smithy', 'academy', 'tower', 'storehouse'];
+const PROD_ORDER: BuildingType[] = ['towncenter', 'barracks', 'stable', 'workshop', 'dock', 'airfield', 'temple', 'smithy', 'academy', 'tower', 'storehouse'];
 /** Priests' acts as buttons (also by right click). */
 const PRIEST_ACTS: Array<{ kind: 'convert' | 'heal'; key: string; name: string; text: string }> = [
   { kind: 'convert', key: 'C', name: 'Bekehren', text: 'Dann Klick auf eine gegnerische Einheit: Mit vollem Glauben betet der Priester sie auf deine Seite (Helden nicht). Treffer werfen das Gebet zurück. Auch per Rechtsklick.' },
@@ -62,6 +62,11 @@ const ROLE_HELP: Partial<Record<Role, string>> = {
   warrior: 'Aura: Einheiten in der Nähe +15 % Angriff. Fähigkeiten: Kampfschrei (K), Wirbelschlag (D), Blutrausch (U).',
   priest: 'Bekehrt mit vollem Glauben gegnerische Einheiten (Rechtsklick oder C) und heilt Verbündete (Rechtsklick oder H). Greift nie an.',
   prophet: 'Wirkt mit Glauben Katastrophen, die nur Gegner treffen: Seuche (S), Erdbeben (B), Feuersturm (F), Sturm (T).',
+  balloon: 'Fliegt über alles hinweg und sieht sehr weit. Unbewaffnet; fliegt tief – jeder Schütze und jeder Turm trifft ihn.',
+  fighter:
+    'Fliegt frei über Wasser, Wald und Mauern. Stark gegen Bomber und Ballone, schwach gegen Bodenziele. Nur Jäger, Abwehrinfanterie und Türme ab den Weltkriegen treffen ihn. Leer getankt fliegt er zum Flugplatz.',
+  bomber:
+    'Wirft Bomben auf Gebäude und Stellungen – trifft, was stillsteht. Nach seiner Ladung oder leerem Tank fliegt er zum Flugplatz, lädt nach und kommt zurück. Wehrlos gegen Jäger und Flugabwehr.',
 };
 const STATUS_LABEL: Record<Status, string> = { stun: 'gelähmt', haste: 'Eile', shield: 'Schildwall', frenzy: 'Blutrausch', plague: 'Seuche', slow: 'gebremst' };
 
@@ -95,6 +100,8 @@ function fmtTime(sec: number): string {
 /** DOM overlay: resource bar, messages, selection panel, command card and dialogs. */
 export class Hud {
   commands: CommandButton[] = [];
+  /** Tutorial: the command button (by hotkey) that pulses to show where to click. */
+  hintKey: string | null = null;
   private root: HTMLElement;
   private els: Record<string, HTMLElement>;
   private resEls: Record<string, HTMLElement> = {};
@@ -393,6 +400,7 @@ export class Hud {
       commands
         .map((c) => `${c.key}${c.title}${c.enabled ? 1 : 0}${c.locked ? 1 : 0}${c.active ? 1 : 0}${c.badge ?? ''}${c.text ?? ''}${c.progress === undefined ? '' : Math.floor(c.progress * 40)}`)
         .join(''),
+      this.hintKey ?? '',
       this.dynamicSig(ents),
       ents.reduce((s, e) => s + (e.kind === 'unit' ? e.morale : 0), 0),
     ];
@@ -419,7 +427,8 @@ export class Hud {
         if (e.kind === 'unit') {
           const states = Object.values(e.status).filter((t) => (t ?? 0) > this.game.world.tick).length;
           const convert = e.order.kind === 'convert' ? Math.floor(e.order.progress * 4) : '';
-          return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}${Math.floor(e.faith / 2)}${states}${e.aura}${convert}${e.cargo.length}`;
+          const air = isPlane(e.role) ? `${Math.ceil(e.fuel)}${e.ammo}${e.order.kind === 'refuel' ? e.order.targetId : ''}` : '';
+          return `${e.order.kind}${e.queue.length}${Math.floor(e.carryAmount)}${e.morale}${Math.floor(e.faith / 2)}${states}${e.aura}${convert}${e.cargo.length}${air}`;
         }
         return `${Math.floor(e.amount)}`;
       })
@@ -492,7 +501,10 @@ export class Hud {
       else if (e.order.kind === 'cast') activity = `wirkt ${ABILITY_BY_ID.get(e.order.ability)!.name}`;
       else if (e.order.kind === 'board') activity = 'geht an Bord';
       else if (e.order.kind === 'unload') activity = 'fährt zum Entladen';
-      else activity = 'untätig';
+      else if (e.order.kind === 'refuel') {
+        const field = world.get(e.order.targetId);
+        activity = !field ? 'ohne Treibstoff – kein Flugplatz' : world.airfieldUnder(e) ? 'tankt auf' : 'fliegt zum Tanken';
+      } else activity = 'untätig';
       if (e.queue.length) activity += `, dann ${e.queue.length} ${e.queue.length === 1 ? 'weiterer Befehl' : 'weitere Befehle'}`;
       const carry = e.carry && e.carryAmount > 0 ? ` · trägt ${Math.floor(e.carryAmount)} ${RES_LABEL[e.carry]}` : '';
       const pct = Math.round(e.morale * MORALE_PER_HOUSE * 100);
@@ -516,6 +528,10 @@ export class Hud {
         ...(e.aura & AURA_INSPIRED ? ['vom Krieger angefeuert'] : []),
       ];
       const statusLine = states.length ? `<div class="status-line">${states.map((t) => esc(t)).join(' · ')}</div>` : '';
+      const fuelBar =
+        isPlane(e.role) && e.owner === me
+          ? `<div class="fuelbar${e.fuel < s.fuel * 0.25 ? ' low' : ''}"><div style="width:${(e.fuel / s.fuel) * 100}%"></div><span>Treibstoff ${Math.ceil(e.fuel)} s${s.bombs ? ` · Bomben ${e.ammo} / ${s.bombs}` : ''}</span></div>`
+          : '';
       const cargoLine =
         e.role === 'transport'
           ? `<div class="cargo-line">An Bord: ${e.cargo.length} / ${TRANSPORT_CAPACITY}${e.cargo
@@ -530,6 +546,7 @@ export class Hud {
           <div class="sel-sub">${esc(def.label)} · ${epochTag(s.epoch)} · ${activity}${carry}${isHero(e.role) ? ' <span class="hero-tag">Held</span>' : ''}</div>
           ${hpBar(e.hp, e.maxHp)}
           ${faithBar}
+          ${fuelBar}
           ${moraleLine}
           ${statusLine}
           ${cargoLine}
@@ -1020,7 +1037,7 @@ export class Hud {
     el.innerHTML = this.commands
       .map(
         (c, i) =>
-          `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}${c.active ? ' active' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
+          `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}${c.active ? ' active' : ''}${c.key === this.hintKey ? ' hint' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
           (c.icon ? `<img src="${c.icon}" alt="">` : `<span class="cmd-text">${esc(c.text ?? '')}</span>`) +
           `<span class="hk">${c.key}</span>${c.badge ? `<span class="badge">${c.badge}</span>` : ''}` +
           (c.progress !== undefined ? `<i class="cmd-progress" style="width:${Math.round(c.progress * 100)}%"></i>` : '') +
@@ -1223,6 +1240,7 @@ export class Hud {
         <tr><td>M / G, dann ziehen</td><td>Mauer / Tor als Linie bauen</td></tr>
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>
         <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren, Bauaufträge nacheinander / 5 Einheiten</td></tr>
+        <tr><td>Rechtsklick mit Flugzeugen auf eigenen Flugplatz</td><td>Tanken, Bomben laden, reparieren – mit leerem Tank oder leeren Bomben fliegen sie von selbst zurück</td></tr>
         <tr><td>Strg + 1–9, dann 1–9</td><td>Gruppe speichern / wählen (2× = hinspringen)</td></tr>
         <tr><td>Tab, dann Bau-Taste</td><td>Gebäude dieses Typs wählen, untätige zuerst; nochmal = durchschalten, 2× schnell = hinspringen</td></tr>
         <tr><td>Doppelklick / Rahmen auf Gebäude</td><td>Mehrere Gebäude eines Typs: Ausbilden und Forschen verteilen sich</td></tr>

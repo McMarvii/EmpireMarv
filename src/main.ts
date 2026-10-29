@@ -2,6 +2,7 @@ import './styles.css';
 import { audio } from './audio/engine';
 import { Game, type GameOptions } from './game';
 import type { GuestSession, HostSession } from './net/session';
+import { TUTORIAL_SETTINGS } from './tutorial';
 import { hostLobby, joinGame, type LobbyExit } from './ui/lobby';
 import { showMenu } from './ui/menu';
 
@@ -36,6 +37,7 @@ function startMenu(): void {
     join: (invite) => joinGame(root, invite, lobbyExit),
     replay: (replay) => startGame({ settings: replay.settings, replay }),
     load: (save) => startGame({ settings: save.settings, save }),
+    tutorial: () => startGame({ settings: TUTORIAL_SETTINGS, tutorial: true }),
   });
 }
 

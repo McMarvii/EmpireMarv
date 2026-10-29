@@ -105,6 +105,7 @@ export const GUEST_COMMANDS = new Set<Command['type']>([
   'shelter',
   'board',
   'unload',
+  'refuel',
   'train',
   'cancel',
   'advance',

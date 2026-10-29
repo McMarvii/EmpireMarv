@@ -8,6 +8,7 @@ import { loadLastReplay, parseReplay, type Replay } from '../replay';
 import { deleteSave, downloadSaveText, listSaves, parseSave, readSave, type SaveGame, type SaveSummary } from '../saves';
 import type { Difficulty, GameSettings, PlayerSetup, StartResources } from '../sim/world';
 import { GAME_VERSION } from '../version';
+import { tutorialDone } from './tutorial';
 
 const AI_NAMES = ['Aurelia', 'Borak', 'Chandra'];
 const STORAGE_KEY = 'empiremarv.settings';
@@ -203,6 +204,8 @@ export interface MenuActions {
   replay(r: Replay): void;
   /** Go on with a saved game. */
   load(save: SaveGame): void;
+  /** The guided practice match. */
+  tutorial(): void;
 }
 
 type Tab = 'single' | 'multi' | 'saves' | 'replay';
@@ -251,6 +254,14 @@ export function showMenu(root: HTMLElement, actions: MenuActions, tab?: Tab): vo
         <button data-tab="replay" role="tab">Wiedergaben</button>
       </div>
       <section data-pane="single">
+        <div class="tutorial-box${tutorialDone() ? ' done' : ''}">
+          <div>${
+            tutorialDone()
+              ? '<b>Tutorial ✔</b> <span class="dim">abgeschlossen – du kannst es jederzeit wiederholen.</span>'
+              : '<b>Neu hier? Starte das Tutorial.</b> <span class="dim">14 kurze Schritte: sammeln, bauen, forschen, aufsteigen und ein erstes Gefecht.</span>'
+          }</div>
+          <button type="button" class="${tutorialDone() ? '' : 'primary '}tutorial-start" data-act="tutorial">Tutorial${tutorialDone() ? ' wiederholen' : ' starten'}</button>
+        </div>
         <form id="menu-form" class="settings-grid">
           ${settingsFields(v, true)}
           <button type="submit" class="primary start">Spiel starten</button>
@@ -315,6 +326,10 @@ export function showMenu(root: HTMLElement, actions: MenuActions, tab?: Tab): vo
   el.querySelectorAll<HTMLElement>('[data-tab]').forEach((b) => (b.onclick = () => show(b.dataset.tab as Tab)));
   show(current);
 
+  el.querySelector<HTMLButtonElement>('[data-act="tutorial"]')!.onclick = () => {
+    el.hidden = true;
+    actions.tutorial();
+  };
   const form = el.querySelector<HTMLFormElement>('#menu-form')!;
   form.onsubmit = (ev) => {
     ev.preventDefault();

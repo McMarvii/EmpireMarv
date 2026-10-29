@@ -50,7 +50,12 @@ export type Order =
   /** Walk to the shore and go aboard a transport ship. */
   | { kind: 'board'; targetId: number }
   /** Transport ship: sail to the coast near a point and put everybody ashore. */
-  | { kind: 'unload'; x: number; y: number };
+  | { kind: 'unload'; x: number; y: number }
+  /**
+   * Plane: fly home to an airfield (0: none yet), refuel, reload and get
+   * repaired there, then pick `resume` up again. No fighting on the way.
+   */
+  | { kind: 'refuel'; targetId: number; resume: Order | null };
 
 /** A queued command (Shift), turned into an order once the unit gets to it. */
 export type Plan =
@@ -64,7 +69,8 @@ export type Plan =
   | { kind: 'convert'; targetId: number }
   | { kind: 'heal'; targetId: number }
   | { kind: 'board'; targetId: number }
-  | { kind: 'unload'; x: number; y: number };
+  | { kind: 'unload'; x: number; y: number }
+  | { kind: 'refuel'; targetId: number };
 
 interface BaseEntity {
   id: number;
@@ -96,6 +102,10 @@ export interface Unit extends BaseEntity {
   inside: number;
   /** Transport ships: the units on board. */
   cargo: Unit[];
+  /** Planes: seconds of flight left in the tank. */
+  fuel: number;
+  /** Bombers: bombs left for this sortie. */
+  ammo: number;
   path: Point[];
   repathTick: number;
   scanTick: number;

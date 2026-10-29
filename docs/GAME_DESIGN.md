@@ -82,6 +82,7 @@ Fünf Rollen, jede Epoche liefert eine neue Stufe pro Rolle:
 - **Moral**: Jedes eigene Haus im Umkreis von 8 Feldern gibt +4 % Schaden und −4 % erlittenen Schaden (höchstens 5 Häuser).
 - Türme und Dorfzentren schießen und werden mit jeder Epoche stärker.
 - **Helden, Priester und Propheten** stehen ebenfalls außerhalb des Dreiecks, siehe [Helden, Glaube und Wunder](#helden-glaube-und-wunder).
+- **Flieger** stehen außerhalb des Dreiecks und haben eigene Regeln, siehe [Luftkrieg](#luftkrieg).
 - **Späher** stehen außerhalb des Kampfdreiecks: schnell, Sichtweite 11, kaum Kampfkraft, greifen nie von selbst an. Stufen: Läufer → Kundschafter → Meldereiter → Spähwagen → Aufklärungsdrohne. Jede Einheit kann in den **Erkundenmodus** geschickt werden und zieht dann selbstständig zum nächsten unerkundeten Rand.
 
 ## Helden, Glaube und Wunder
@@ -130,7 +131,7 @@ Jede Ära hat ein Wunder. Ein Spieler kann jedes Ära-Wunder einmal bauen, also 
 
 **Wundersieg** (Spieleinstellung aus/5/10/15 min, Standard 10): Ist ein Wunder fertig, sehen es alle Spieler, und ein Countdown läuft in der Topbar. Steht es bis zum Ende, gewinnt das Team des Erbauers. Wird es zerstört, endet der Countdown. Während er läuft, leuchtet das Wunder golden, auch auf der Minikarte.
 
-## Karten und Seekrieg
+## Karten, See- und Luftkrieg
 
 ### Kartentypen
 
@@ -166,6 +167,30 @@ Der **Hafen** (Taste `Q` wie Quai, ab I, Holz 150) steht im Wasser am Ufer: an e
   - `Y` setzt alle an der nächsten Küste ab.
   - Wird ein beladenes Schiff versenkt, gehen alle mit unter. Wird es bekehrt, wechselt die Ladung mit die Seite.
 
+### Luftkrieg
+
+Flieger sind die dritte Ebene neben Land und Wasser. Sie fliegen geradeaus über alles hinweg: Wald, Wasser, Mauern und Gebäude halten sie nicht auf, eine Wegsuche brauchen sie nicht. Gezeichnet werden sie in Flughöhe mit einem Schatten am Boden. Wartende Flugzeuge kreisen über ihrem Punkt.
+
+| Flieger | Ab | Stufen | Aufgabe |
+| --- | --- | --- | --- |
+| Ballon (Werkstatt) | XII | Beobachtungsballon → Luftschiff (XIII) → Höhenluftschiff (XVI) → Stratosphärensonde (XVIII) | Unbewaffnet, Sichtweite 13 |
+| Jäger (Flugplatz) | XIV | Jagdflugzeug → Düsenjäger (XV) → Mehrzweckjet (XVI) → Drohnenjäger (XVII) → Raumjäger (XVIII) | Reichweite 4–5,5, Treibstoff 50 s; ×1,8 gegen Bomber, ×2 gegen Ballone, ×1,2 gegen Jäger, ×0,4 gegen Bodentruppen, ×0,15 gegen Gebäude |
+| Bomber (Flugplatz) | XIV | Bomber → Strategischer Bomber (XV) → Tarnkappenbomber (XVI) → Drohnenbomber (XVII) → Orbitalbomber (XVIII) | 4 Bomben je Einsatz, Treibstoff 70 s, Flächenschaden; ×2,5 gegen Gebäude |
+
+- **Wer trifft wen**:
+  - Flugzeuge treffen nur Jäger, Abwehrinfanterie ab den Weltkriegen (Panzerabwehrtrupp, Bazooka, Lenkwaffen) und Türme ab den Weltkriegen. Abwehrinfanterie macht ×1,6–1,8, Türme ×1,4–1,6.
+  - Ballone fliegen tief: Alles mit Reichweite und jedes schießende Gebäude trifft sie, nur Nahkämpfer nicht. Sonst wäre ein Ballon bis XIV unverwundbar.
+  - Bomber treffen nur den Boden, Ballone nichts.
+  - Explosionen am Boden, der Wirbelschlag, Seuche und Erdbeben erreichen keine Flieger; Feuersturm und Sturm schon.
+  - Bomben fallen senkrecht und folgen dem Ziel nicht: Gebäude treffen sie sicher, Truppen in Bewegung schlecht.
+- **Treibstoff und Bombenlast**:
+  - Der Tank sinkt, solange das Flugzeug nicht über einem eigenen Flugplatz steht. Er bestimmt also die Dauer eines Einsatzes.
+  - Ist der Tank oder der Bombenschacht leer, fliegt es direkt zum nächsten eigenen Flugplatz und kämpft unterwegs nicht mehr. Es schlägt nicht zurück; Befehle wartet es ab, bis es wieder in der Luft ist.
+  - Am Flugplatz tankt es in 4 s voll, lädt eine Bombe je Sekunde und wird mit 8 % LP je Sekunde repariert. Dann nimmt es den alten Auftrag wieder auf.
+  - Ohne Flugplatz bleibt es kampfunfähig in der Luft (mit Warnung), bis einer steht. Abstürze aus Treibstoffmangel gibt es nicht.
+  - Rechtsklick auf den eigenen Flugplatz schickt Flugzeuge auch vorher zum Tanken.
+- **Ausnahmen**: Flieger steigen in keine Transporter und keine Zuflucht. Priester bekehren und heilen sie nicht; repariert wird am Flugplatz.
+
 ## Befehle und Formationen
 
 - **Formationen**: Linie (breite Front, wenige Reihen), Block (kompaktes Quadrat, Standard) und Keil (Spitze voran). Unabhängig von der Formation steht die Infanterie vorn, dahinter Reiter, dann Bürger und Späher, dann Fernkampf, ganz hinten Belagerung. Jede Rang-Gruppe füllt eigene Reihen. Einheiten behalten ihre Seite, damit sich ihre Wege nicht kreuzen. Ein Klick auf eine Formation (`N`, `O`, `V`) ordnet eine stehende Gruppe sofort neu.
@@ -200,12 +225,13 @@ Der **Hafen** (Taste `Q` wie Quai, ab I, Holz 150) steht im Wasser am Ufer: an e
 | Schrein → Tempel → Kloster → Kirche → Andachtshaus → Meditationszentrum | 2 | Priester, Propheten, Glaubensforschung |
 | Wunder (Steinkreis … Weltraumlift) | 3 | Je Ära eines, eigene Wirkung, Wundersieg |
 | Anlegestelle → Hafen → Werft → Marinewerft → Seehafen → Schwebedock | 1 | Steht im Wasser am Ufer: Schiffe, Abgabe für Fisch |
+| Flugfeld → Fliegerhorst → Luftwaffenstützpunkt → Drohnenbasis → Raumhafen | 14 | Jäger und Bomber (Taste `J`); Flugzeuge tanken, laden nach und werden repariert |
 
 ## Technologien
 
-Der Technologiebaum umfasst **201 Techniken in 30 Zweigen**. Jeder Zweig hat eine Wirkung, die jede seiner Stufen erneut hinzufügt, und Stufen, die Epoche für Epoche freigeschaltet werden. Jede Stufe verlangt die vorige, einige zusätzlich eine Stufe eines anderen Zweigs (z. B. Luntenschloss → Schwarzpulver, Verbrennungsmotor → Dampfpumpe). So entwickelt sich die Zivilisation mit jeder Epoche weiter, statt einmal fertig erforscht zu sein.
+Der Technologiebaum umfasst **221 Techniken in 34 Zweigen**. Jeder Zweig hat eine Wirkung, die jede seiner Stufen erneut hinzufügt, und Stufen, die Epoche für Epoche freigeschaltet werden. Jede Stufe verlangt die vorige, einige zusätzlich eine Stufe eines anderen Zweigs (z. B. Luntenschloss → Schwarzpulver, Verbrennungsmotor → Dampfpumpe). So entwickelt sich die Zivilisation mit jeder Epoche weiter, statt einmal fertig erforscht zu sein.
 
-- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung), Tempel (Glaube), Hafen (Schiffe) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, parallel zur Ausbildung.
+- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung), Tempel (Glaube), Hafen (Schiffe), Flugplatz (Flugzeuge) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, parallel zur Ausbildung.
 - **Kosten**: Grundpreis des Zweigs × (1 + 0,3 × Epoche). Vor der Kupferzeit wird statt Gold Holz bezahlt, vor der Eisenzeit statt Eisen Stein. Dauer 18 s + 2 s je Epoche.
 - **Aufstieg**: Pro Epoche müssen zwei ihrer Techniken erforscht sein. Jede Epoche bietet 5–14 Techniken aus mindestens zwei Gebäuden.
 - **Bedienung**: Im Gebäude zeigt je Zweig ein Knopf die nächste Stufe (Tasten A, S, D …). Der Technologiebaum (Knopf „Forschung“ oder F2) zeigt alle Zweige mit Zustand und startet Forschung per Klick im nächsten freien Gebäude.
@@ -233,6 +259,7 @@ Der Technologiebaum umfasst **201 Techniken in 30 Zweigen**. Jeder Zweig hat ein
 | Werkstatt | Geschützbau | Belagerung und Artillerie +7 % Schaden | Holzverbindungen (III) → Torsionsfedern (VI) → Gegengewicht (VIII) → Schwarzpulver (X) → Bronzeguss (XI) → Rücklaufbremse (XIII) → Raketentechnik (XV) → Ionentechnik (XVII) |
 | Werkstatt | Zielkunst | Belagerung und Artillerie +0,4 Reichweite | Spannwerk (VII) → Richtaufsatz (X) → Gezogene Rohre (XIII) → Lenkflugkörper (XV) → Orbitale Zielerfassung (XVIII) |
 | Wachturm | Wachdienst | Türme und Dorfzentren +10 % Schaden | Wachfeuer (III) → Pechnasen (VIII) → Kasematten (XI) → MG-Nest (XIV) → Raketenabwehr (XVI) |
+| Wachturm | Flugabwehr | Türme und Abwehrinfanterie +12 % Schaden gegen Flugzeuge | Flakgeschütze (XIV) → Radarleitung (XV) → Fla-Raketen (XVI) → Laserabwehr (XVII) → Abfangsatelliten (XVIII) |
 | Lager | Holzwirtschaft | Holz wird 10 % schneller gesammelt | Steinaxt (I) → Bronzeaxt (IV) → Zugsäge (VII) → Sägemühle (X) → Dampfsäge (XIII) → Kettensäge (XV) → Holzernter (XVII) |
 | Lager | Bergbau | Stein, Gold und Eisen werden 10 % schneller gesammelt | Schlägel und Eisen (II) → Stollenbau (V) → Grubenlampe (VIII) → Sprengpulver (XI) → Dampfpumpe (XIII) → Pressluftbohrer (XIV) → Asteroidenbergbau (XVII) |
 | Lager | Ackerbau | Felder bringen 10 % mehr Nahrung | Hakenpflug (II) → Bewässerung (V) → Dreifelderwirtschaft (VII) → Kummet (IX) → Fruchtwechsel (XII) → Kunstdünger (XIII) → Traktoren (XIV) → Gentechnik (XVI) → Hydroponik (XVIII) |
@@ -242,6 +269,9 @@ Der Technologiebaum umfasst **201 Techniken in 30 Zweigen**. Jeder Zweig hat ein
 | Tempel | Glaubenseifer | Glauben 20 % schneller | Rituale (III) → Orakelstätten (VI) → Pilgerfahrten (IX) → Missionen (XII) → Massenmedien (XV) → Neuronale Netze (XVIII) |
 | Hafen | Schiffbau | Schiffe +12 % LP und +0,5 Rüstung | Kalfatern (II) → Kiel (V) → Klinkerbau (VIII) → Kupferbeschlag (XI) → Stahlrumpf (XIV) → Verbundpanzerung (XVII) |
 | Hafen | Fischerei | Fischerboote fangen 15 % mehr | Netze (II) → Schleppnetz (V) → Salzfisch (VIII) → Seekarten (XI) → Echolot (XIV) → Schwarmortung (XVII) |
+| Flugplatz | Reichweite | Flugzeuge +15 % Treibstoff | Zusatztanks (XIV) → Luftbetankung (XV) → Sparsame Triebwerke (XVI) → Brennstoffzellen (XVII) → Fusionsantrieb (XVIII) |
+| Flugplatz | Flugzeugbau | Flugzeuge und Ballone +10 % LP, +0,5 Rüstung, +4 % Tempo | Ganzmetallbau (XIV) → Strahltriebwerk (XV) → Avionik (XVI) → Tarnbeschichtung (XVII) → Antigravitation (XVIII) |
+| Flugplatz | Bordwaffen | Jäger und Bomber +8 % Schaden, Bomber +1 Bombe | Synchronisierte MGs (XIV) → Bordkanonen (XV) → Lenkbomben (XVI) → Schwarmmunition (XVII) → Plasmawerfer (XVIII) |
 
 ## Ton und Musik
 
@@ -304,13 +334,22 @@ Weil die Simulation deterministisch ist, reichen Einstellungen (mit Seed) und je
 - **Abspielen**: Tempo ½× bis 16×, ±30 s, Zeitleiste zum Springen. Vorwärts wird schnell gerechnet, rückwärts startet die Partie neu und spult vor. Wählbar ist die Sicht jedes Spielers (mit seinem Nebel) oder „Alles zeigen“.
 - **Prüfung**: Alle 5 s speichert die Aufnahme eine Prüfsumme. Läuft die Wiedergabe anders, zum Beispiel unter einer anderen Spielversion, zeigt die Leiste ab wann.
 
+## Tutorial
+
+Eine geführte Übungspartie für den Einstieg, im Hauptmenü unter „Einzelspieler“. Solange es nicht abgeschlossen ist, steht dort „Neu hier? Starte das Tutorial.“, danach ein Haken.
+
+- **Partie**: feste Karte (Kontinent, 64 × 64), Start in der Urzeit mit reichlich Rohstoffen. Im fernen Eck liegt ein **Räuberlager** aus zwei Hütten, drei Keulenkriegern und einem Steinwerfer, ohne KI: Die Räuber greifen nur an, was ihnen nahe kommt. Das Lager ist ein Szenario der Simulation, daher bleibt alles deterministisch.
+- **14 Schritte**, jeder prüft das Spiel selbst: Kamera bewegen, Bürger wählen, Holz, Nahrung, einen Bürger ausbilden, Hütte, Lager am Wald, eine Technik, den Aufstieg vorbereiten (die Liste des Fehlenden zählt mit), aufsteigen, Kaserne, vier Axtkämpfer, Gruppe mit `Strg`+`1`, Angriffsbewegung aufs Lager.
+- **Hilfen**: Das Feld oben rechts zeigt Aufgabe und Fortschritt. Die passende Befehlstaste pulsiert, Ziele auf der Karte (Bäume, Beeren, das Lager) werden markiert, auch auf der Minikarte. Wer etwas schon kann, dem hakt das Tutorial den Schritt von selbst ab; jeder Schritt lässt sich überspringen.
+- Das Tutorial wird nicht aufgezeichnet (die letzte echte Partie bleibt die „Letzte Partie“) und lässt sich nicht speichern.
+
 ## Spielstände
 
 Gespeichert wird ein **Schnappschuss** der ganzen Simulation, nicht die Befehlsliste. Zum Vergleich: Eine 40-Minuten-Partie mit vier KI-Gegnern vorzuspulen dauert rund 32 Sekunden. Ein Schnappschuss lädt sofort.
 
 - **Inhalt**:
   - die Welt mit Karte, Sicht, Einheiten (auch an Bord und in der Zuflucht), Gebäuden, Geschossen, Katastrophen, Techniken und Zufallszahlen-Position;
-  - die Pläne der KI: Wellen, Mauerring, Landungen;
+  - die Pläne der KI: Wellen, Mauerring, Landungen, Luftangriffe;
   - Kameraposition und die bisherige Aufzeichnung, damit die Wiedergabe einer geladenen Partie weiterhin ab Minute 0 läuft.
 - **Kodierung**: JSON mit Ergänzungen für Typed Arrays, Sets, Maps sowie `-0`, Unendlich und `NaN`. Die Reihenfolge aller Listen bleibt erhalten. Ein geladener Stand rechnet bitgleich weiter, das prüfen Tests mit zwei parallel laufenden Welten.
 - **Ablage**:
@@ -343,6 +382,11 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
   - Liegt das Angriffsziel auf anderem Land, sammelt sich die Welle am Hafen, geht an Bord und segelt mit Geleit zur Küste nächst dem Ziel. Dort geht sie an Land und kämpft sich weiter, Ziel für Ziel auf derselben Insel.
   - Wer das Boot verpasst, bleibt daheim; scheitert die Landung, kehren die Truppen um.
   - Im Test (Inseln, 2 KI ab Epoche V) landet die erste Welle nach gut sechs Minuten.
+- **Luftkrieg**:
+  - Ab XII ein Beobachtungsballon aus der Werkstatt. Er schwebt über der ausgerückten Armee, sonst vor der Basis in Richtung des nächsten Gegners.
+  - Ab XIV ein Flugplatz (ab 18 Bürgern). Jäger nach der gesehenen gegnerischen Luftwaffe (2 + 1,2 je Feindflieger, höchstens 10), Bomber nach der Epoche (2 bis 8). Die ersten zwei jeder Art zahlt sie auch aus den Rücklagen.
+  - Luftangriffe: Sind mindestens zwei Bomber getankt und geladen, fliegen sie gegen ein Gebäude in halber Tankreichweite, bevorzugt feindliche Flugplätze und Dorfzentren und ohne Flak-Türme in der Nähe. Freie Jäger begleiten sie. Auf Inseln erreicht sie den Gegner so ohne Landung.
+  - Luftabwehr: Feindflieger bis 20 Felder um die Basis jagen ihre Jäger und alles, was sie treffen kann. Nach den ersten Feindfliegern baut sie zwei Türme mehr.
 - **Wunder**: baut das Wunder der aktuellen Ära aus dem Überschuss. Mit Wundersieg spart sie gezielt dafür und schiebt den Aufstieg auf. Fremde Wunder sind bevorzugte Angriffsziele; läuft ein gegnerischer Countdown, greift sie sofort an.
 - **Schwierigkeit**: Leicht, Mittel, Schwer. Unterschiede bei Reaktionszeit, Sammelrate und Angriffszeitpunkt.
 
@@ -353,7 +397,7 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
 - **Befehle** (`world.issue`) sind die einzige Schnittstelle für Spieler und KI. Das Spiel gibt sie nie direkt hinein, sondern über eine **Sitzung** (`src/session.ts`): Einzelspiel wendet sie sofort an, Lockstep-Sitzungen (`src/net`) verteilen sie in Frames, die Wiedergabe liest sie aus der Aufnahme.
 - **Darstellung** mit Canvas 2D, isometrisch, alle Sprites prozedural. Gebäude und Einheiten werden pro Epoche umgefärbt und umgebaut, Positionen zwischen Ticks interpoliert.
 - **Wegfindung**:
-  - A* auf 8er-Nachbarschaft mit wiederverwendeten Puffern und String-Pulling-Glättung, getrennt für Land und Wasser.
+  - A* auf 8er-Nachbarschaft mit wiederverwendeten Puffern und String-Pulling-Glättung, getrennt für Land und Wasser. Flieger fliegen ohne Suche geradeaus.
   - Zusammenhängende Land- und Wasserregionen sind nach der Kartenerzeugung per Flutfüllung bekannt; so prüfen KI und Transporte ohne Suche, ob etwas zu Land erreichbar ist.
 - **Audio** (`src/audio`): Synthese-Bausteine, Instrumente, Klangrezepte, reiner Musik-Komponist (testbar ohne Browser) und ein Mischpult mit Bussen für Effekte, Oberfläche und Musik.
 
@@ -369,8 +413,8 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | 0.4 | ✔ **Befehlsketten** mit Umschalt (Wegpunkte, Ziele, Bauaufträge, Mauerlinien), ✔ **Formationen** (Linie, Block, Keil; Fernkampf hinten; Gleichschritt; Blickrichtung per Rechts-Ziehen), ✔ **Patrouille**, ✔ **Sammelpunkt-Ketten**, ✔ Wegpunkt-Anzeige, ✔ **Gebäude-Hotkeys** (`Tab` + Bau-Taste), ✔ **Produktionsleiste**, ✔ Ausbilden über mehrere Gebäude, ✔ Forschungs- und Aufstiegs-Warteschlangen |
 | 0.5 | ✔ **Mehrspieler per Link** (bis 4 Plätze, Menschen und KI, Teams mit geteilter Sicht; WebRTC direkt, Handschlag über PeerJS oder Codes; Lockstep mit Relay und Desync-Erkennung; Warten und KI-Übernahme bei Abbruch; Wiedereinstieg per Link), ✔ **Chat** und **Kartenmarkierungen**, ✔ **Wiedergaben** (automatisch, als Datei, Tempo, Springen, Sicht wählbar), ✔ browserübergreifend bitgleiche Simulation |
 | 0.6 | ✔ **Helden** (Stratege und Krieger mit Auren, je 3 Fähigkeiten, Titel je Epoche), ✔ **Tempel, Priester und Propheten** (Bekehren, Heilen, vier Katastrophen nur gegen Gegner, Gegenmittel-Techniken), ✔ **Wunder** (eines je Ära mit eigener Wirkung) mit einstellbarem **Wundersieg**, ✔ KI nutzt alles davon |
-| **0.7** (jetzt) | ✔ **Kartentypen** (Kontinent, Küste, Binnenmeer, Inseln, Flüsse, Steppe, Zufall; Fischgründe), ✔ **Seekrieg** (Hafen, Fischerboot, Transport-, Kriegs- und Belagerungsschiff je Ära; Einsteigen und Entladen; Land gegen See nur auf Distanz), ✔ KI fischt, kämpft zur See und **landet auf fremden Inseln**, ✔ **Speichern & Laden** (Schnappschuss, Strg+S, automatisch, als Datei) |
-| 0.8 | **Luftkrieg**: Flugplatz ab XIV, Jäger und Bomber fliegen frei über alles hinweg, nur Flugabwehr trifft sie (Jäger, Abwehrinfanterie und Türme ab XIV); dazu ein Ballon-Späher ab XII. **Geführtes Tutorial**: Übungspartie mit 12–15 geprüften Schritten und einem kleinen Gefecht |
+| 0.7 | ✔ **Kartentypen** (Kontinent, Küste, Binnenmeer, Inseln, Flüsse, Steppe, Zufall; Fischgründe), ✔ **Seekrieg** (Hafen, Fischerboot, Transport-, Kriegs- und Belagerungsschiff je Ära; Einsteigen und Entladen; Land gegen See nur auf Distanz), ✔ KI fischt, kämpft zur See und **landet auf fremden Inseln**, ✔ **Speichern & Laden** (Schnappschuss, Strg+S, automatisch, als Datei) |
+| **0.8** (jetzt) | ✔ **Luftkrieg** (Ballon ab XII; Flugplatz, Jäger und Bomber ab XIV; nur Flugabwehr trifft Flugzeuge; Treibstoff und Bombenlast mit Rückflug zum Flugplatz; vier neue Technikzweige), ✔ KI mit Ballon, Bombenangriffen und Luftabwehr, ✔ **geführtes Tutorial** (Übungspartie mit 14 geprüften Schritten und einem Gefecht gegen ein Räuberlager) |
 | 1.0 | Kampagne und Szenario-Editor, Balancing, WebGL-Renderer für große Schlachten, Lokalisierung |
 
 ### Interview-Ergebnisse (Oktober 2026)

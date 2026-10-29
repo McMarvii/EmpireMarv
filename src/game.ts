@@ -3,7 +3,7 @@ import { ABILITY_BY_ID, CONVERT_RANGE, HEAL_RANGE, type AbilityId } from './data
 import { BUILDING_DEFS, buildingName, type BuildingType } from './data/buildings';
 import { EPOCHS } from './data/epochs';
 import { canAfford, type Stock } from './data/resources';
-import { isHero, isNaval, type Role } from './data/units';
+import { domainOf, isConvertible, isPlane, type Role } from './data/units';
 import type { NetSession } from './net/session';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
@@ -23,6 +23,7 @@ import { Hud } from './ui/hud';
 import { Input } from './ui/input';
 import { NetUi } from './ui/netui';
 import { ReplayBar } from './ui/replaybar';
+import { TutorialPanel } from './ui/tutorial';
 
 export type Mode = 'normal' | 'place' | 'attackMove' | 'patrol' | 'cast';
 
@@ -41,6 +42,8 @@ export interface GameOptions {
   startAt?: number;
   /** Go on with a saved game. */
   save?: SaveGame;
+  /** The guided practice match: the tutorial panel watches and explains (not recorded, not saved). */
+  tutorial?: boolean;
 }
 
 /** Steps run per frame at most, so a slow frame cannot snowball. */
@@ -68,6 +71,7 @@ export class Game {
   readonly recorder: Recorder | null;
   readonly netUi: NetUi | null;
   readonly replayBar: ReplayBar | null;
+  readonly tutorial: TutorialPanel | null;
   marks: Mark[] = [];
   selection = new Set<number>();
   /** Control groups (Strg+1–9), shown in the group bar. */
@@ -116,7 +120,8 @@ export class Game {
     this.net = options.net ?? null;
     this.replay = options.replay ? new ReplaySession(options.replay) : null;
     this.session = this.net ?? this.replay ?? new LocalSession((cmd) => this.apply(cmd));
-    this.recorder = this.replay ? null : new Recorder(this.world.settings, this.me, options.save?.replay);
+    // The tutorial is no match to keep: the last real one stays the "Letzte Partie".
+    this.recorder = this.replay || options.tutorial ? null : new Recorder(this.world.settings, this.me, options.save?.replay);
     if (this.replay) this.speed = 2;
     this.audio = new GameAudio(this);
     const canvas = root.querySelector<HTMLCanvasElement>('#game')!;
@@ -126,6 +131,7 @@ export class Game {
     this.input = new Input(this, canvas);
     this.netUi = this.net ? new NetUi(this, this.net) : null;
     this.replayBar = this.replay ? new ReplayBar(this) : null;
+    this.tutorial = options.tutorial ? new TutorialPanel(this) : null;
     if (this.net) {
       this.net.attach(this.netUi!);
       this.speed = this.net.speed;
@@ -144,7 +150,7 @@ export class Game {
       if (tc && !this.replay) this.select([tc.id]);
     }
     if (options.startAt) this.catchUpTo = options.startAt;
-    if (!this.replay && !options.startAt && !options.save) {
+    if (!this.replay && !options.startAt && !options.save && !options.tutorial) {
       this.hud.message('info', 'Willkommen! Bürger sammeln Rohstoffe – steige im Dorfzentrum in neue Epochen auf.');
     }
   }
@@ -182,6 +188,7 @@ export class Game {
     this.hud.destroy();
     this.netUi?.destroy();
     this.replayBar?.destroy();
+    this.tutorial?.destroy();
   }
 
   resize(): void {
@@ -225,6 +232,7 @@ export class Game {
     if (this.lastAlert && this.animTime - this.lastAlert.time < 4) {
       this.minimap.ping(this.lastAlert.x, this.lastAlert.y, this.animTime);
     }
+    this.tutorial?.update(dt);
     this.hud.update();
     if (this.replay) {
       for (const [, from, text] of this.replay.chatUntil(this.world.tick)) {
@@ -422,7 +430,7 @@ export class Game {
     const others = units.filter((u) => u.role !== 'citizen').map((u) => u.id);
     // Priests convert enemy units and heal friends; the rest of the selection does the usual.
     const priests = units.filter((u) => u.role === 'priest').map((u) => u.id);
-    if (priests.length && target && target.kind === 'unit' && world.areEnemies(this.me, target.owner) && !isHero(target.role)) {
+    if (priests.length && target && target.kind === 'unit' && world.areEnemies(this.me, target.owner) && isConvertible(target.role)) {
       this.issue({ type: 'convert', player: this.me, ids: priests, targetId: target.id, queue });
       const rest = ids.filter((id) => !priests.includes(id));
       if (rest.length) this.issue({ type: 'attack', player: this.me, ids: rest, targetId: target.id, queue });
@@ -438,11 +446,19 @@ export class Game {
       this.audio.ack('work', units);
       return;
     }
+    // Planes onto an own airfield: refuel, reload, get repaired.
+    const planes = units.filter((u) => isPlane(u.role)).map((u) => u.id);
+    if (target && target.kind === 'building' && target.type === 'airfield' && target.owner === this.me && target.built && planes.length) {
+      this.issue({ type: 'refuel', player: this.me, ids, targetId: target.id, queue });
+      this.setMarker(target.x, target.y, '#8dff5a');
+      this.audio.ack('move', units);
+      return;
+    }
     // Walkers onto an own transport ship: go aboard.
-    const walkers = units.filter((u) => !isNaval(u.role)).map((u) => u.id);
+    const walkers = units.filter((u) => domainOf(u.role) === 'land').map((u) => u.id);
     if (target && target.kind === 'unit' && target.owner === this.me && target.role === 'transport' && walkers.length) {
       this.issue({ type: 'board', player: this.me, ids: walkers, targetId: target.id, queue });
-      const rest = units.filter((u) => isNaval(u.role) && u.id !== target.id).map((u) => u.id);
+      const rest = units.filter((u) => domainOf(u.role) !== 'land' && u.id !== target.id).map((u) => u.id);
       if (rest.length) this.issue({ type: 'move', player: this.me, ids: rest, x: pos.x, y: pos.y, queue });
       this.setMarker(target.x, target.y, '#8dff5a');
       this.audio.ack('move', units);

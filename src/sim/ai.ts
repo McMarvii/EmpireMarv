@@ -3,8 +3,9 @@ import { buildingCost, BUILDING_DEFS, FARM_CAPACITY, type BuildingType } from '.
 import { EPOCHS } from '../data/epochs';
 import { canAfford, RESOURCES, type Cost, type Res } from '../data/resources';
 import { RESEARCH_BUILDINGS, TECHS, type Tech } from '../data/techs';
-import { bestTier, COMBAT_ROLES, HERO_ROLES, isHero, isNaval, MAX_FAITH, unitStats, type CombatRole, type Role } from '../data/units';
-import { NavalPlanner, type NavalHost } from './ainaval';
+import { bestTier, COMBAT_ROLES, HERO_ROLES, isAir, isConvertible, isHero, isNaval, MAX_FAITH, unitStats, type CombatRole, type Role } from '../data/units';
+import { AirPlanner, type AirHost } from './aiair';
+import { NavalPlanner } from './ainaval';
 import type { Building, Player, ResourceNode, Unit } from './entities';
 import { cos, hypot, sin } from './fmath';
 import type { Point } from './pathfinding';
@@ -35,6 +36,7 @@ interface AIState {
   ringCenter: Point;
   siteProgress: Array<[number, { progress: number; tick: number }]>;
   naval: unknown;
+  air?: unknown;
 }
 
 /** What the computer player sees of its own empire on each think. */
@@ -45,9 +47,10 @@ export interface AISnapshot {
   tc: Building | null;
   base: Point;
   citizens: Unit[];
-  /** Land forces (heroes and the faithful included), no ships. */
+  /** Land forces (heroes and the faithful included), no ships or aircraft. */
   army: Unit[];
   ships: Unit[];
+  aircraft: Unit[];
   scouts: Unit[];
   count: (t: BuildingType) => number;
 }
@@ -84,6 +87,10 @@ const COUNTERS: Record<Role, CombatRole[]> = {
   transport: [],
   warship: ['ranged'],
   bombard: ['mounted', 'ranged'],
+  // Balloons fly low enough for any gun; planes only fall to anti-air (and the air planner's fighters).
+  balloon: ['ranged'],
+  fighter: ['pike'],
+  bomber: ['pike'],
 };
 
 /**
@@ -91,7 +98,7 @@ const COUNTERS: Record<Role, CombatRole[]> = {
  * through `world.issue()` – but knows where enemy buildings are (classic
  * RTS AI behaviour). Decisions run a few times per second.
  */
-export class AIController implements Controller, NavalHost {
+export class AIController implements Controller, AirHost {
   private nextThink: number;
   private nextWave: number;
   private nextRebalance = 0;
@@ -107,6 +114,8 @@ export class AIController implements Controller, NavalHost {
   private siteProgress = new Map<number, { progress: number; tick: number }>();
   /** Harbour, fishing, fleet and landings. */
   private naval: NavalPlanner = new NavalPlanner(this);
+  /** Balloon, airfield, fighters and bombing raids. */
+  private air: AirPlanner = new AirPlanner(this);
 
   constructor(
     readonly playerId: number,
@@ -133,6 +142,7 @@ export class AIController implements Controller, NavalHost {
     this.heroes(w, s);
     this.faithful(w, s);
     this.naval.update(w, s);
+    this.air.update(w, s);
     this.scout(w, s);
   }
 
@@ -153,6 +163,7 @@ export class AIController implements Controller, NavalHost {
       ringCenter: this.ringCenter,
       siteProgress: [...this.siteProgress],
       naval: this.naval.saveState(),
+      air: this.air.saveState(),
     };
   }
 
@@ -169,6 +180,7 @@ export class AIController implements Controller, NavalHost {
     this.ringCenter = s.ringCenter;
     this.siteProgress = new Map(s.siteProgress);
     this.naval.loadState(s.naval);
+    this.air.loadState(s.air);
   }
 
   /**
@@ -216,10 +228,11 @@ export class AIController implements Controller, NavalHost {
     const base: Point = tc ? { x: tc.x, y: tc.y } : w.startPositions[id];
     const citizens = units.filter((u) => u.role === 'citizen');
     const ships = units.filter((u) => isNaval(u.role));
-    const army = units.filter((u) => u.role !== 'citizen' && u.role !== 'scout' && !isNaval(u.role));
+    const aircraft = units.filter((u) => isAir(u.role));
+    const army = units.filter((u) => u.role !== 'citizen' && u.role !== 'scout' && !isNaval(u.role) && !isAir(u.role));
     const scouts = units.filter((u) => u.role === 'scout');
     const count = (t: BuildingType) => buildings.filter((b) => b.type === t).length;
-    return { player: w.players[id], units, buildings, tc, base, citizens, army, ships, scouts, count };
+    return { player: w.players[id], units, buildings, tc, base, citizens, army, ships, aircraft, scouts, count };
   }
 
   // -------------------------------------------------------------- economy
@@ -558,7 +571,7 @@ export class AIController implements Controller, NavalHost {
   }
 
   /** Spiral search for a valid spot in a ring around a point. */
-  private placeNear(
+  placeNear(
     w: World,
     s: AISnapshot,
     type: BuildingType,
@@ -685,7 +698,8 @@ export class AIController implements Controller, NavalHost {
     }
     const military = buildings.filter((b) => b.built && b.type !== 'towncenter' && BUILDING_DEFS[b.type].trains.length > 0);
     for (const b of military) {
-      if (b.queue.length >= 2) continue;
+      // The airfield is the air planner's.
+      if (b.queue.length >= 2 || b.type === 'airfield') continue;
       if (!b.rally.length && s.tc) b.rally = [{ x: s.tc.x - 4 + (b.id % 3), y: s.tc.y + 4 }];
       const roles = BUILDING_DEFS[b.type].trains.filter((r): r is CombatRole => COMBAT_ROLES.includes(r as CombatRole) && bestTier(r, player.epoch) >= 0);
       if (roles.length === 0) continue;
@@ -706,9 +720,9 @@ export class AIController implements Controller, NavalHost {
     }
 
     // Defence: anything hostile near the base pulls the home army.
-    // Ships off the coast are the fleet's business; the army cannot reach them.
+    // Ships off the coast are the fleet's business, aircraft the air planner's; the army cannot reach them.
     const threat = w.units.find(
-      (e) => w.areEnemies(id, e.owner) && !isNaval(e.role) && w.inSight(id, e) && hypot(e.x - s.base.x, e.y - s.base.y) < 18 && w.map.sameLand(e.x, e.y, s.base.x, s.base.y),
+      (e) => w.areEnemies(id, e.owner) && !isNaval(e.role) && !isAir(e.role) && w.inSight(id, e) && hypot(e.x - s.base.x, e.y - s.base.y) < 18 && w.map.sameLand(e.x, e.y, s.base.x, s.base.y),
     );
     for (const id2 of [...this.attackers]) if (!w.get(id2)) this.attackers.delete(id2);
     const home = army.filter((u) => !this.attackers.has(u.id));
@@ -811,7 +825,7 @@ export class AIController implements Controller, NavalHost {
         let best: Unit | null = null;
         let bestV = 0;
         w.forUnitsNear(u.x, u.y, 9, (o) => {
-          if (o.dead || !w.areEnemies(id, o.owner) || isHero(o.role) || !w.inSight(id, o)) return;
+          if (o.dead || !w.areEnemies(id, o.owner) || !isConvertible(o.role) || !w.inSight(id, o)) return;
           const v = (value[o.role] ?? 1) - hypot(o.x - u.x, o.y - u.y) * 0.05;
           if (v > bestV) {
             bestV = v;

@@ -28,7 +28,13 @@ export type Effect =
   /** Faith regenerates this much faster. */
   | { kind: 'faith'; add: number }
   /** Fishing boats catch this much more. */
-  | { kind: 'fishing'; mul: number };
+  | { kind: 'fishing'; mul: number }
+  /** Planes carry this much more fuel. */
+  | { kind: 'fuel'; mul: number }
+  /** Bombers carry this many more bombs per sortie. */
+  | { kind: 'bombs'; add: number }
+  /** Anti-aircraft fire (towers, anti-tank troops) does this much more damage to planes. */
+  | { kind: 'antiAir'; mul: number };
 
 /** Glyph drawn on the tech icon. */
 export type TechGlyph =
@@ -57,7 +63,8 @@ export type TechGlyph =
   | 'ore'
   | 'wheat'
   | 'anchor'
-  | 'fish';
+  | 'fish'
+  | 'plane';
 
 export interface Branch {
   id: string;
@@ -88,7 +95,23 @@ export interface Tech {
 const INFANTRY: Role[] = ['assault', 'pike'];
 const FOOT: Role[] = ['assault', 'pike', 'ranged'];
 const SHIPS: Role[] = ['fisher', 'transport', 'warship', 'bombard'];
-const ALL_UNITS: Role[] = ['citizen', 'scout', 'assault', 'pike', 'ranged', 'mounted', 'siege', 'strategist', 'warrior', 'priest', 'prophet', ...SHIPS];
+const AIRCRAFT: Role[] = ['balloon', 'fighter', 'bomber'];
+const PLANES: Role[] = ['fighter', 'bomber'];
+const ALL_UNITS: Role[] = [
+  'citizen',
+  'scout',
+  'assault',
+  'pike',
+  'ranged',
+  'mounted',
+  'siege',
+  'strategist',
+  'warrior',
+  'priest',
+  'prophet',
+  ...SHIPS,
+  ...AIRCRAFT,
+];
 
 export const BRANCHES: Branch[] = [
   // ------------------------------------------------------------ Schmiede
@@ -474,6 +497,22 @@ export const BRANCHES: Branch[] = [
       [15, 'Raketenabwehr'],
     ],
   },
+  {
+    id: 'flugabwehr',
+    name: 'Flugabwehr',
+    building: 'tower',
+    glyph: 'crosshair',
+    text: 'Türme und Abwehrinfanterie +12 % Schaden gegen Flugzeuge',
+    effects: [{ kind: 'antiAir', mul: 1.12 }],
+    base: { wood: 50, iron: 60 },
+    levels: [
+      [13, 'Flakgeschütze'],
+      [14, 'Radarleitung'],
+      [15, 'Fla-Raketen'],
+      [16, 'Laserabwehr'],
+      [17, 'Abfangsatelliten'],
+    ],
+  },
   // --------------------------------------------------------------- Lager
   {
     id: 'holz',
@@ -635,6 +674,58 @@ export const BRANCHES: Branch[] = [
       [16, 'Schwarmortung'],
     ],
   },
+  // ------------------------------------------------------------ Flugplatz
+  {
+    id: 'reichweite',
+    name: 'Reichweite',
+    building: 'airfield',
+    glyph: 'plane',
+    text: 'Flugzeuge +15 % Treibstoff – länger in der Luft',
+    effects: [{ kind: 'fuel', mul: 1.15 }],
+    base: { wood: 60, gold: 50 },
+    levels: [
+      [13, 'Zusatztanks'],
+      [14, 'Luftbetankung'],
+      [15, 'Sparsame Triebwerke'],
+      [16, 'Brennstoffzellen'],
+      [17, 'Fusionsantrieb'],
+    ],
+  },
+  {
+    id: 'flugzeugbau',
+    name: 'Flugzeugbau',
+    building: 'airfield',
+    glyph: 'hammer',
+    text: 'Flugzeuge und Ballone +10 % LP, +0,5 Rüstung, +4 % Tempo',
+    effects: [{ kind: 'unit', roles: AIRCRAFT, hp: 1.1, armor: 0.5, speed: 1.04 }],
+    base: { wood: 70, iron: 50 },
+    levels: [
+      [13, 'Ganzmetallbau'],
+      [14, 'Strahltriebwerk'],
+      [15, 'Avionik'],
+      [16, 'Tarnbeschichtung'],
+      [17, 'Antigravitation'],
+    ],
+  },
+  {
+    id: 'bordwaffen',
+    name: 'Bordwaffen',
+    building: 'airfield',
+    glyph: 'cannon',
+    text: 'Jäger und Bomber +8 % Schaden, Bomber +1 Bombe',
+    effects: [
+      { kind: 'unit', roles: PLANES, dmg: 1.08 },
+      { kind: 'bombs', add: 1 },
+    ],
+    base: { gold: 50, iron: 60 },
+    levels: [
+      [13, 'Synchronisierte MGs'],
+      [14, 'Bordkanonen'],
+      [15, 'Lenkbomben'],
+      [16, 'Schwarmmunition'],
+      [17, 'Plasmawerfer'],
+    ],
+  },
 ];
 
 /** Finished techs of the current epoch a player needs before advancing. */
@@ -703,6 +794,9 @@ export interface Mods {
   calamityResist: number;
   faith: number;
   fishing: number;
+  fuel: number;
+  bombs: number;
+  antiAir: number;
 }
 
 export function baseMods(): Mods {
@@ -726,6 +820,9 @@ export function baseMods(): Mods {
     calamityResist: 0,
     faith: 0,
     fishing: 1,
+    fuel: 1,
+    bombs: 0,
+    antiAir: 1,
   };
 }
 
@@ -791,6 +888,15 @@ export function modsFor(techs: Iterable<string>): Mods {
           break;
         case 'fishing':
           m.fishing *= e.mul;
+          break;
+        case 'fuel':
+          m.fuel *= e.mul;
+          break;
+        case 'bombs':
+          m.bombs += e.add;
+          break;
+        case 'antiAir':
+          m.antiAir *= e.mul;
           break;
       }
     }

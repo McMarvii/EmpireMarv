@@ -1,5 +1,5 @@
 import { BUILDING_DEFS } from '../data/buildings';
-import { isNaval } from '../data/units';
+import { domainOf, isPlane } from '../data/units';
 import type { Game } from '../game';
 import type { Building, Unit } from '../sim/entities';
 
@@ -137,7 +137,9 @@ export class Input {
     if (e.kind !== 'resource' && game.world.areEnemies(game.me, e.owner)) return 'crosshair';
     if (e.kind === 'resource') return 'pointer';
     // Walkers over an own transport ship: they can go aboard.
-    if (e.kind === 'unit' && e.owner === game.me && e.role === 'transport' && game.selectedOwnUnits().some((u) => !isNaval(u.role))) return 'pointer';
+    if (e.kind === 'unit' && e.owner === game.me && e.role === 'transport' && game.selectedOwnUnits().some((u) => domainOf(u.role) === 'land')) return 'pointer';
+    // Planes over an own airfield: they can refuel there.
+    if (e.kind === 'building' && e.type === 'airfield' && e.owner === game.me && e.built && game.selectedOwnUnits().some((u) => isPlane(u.role))) return 'pointer';
     if (e.kind === 'building' && e.owner === game.me && e.built && BUILDING_DEFS[e.type].dropoff) {
       if (game.selectedOwnUnits().some((u) => u.role === 'citizen' && u.carryAmount > 0)) return 'pointer';
     }

@@ -5,6 +5,7 @@ import type { Look } from '../data/units';
 import type { NodeType } from '../sim/entities';
 import type { Project } from './camera';
 import { ERA_PALETTE, shade, SKIN } from './colors';
+import { AIR_LOOKS, drawAircraft, drawAirfield } from './planes';
 import { drawDock, drawShip, SHIP_LOOKS } from './ships';
 
 export type Ctx = CanvasRenderingContext2D;
@@ -125,6 +126,11 @@ export const VEHICLE_LOOKS = new Set<Look>(['tank', 'mech', 'armoredcar', 'ram',
 export function drawUnit(ctx: Ctx, project: Project, scale: number, wx: number, wy: number, u: UnitLook, time: number): void {
   if (SHIP_LOOKS.has(u.look)) {
     drawShip(ctx, project, scale, wx, wy, u, time);
+    return;
+  }
+  // On the ground (icons); the renderer lifts flying aircraft itself.
+  if (AIR_LOOKS.has(u.look)) {
+    drawAircraft(ctx, project, scale, wx, wy, u, time, 0);
     return;
   }
   const [sx, sy] = project(wx, wy);
@@ -950,6 +956,7 @@ const GEOMETRY: Record<BuildingType, Geometry> = {
   temple: { inset: 0.3, wall: 40 },
   wonder: { inset: 0.35, wall: 70 },
   dock: { inset: 0.15, wall: 18 },
+  airfield: { inset: 0.1, wall: 12 },
 };
 
 interface WallLook {
@@ -1177,6 +1184,10 @@ export function drawBuilding(ctx: Ctx, project: Project, scale: number, b: Build
   }
   if (b.type === 'dock') {
     drawDock(ctx, project, scale, b, time);
+    return;
+  }
+  if (b.type === 'airfield') {
+    drawAirfield(ctx, project, scale, b, time);
     return;
   }
   const geo = GEOMETRY[b.type];

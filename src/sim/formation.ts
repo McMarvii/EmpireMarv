@@ -32,6 +32,10 @@ const RANK: Record<Role, number> = {
   fisher: 2,
   transport: 3,
   bombard: 4,
+  // Aircraft fly to the group's goal without taking a place in the ranks.
+  balloon: 2,
+  fighter: 1,
+  bomber: 2,
 };
 /** Distance between neighbours of a rank; riders and engines need more room. */
 const SPACING = [0.9, 1.2, 0.9, 0.9, 1.3];

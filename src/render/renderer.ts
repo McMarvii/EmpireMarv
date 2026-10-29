@@ -1,6 +1,6 @@
 import { STATUSES, STRATEGIST_AURA, WARRIOR_AURA } from '../data/abilities';
 import { BUILDING_DEFS, MORALE_RADIUS, type BuildingType } from '../data/buildings';
-import { isNaval, MAX_FAITH } from '../data/units';
+import { isAir, isNaval, isPlane, MAX_FAITH } from '../data/units';
 import { convertTime, orderTarget } from '../sim/behavior';
 import { rectOf, type Building, type Entity, type Hazard, type Order, type Plan, type ResourceNode, type Unit } from '../sim/entities';
 import { hasStatus } from '../sim/status';
@@ -9,6 +9,7 @@ import type { Point } from '../sim/pathfinding';
 import type { World } from '../sim/world';
 import { Camera, TILE_W } from './camera';
 import { ABILITY_COLOR, alpha as withAlpha, TERRAIN_COLORS } from './colors';
+import { ALTITUDE, airPose, drawAirShadow, drawAircraft, type AirPose } from './planes';
 import { buildingTopZ, drawBuilding, drawNode, drawUnit, LINK_E, LINK_N, LINK_S, LINK_W } from './sprites';
 import type { View } from './view';
 
@@ -133,6 +134,8 @@ function wide(u: Unit): boolean {
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private dpr = 1;
+  /** Where each aircraft was drawn last frame, for bars, picking and shots aimed at it. */
+  private airPoses = new Map<number, AirPose>();
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -335,11 +338,44 @@ export class Renderer {
     }
 
     const unitScale = zoom * UNIT_SCALE;
+    // Aircraft are drawn after everything on the ground, their shadows right away.
+    const airborne: Array<{ depth: number; draw: () => void }> = [];
+    this.airPoses.clear();
     for (const u of world.units) {
       if (u.dead || !this.view.seesUnit(u)) continue;
       const [x, y] = this.unitPos(u, state.alpha);
       const [sx, sy] = project(x, y);
       if (!this.onScreen(sx, sy, 60 * zoom)) continue;
+      if (isAir(u.role)) {
+        const landed = !u.moving && world.airfieldUnder(u) !== null;
+        const pose = airPose(u.stats.look, x, y, u.facing, u.moving, u.id, time, landed);
+        this.airPoses.set(u.id, pose);
+        if (state.selection.has(u.id) || state.hoverId === u.id) {
+          const [gx, gy] = project(pose.x, pose.y);
+          ctx.beginPath();
+          ctx.ellipse(gx, gy, 9 * unitScale * 1.5, 4.5 * unitScale * 1.5, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = this.ringColor(u.owner);
+          ctx.lineWidth = state.selection.has(u.id) ? 2 : 1;
+          ctx.stroke();
+        }
+        if (!pose.landed) drawAirShadow(ctx, project, unitScale, u.stats.look, pose.x, pose.y, pose.z);
+        const look = {
+          look: u.stats.look,
+          epoch: u.stats.epoch,
+          color: world.players[u.owner].color,
+          facing: pose.facing,
+          moving: u.moving || !pose.landed,
+          attackAnim: u.attackAnim,
+          working: false,
+          carry: null,
+          seed: u.id,
+        };
+        const draw = () => drawAircraft(ctx, project, unitScale, pose.x, pose.y, look, time, pose.z);
+        // Parked planes sit on their airfield like anything else on the ground.
+        if (pose.landed) drawables.push({ depth: x + y + 4, draw });
+        else airborne.push({ depth: pose.x + pose.y, draw });
+        continue;
+      }
       if (state.selection.has(u.id) || state.hoverId === u.id) {
         ctx.beginPath();
         const ring = isNaval(u.role) ? 2.3 : wide(u) ? 1.4 : 1;
@@ -399,6 +435,10 @@ export class Renderer {
     // Explored but unseen ground (and what is remembered there) is dimmed.
     ctx.fillStyle = 'rgba(5,8,12,0.5)';
     ctx.fill(fogPath);
+
+    // Above it all: what flies.
+    airborne.sort((a, b) => a.depth - b.depth);
+    for (const a of airborne) a.draw();
 
     this.drawPlans(state);
     this.drawBars(state);
@@ -772,11 +812,22 @@ export class Renderer {
     const zoom = camera.zoom;
     for (const p of this.world.projectiles) {
       const t = Math.min(1, (p.t + state.alpha * 0.05) / p.dur);
-      const x = p.x0 + (p.x1 - p.x0) * t;
-      const y = p.y0 + (p.y1 - p.y0) * t;
-      const dist = Math.hypot(p.x1 - p.x0, p.y1 - p.y0);
-      const arcH = p.kind === 'boulder' || p.kind === 'shell' ? dist * 9 : p.kind === 'arrow' || p.kind === 'stone' ? dist * 4 : 0;
-      const z = 14 + arcH * 4 * t * (1 - t);
+      // Shots at aircraft climb to where the craft is drawn, shots from them start up there.
+      const from = p.fromAir ? this.airPoses.get(p.attackerId) : undefined;
+      const to = p.toAir ? this.airPoses.get(p.targetId) : undefined;
+      const x0 = from?.x ?? p.x0;
+      const y0 = from?.y ?? p.y0;
+      const x1 = to?.x ?? p.x1;
+      const y1 = to?.y ?? p.y1;
+      const z0 = from ? from.z : p.fromAir ? 60 : 14;
+      const z1 = to ? to.z : p.toAir ? 60 : p.kind === 'bomb' ? 0 : 14;
+      const x = x0 + (x1 - x0) * t;
+      const y = y0 + (y1 - y0) * t;
+      const dist = Math.hypot(x1 - x0, y1 - y0);
+      const level = !p.fromAir && !p.toAir;
+      const arcH = !level ? 0 : p.kind === 'boulder' || p.kind === 'shell' ? dist * 9 : p.kind === 'arrow' || p.kind === 'stone' ? dist * 4 : 0;
+      // Bombs fall faster and faster.
+      const z = p.kind === 'bomb' ? z0 + (z1 - z0) * t * t : z0 + (z1 - z0) * t + arcH * 4 * t * (1 - t);
       const [sx, sy] = project(x, y, z);
       if (p.owner !== this.view.me && !this.tileVisible(x, y)) continue;
       switch (p.kind) {
@@ -791,7 +842,7 @@ export class Renderer {
           break;
         }
         case 'bullet': {
-          const [px, py] = project(x - (p.x1 - p.x0) * 0.06, y - (p.y1 - p.y0) * 0.06, z);
+          const [px, py] = project(x - (x1 - x0) * 0.06, y - (y1 - y0) * 0.06, z - (z1 - z0) * 0.06);
           ctx.beginPath();
           ctx.moveTo(px, py);
           ctx.lineTo(sx, sy);
@@ -801,8 +852,8 @@ export class Renderer {
           break;
         }
         case 'laser': {
-          const [ax, ay] = project(p.x0, p.y0, 16);
-          const [bx, by] = project(p.x1, p.y1, 10);
+          const [ax, ay] = project(x0, y0, p.fromAir ? z0 : 16);
+          const [bx, by] = project(x1, y1, p.toAir ? z1 : 10);
           ctx.beginPath();
           ctx.moveTo(ax, ay);
           ctx.lineTo(bx, by);
@@ -812,6 +863,15 @@ export class Renderer {
           ctx.strokeStyle = '#ffffff';
           ctx.lineWidth = 0.8 * zoom;
           ctx.stroke();
+          break;
+        }
+        case 'bomb': {
+          // A dark drop with a little tail fin, nose down.
+          ctx.beginPath();
+          ctx.ellipse(sx, sy, 1.6 * zoom, 3 * zoom, 0, 0, Math.PI * 2);
+          ctx.fillStyle = '#2b2b2b';
+          ctx.fill();
+          ctx.fillRect(sx - 2 * zoom, sy - 4 * zoom, 4 * zoom, 1.2 * zoom);
           break;
         }
         default: {
@@ -878,6 +938,33 @@ export class Renderer {
               ctx.fillStyle = `rgba(235,248,255,${(0.7 * (1 - k)).toFixed(3)})`;
               ctx.fill();
             }
+          }
+          break;
+        }
+        case 'crash': {
+          // Down in flames: a burning wreck falls with a smoke trail, then bursts on the ground.
+          const [gx, gy] = camera.project(fx.x, fx.y);
+          const fall = Math.min(1, k / 0.55);
+          const h = ALTITUDE.fighter * (1 - fall * fall) * zoom;
+          for (let i = 0; i < 5; i++) {
+            const tk = Math.max(0, fall - i * 0.08);
+            const hy = ALTITUDE.fighter * (1 - tk * tk) * zoom;
+            ctx.beginPath();
+            ctx.arc(gx + i * 2 * zoom, gy - hy, (2 + i * 1.2) * zoom * fx.size, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(70,70,70,${(0.35 * (1 - k)).toFixed(3)})`;
+            ctx.fill();
+          }
+          if (fall < 1) {
+            ctx.beginPath();
+            ctx.arc(gx, gy - h, 3 * zoom * fx.size, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff9a3c';
+            ctx.fill();
+          } else {
+            const b = (k - 0.55) / 0.45;
+            ctx.beginPath();
+            ctx.arc(gx, gy - 6 * zoom, (6 + 16 * b) * zoom * fx.size, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,${Math.round(190 - 120 * b)},60,${(0.8 * (1 - b)).toFixed(3)})`;
+            ctx.fill();
           }
           break;
         }
@@ -1088,8 +1175,20 @@ export class Renderer {
       if (!this.view.seesUnit(u)) continue;
       const [x, y] = this.unitPos(u, state.alpha);
       const tall = wide(u) ? 34 : 30;
-      const [sx, sy] = camera.project(x, y, tall * UNIT_SCALE);
+      const pose = this.airPoses.get(u.id);
+      const [sx, sy] = pose ? camera.project(pose.x, pose.y, pose.z + 18 * UNIT_SCALE) : camera.project(x, y, tall * UNIT_SCALE);
       bar(sx, sy, 22 * zoom, u.hp / u.maxHp, hpColor(u.hp / u.maxHp));
+      // Fuel (and bombs) of own planes.
+      if (selected && isPlane(u.role) && u.owner === this.view.me) {
+        bar(sx, sy + 5, 22 * zoom, u.fuel / u.stats.fuel, u.fuel < u.stats.fuel * 0.25 ? '#ef8a3c' : '#e8c35a');
+        for (let i = 0; i < u.stats.bombs; i++) {
+          const px = sx - 11 * zoom + i * 5;
+          ctx.fillStyle = 'rgba(0,0,0,0.65)';
+          ctx.fillRect(px - 1, sy + 10, 5, 5);
+          ctx.fillStyle = i < u.ammo ? '#d9d4c3' : '#4a4a4a';
+          ctx.fillRect(px, sy + 11, 3, 3);
+        }
+      }
       const maxFaith = MAX_FAITH[u.role];
       if (selected && maxFaith && !this.world.areEnemies(this.view.me, u.owner)) bar(sx, sy + 5, 22 * zoom, u.faith / maxFaith, '#c78bff');
       // Morale: one gold pip per house in reach, right of the bar.
@@ -1184,6 +1283,17 @@ export class Renderer {
     for (const u of world.units) {
       if (u.dead || !this.view.seesUnit(u)) continue;
       const [x, y] = this.unitPos(u, alpha);
+      const pose = this.airPoses.get(u.id);
+      if (pose) {
+        // The craft up in the air, not its shadow; and it is in front of everything below.
+        const [px, py] = camera.project(pose.x, pose.y, pose.z);
+        const r = (u.role === 'bomber' ? 16 : 12) * UNIT_SCALE * zoom * 0.6;
+        if (Math.abs(sx - px) <= r && Math.abs(sy - py) <= r && 1e6 > bestDepth) {
+          best = u;
+          bestDepth = 1e6 + pose.x + pose.y;
+        }
+        continue;
+      }
       const [px, py] = camera.project(x, y);
       const w = (wide(u) ? 14 : 9) * UNIT_SCALE * zoom;
       const h = (u.role === 'siege' ? 22 : 28) * UNIT_SCALE * zoom;
@@ -1235,6 +1345,8 @@ export class Renderer {
   /** Screen position of a unit (or a building's centre), used for box selection. */
   screenPosOf(e: Unit | Building, alpha: number): [number, number] {
     if (e.kind === 'building') return this.camera.project(e.x, e.y, 10);
+    const pose = this.airPoses.get(e.id);
+    if (pose) return this.camera.project(pose.x, pose.y, pose.z);
     const [x, y] = this.unitPos(e, alpha);
     return this.camera.project(x, y, 10);
   }
