@@ -1,5 +1,5 @@
 import type { Command, GameSettings, World } from './sim/world';
-import { GAME_VERSION } from './version';
+import { SIM_VERSION } from './version';
 
 export const REPLAY_FORMAT = 'empiremarv-replay';
 /** State checksums are recorded this often, so playback notices when it runs differently. */
@@ -47,7 +47,7 @@ export class Recorder {
     this.replay = {
       format: REPLAY_FORMAT,
       version: 1,
-      game: GAME_VERSION,
+      game: SIM_VERSION,
       date: new Date().toISOString(),
       settings: normalize(settings),
       me,

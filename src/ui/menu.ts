@@ -7,7 +7,7 @@ import { PLAYER_COLORS, type MatchOptions } from '../net/protocol';
 import { loadLastReplay, parseReplay, type Replay } from '../replay';
 import { deleteSave, downloadSaveText, listSaves, parseSave, readSave, type SaveGame, type SaveSummary } from '../saves';
 import type { Difficulty, GameSettings, PlayerSetup, StartResources } from '../sim/world';
-import { GAME_VERSION } from '../version';
+import { GAME_VERSION, SIM_VERSION } from '../version';
 import { tutorialDone } from './tutorial';
 
 const AI_NAMES = ['Aurelia', 'Borak', 'Chandra'];
@@ -413,7 +413,7 @@ function savesPane(el: HTMLElement, actions: MenuActions): void {
     }
     list.innerHTML = saves
       .map(({ id, summary: s }) => {
-        const stale = s.game !== GAME_VERSION;
+        const stale = s.game !== SIM_VERSION;
         return `<div class="save-row">
           <div class="save-info"><b>${esc(s.name)}</b>${saveLine(s)}${stale ? `<span class="warn">Aus Version ${esc(s.game)} – lässt sich nicht fortsetzen</span>` : ''}</div>
           <div class="save-actions">

@@ -360,7 +360,7 @@ Gespeichert wird ein **Schnappschuss** der ganzen Simulation, nicht die Befehlsl
   - geladen wird im Hauptmenü unter „Spielstände“.
 - **Grenzen**:
   - Nur Partien gegen den Computer; im Mehrspieler gibt es den Wiedereinstieg per Link.
-  - Ein Spielstand gehört zu seiner Spielversion, denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt.
+  - Ein Spielstand gehört zu seiner Simulationsversion (`SIM_VERSION`), denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt. Die Simulationsversion steigt nur, wenn die Simulation anders rechnet, nicht bei Grafik oder Bedienung: Spielstände und Wiedergaben aus 0.8 laufen in 0.9 weiter.
 
 ## KI
 
@@ -395,7 +395,22 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
 - **TypeScript + Vite**, keine Spiel-Engine, keine Laufzeit-Abhängigkeiten.
 - **Simulation** (`src/sim`) mit festen 20 Ticks pro Sekunde, eigenem Zufallsgenerator (kein `Math.random`) und eigener Trigonometrie (`fmath`). Sie ist vollständig von Darstellung und Eingabe getrennt, läuft headless in Tests und rechnet in jedem Browser bitgleich.
 - **Befehle** (`world.issue`) sind die einzige Schnittstelle für Spieler und KI. Das Spiel gibt sie nie direkt hinein, sondern über eine **Sitzung** (`src/session.ts`): Einzelspiel wendet sie sofort an, Lockstep-Sitzungen (`src/net`) verteilen sie in Frames, die Wiedergabe liest sie aus der Aufnahme.
-- **Darstellung** mit Canvas 2D, isometrisch, alle Sprites prozedural. Gebäude und Einheiten werden pro Epoche umgefärbt und umgebaut, Positionen zwischen Ticks interpoliert.
+- **Darstellung** isometrisch, alle Sprites prozedural mit Canvas-2D-Code gezeichnet. Gebäude und Einheiten werden pro Epoche umgefärbt und umgebaut, Positionen zwischen Ticks interpoliert.
+  - Jedes Bild beginnt mit einer **Szene** (`src/render/scene.ts`): alle sichtbaren Sprites mit Schlüssel, Anker, Tiefe und Angabe, wie sie sich bewegen. Zwei Ausgaben zeichnen sie.
+  - Der **Canvas** malt jedes Sprite in jedem Bild neu. Er ist der Rückfall und läuft überall.
+  - **WebGL 2** (`src/render/gl`) zeichnet auf eine eigene Leinwand unter der 2D-Ebene:
+    - Der **Sprite-Atlas** malt jedes Sprite einmal mit demselben Canvas-Code in ein Texture-Array und lädt es hoch; gleiche Schlüssel teilen sich ein Bild.
+    - Schleifen wie Laufen, Arbeiten oder Wiegen der Bäume bekommen 8–12 Einzelbilder je Zyklus. Modelle wie Fahrzeuge, Schiffe und Flugzeuge drehen sich in 32 Stufen. Gebäude mit Rauch, Fahnen und Feuer sind „lebendig“: ein Bild je Gebäude, bis zu 12-mal pro Sekunde neu gemalt.
+    - Ob sich ein Sprite überhaupt bewegt und wie groß es ist, misst der Atlas einmal selbst: Stillstehendes bekommt ein einziges Bild.
+    - Gemalt wird in Zoomstufen von je einem Viertel einer Verdopplung. Neue Bilder haben ein Zeitbudget pro Frame; bis sie fertig sind, zeigt der Atlas das Bild einer anderen Stufe.
+    - Sind die vier Ebenen (64 MB) voll, wird die am längsten nicht gezeigte geleert.
+    - Alle Sprites gehen in einem instanzierten Aufruf pro Durchgang auf die Grafikkarte.
+  - Boden und Nebel entstehen pro Pixel im **Gelände-Shader**:
+    - Geländearten gehen mit verrauschten Kanten ineinander über und tragen feine Struktur.
+    - Wasser hat Tiefe nach Küstenabstand, Wellen, Glanzlichter und Brandung.
+    - Der Nebel hat weiche Ränder und blendet in etwa einer Siebtelsekunde ein und aus.
+  - Effekte, Geschosse, Balken und alle Bedienelemente zeichnet weiter die 2D-Ebene darüber.
+  - „Automatisch“ nimmt WebGL nur mit Grafikbeschleunigung. Läuft WebGL nur in Software (gesperrte Treiber), ist der Canvas schneller. Bei Kontextverlust oder einem Fehler mitten im Spiel übernimmt der Canvas.
 - **Wegfindung**:
   - A* auf 8er-Nachbarschaft mit wiederverwendeten Puffern und String-Pulling-Glättung, getrennt für Land und Wasser. Flieger fliegen ohne Suche geradeaus.
   - Zusammenhängende Land- und Wasserregionen sind nach der Kartenerzeugung per Flutfüllung bekannt; so prüfen KI und Transporte ohne Suche, ob etwas zu Land erreichbar ist.
@@ -414,8 +429,9 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | 0.5 | ✔ **Mehrspieler per Link** (bis 4 Plätze, Menschen und KI, Teams mit geteilter Sicht; WebRTC direkt, Handschlag über PeerJS oder Codes; Lockstep mit Relay und Desync-Erkennung; Warten und KI-Übernahme bei Abbruch; Wiedereinstieg per Link), ✔ **Chat** und **Kartenmarkierungen**, ✔ **Wiedergaben** (automatisch, als Datei, Tempo, Springen, Sicht wählbar), ✔ browserübergreifend bitgleiche Simulation |
 | 0.6 | ✔ **Helden** (Stratege und Krieger mit Auren, je 3 Fähigkeiten, Titel je Epoche), ✔ **Tempel, Priester und Propheten** (Bekehren, Heilen, vier Katastrophen nur gegen Gegner, Gegenmittel-Techniken), ✔ **Wunder** (eines je Ära mit eigener Wirkung) mit einstellbarem **Wundersieg**, ✔ KI nutzt alles davon |
 | 0.7 | ✔ **Kartentypen** (Kontinent, Küste, Binnenmeer, Inseln, Flüsse, Steppe, Zufall; Fischgründe), ✔ **Seekrieg** (Hafen, Fischerboot, Transport-, Kriegs- und Belagerungsschiff je Ära; Einsteigen und Entladen; Land gegen See nur auf Distanz), ✔ KI fischt, kämpft zur See und **landet auf fremden Inseln**, ✔ **Speichern & Laden** (Schnappschuss, Strg+S, automatisch, als Datei) |
-| **0.8** (jetzt) | ✔ **Luftkrieg** (Ballon ab XII; Flugplatz, Jäger und Bomber ab XIV; nur Flugabwehr trifft Flugzeuge; Treibstoff und Bombenlast mit Rückflug zum Flugplatz; vier neue Technikzweige), ✔ KI mit Ballon, Bombenangriffen und Luftabwehr, ✔ **geführtes Tutorial** (Übungspartie mit 14 geprüften Schritten und einem Gefecht gegen ein Räuberlager) |
-| 1.0 | Kampagne und Szenario-Editor, Balancing, WebGL-Renderer für große Schlachten, Lokalisierung |
+| 0.8 | ✔ **Luftkrieg** (Ballon ab XII; Flugplatz, Jäger und Bomber ab XIV; nur Flugabwehr trifft Flugzeuge; Treibstoff und Bombenlast mit Rückflug zum Flugplatz; vier neue Technikzweige), ✔ KI mit Ballon, Bombenangriffen und Luftabwehr, ✔ **geführtes Tutorial** (Übungspartie mit 14 geprüften Schritten und einem Gefecht gegen ein Räuberlager) |
+| **0.9** (jetzt) | ✔ **WebGL-Renderer** für große Schlachten (Sprite-Atlas mit Einzelbildern je Bewegungszyklus und Zoomstufen, ein Zeichenaufruf je Durchgang), ✔ **Gelände-Shader** mit weichen Übergängen, Wasser mit Tiefe, Wellen und Brandung, ✔ weicher, ein- und ausblendender **Nebel**, ✔ Grafik-Einstellung mit automatischem Rückfall auf Canvas, ✔ Bildrate (F3), ✔ Gelände im Canvas über 30-mal schneller beim Herauszoomen |
+| 1.0 | Kampagne und Szenario-Editor, Balancing, Lokalisierung, schnellere Simulation für große Schlachten |
 
 ### Interview-Ergebnisse (Oktober 2026)
 
@@ -429,5 +445,6 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 ## Offene Entscheidungen
 
 1. **Endgültige Plattform**: Bleibt es ein Browserspiel (sofort spielbar, leicht teilbar) oder kommt später ein Port in eine Engine wie Godot (3D, Steam)? Die Simulation ist so geschrieben, dass beides möglich bleibt.
-2. **Grafikstil**: Prozedurale Vektorgrafik (wie jetzt) gegen gezeichnete oder gerenderte Sprites. Mit echten Assets steigt der Produktionsaufwand stark.
+2. **Grafikstil**: Prozedurale Vektorgrafik (wie jetzt) gegen gezeichnete oder gerenderte Sprites. Mit echten Assets steigt der Produktionsaufwand stark. Der Sprite-Atlas von 0.9 nähme gezeichnete Sprites ohne Umbau auf.
 3. **Name**: „EmpireMarv“ ist ein Arbeitstitel. Ein eigener Name ist nötig, bevor das Spiel öffentlich beworben wird.
+4. **Simulation bei großen Schlachten**: Seit 0.9 ist bei vielen Einheiten nicht mehr das Zeichnen der Engpass, sondern die Simulation. Gemessen: Bei 1 000 Einheiten im Gefecht kostet ein Tick 7–15 ms, also 13–29 % der Rechenzeit, meist für Wegsuche beim Zielwechsel. Abhilfe wären Gruppen-Wegsuche (Flussfelder) oder die Simulation in einem Web Worker.

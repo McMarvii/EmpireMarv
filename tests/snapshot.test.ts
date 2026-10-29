@@ -6,7 +6,7 @@ import { Terrain } from '../src/sim/map';
 import { createWorld, restoreWorld } from '../src/sim/setup';
 import { decodeState, encodeState } from '../src/sim/snapshot';
 import type { World, WorldSnapshot } from '../src/sim/world';
-import { GAME_VERSION } from '../src/version';
+import { SIM_VERSION } from '../src/version';
 import { emptyWorld, run } from './helpers';
 
 /** Save, then load from the text, as a saved game would be. */
@@ -132,11 +132,11 @@ describe('saved games', () => {
     rec.stepped(w);
     const text = serializeSave(makeSave(w, 0, rec.replay, { x: 10, y: 20, zoom: 1.2 }, 'Test'));
     const save = parseSave(text);
-    expect(save.summary).toMatchObject({ name: 'Test', map: 'Flüsse', epoch: 0, ticks: 600, game: GAME_VERSION });
+    expect(save.summary).toMatchObject({ name: 'Test', map: 'Flüsse', epoch: 0, ticks: 600, game: SIM_VERSION });
     expect(save.camera).toEqual({ x: 10, y: 20, zoom: 1.2 });
     expect(save.replay.ticks).toBe(600);
     expect(restoreWorld(save.settings, save.world).checksum()).toBe(w.checksum());
-    expect(() => parseSave(text.replace(`"game":"${GAME_VERSION}"`, '"game":"0.1.0"'))).toThrow(/Version 0\.1\.0/);
+    expect(() => parseSave(text.replace(`"game":"${SIM_VERSION}"`, '"game":"0.1.0"'))).toThrow(/Version 0\.1\.0/);
     expect(() => parseSave('{"format":"empiremarv-replay"}')).toThrow(/kein EmpireMarv-Spielstand/);
     expect(() => parseSave('kein json')).toThrow(/kein EmpireMarv-Spielstand/);
   });
