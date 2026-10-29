@@ -9,6 +9,7 @@ import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
 import { ABILITY_COLOR } from './render/colors';
 import { MARK_TIME, Renderer, type CastPreview, type Mark, type Marker, type OrderPreview, type Placement } from './render/renderer';
+import { loadGraphics } from './render/graphics';
 import { View } from './render/view';
 import { normalize, Recorder, storeLastReplay, type Replay } from './replay';
 import { LocalSession, ReplaySession, type Session } from './session';
@@ -126,7 +127,9 @@ export class Game {
     this.audio = new GameAudio(this);
     const canvas = root.querySelector<HTMLCanvasElement>('#game')!;
     this.renderer = new Renderer(canvas, this.world, this.camera, this.view);
+    this.renderer.setGraphics(loadGraphics());
     this.hud = new Hud(this);
+    this.renderer.onGraphicsLost = () => this.hud.message('warn', 'Die Grafikkarte hat WebGL beendet – das Spiel zeichnet jetzt mit Canvas weiter.');
     this.minimap = new Minimap(root.querySelector<HTMLCanvasElement>('#minimap')!, this.world, this.camera, this.view);
     this.input = new Input(this, canvas);
     this.netUi = this.net ? new NetUi(this, this.net) : null;
@@ -189,6 +192,7 @@ export class Game {
     this.netUi?.destroy();
     this.replayBar?.destroy();
     this.tutorial?.destroy();
+    this.renderer.destroy();
   }
 
   resize(): void {

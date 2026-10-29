@@ -26,6 +26,8 @@ import {
   type SceneSprite,
 } from './scene';
 import { buildingTopZ, drawBuilding, LINK_E, LINK_N, LINK_S, LINK_W, type BuildingLook, type UnitLook } from './sprites';
+import { GlLayer } from './gl/layer';
+import type { GraphicsMode } from './graphics';
 import type { View } from './view';
 
 export interface LineSegment {
@@ -145,12 +147,22 @@ function wide(u: Unit): boolean {
   return u.role === 'mounted' || u.role === 'siege' || u.stats.look === 'scouthorse' || u.stats.look === 'jeep' || u.stats.look === 'drone';
 }
 
-/** Draws the world isometrically onto a canvas, honouring the local player's fog of war. */
+/**
+ * Draws the world isometrically, honouring the local player's fog of war.
+ * With WebGL the map goes onto a GL canvas underneath and only effects and
+ * overlays are painted on the 2D canvas; without it the 2D canvas paints
+ * everything.
+ */
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private dpr = 1;
+  private width = 0;
+  private height = 0;
   /** Where each aircraft was drawn last frame, for bars, picking and shots aimed at it. */
   private airPoses = new Map<number, AirPose>();
+  private gl: GlLayer | null = null;
+  /** The WebGL context was lost and the canvas took over. */
+  onGraphicsLost: (() => void) | null = null;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -161,14 +173,54 @@ export class Renderer {
     this.ctx = canvas.getContext('2d')!;
   }
 
+  /** What draws the map right now. */
+  get graphics(): 'webgl' | 'canvas' {
+    return this.gl ? 'webgl' : 'canvas';
+  }
+
+  /** Switches the output; WebGL falls back to the canvas where it is missing (or, automatically, only emulated). */
+  setGraphics(mode: GraphicsMode): void {
+    this.dropGl();
+    if (mode === 'canvas') return;
+    const gl = GlLayer.create(this.world.map, mode === 'webgl');
+    if (!gl) return;
+    gl.onLost = () => {
+      this.dropGl();
+      this.onGraphicsLost?.();
+    };
+    this.canvas.before(gl.canvas);
+    // The GL canvas underneath shows the background now.
+    this.canvas.classList.add('over-gl');
+    this.gl = gl;
+    if (this.width) gl.resize(this.width, this.height, this.dpr);
+  }
+
+  private dropGl(): void {
+    this.gl?.destroy();
+    this.gl = null;
+    this.canvas.classList.remove('over-gl');
+  }
+
+  destroy(): void {
+    this.dropGl();
+  }
+
+  /** Atlas and batch figures of the WebGL output (null on the canvas). */
+  glStats(): ReturnType<GlLayer['stats']> | null {
+    return this.gl?.stats() ?? null;
+  }
+
   resize(width: number, height: number): void {
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.width = width;
+    this.height = height;
     this.canvas.width = Math.round(width * this.dpr);
     this.canvas.height = Math.round(height * this.dpr);
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
     this.camera.viewW = width;
     this.camera.viewH = height;
+    this.gl?.resize(width, height, this.dpr);
   }
 
   private unitPos(u: Unit, alpha: number): [number, number] {
@@ -198,8 +250,25 @@ export class Renderer {
   }
 
   render(state: RenderState): void {
-    const scene = this.buildScene(state, false);
-    this.renderCanvas(scene, state);
+    const scene = this.buildScene(state, this.gl !== null);
+    if (this.gl) this.renderGl(this.gl, scene, state);
+    else this.renderCanvas(scene, state);
+  }
+
+  /** The WebGL output: the map on the GL canvas, effects and overlays on the 2D one. */
+  private renderGl(gl: GlLayer, scene: Scene, state: RenderState): void {
+    const { ctx, camera } = this;
+    const time = state.time;
+    gl.draw(scene, camera, this.view.vis(), time);
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, camera.viewW, camera.viewH);
+    for (const b of scene.rally) this.drawRally(b);
+    this.drawHazards(time);
+    this.drawBeams(state, time);
+    this.drawStatuses(state, time);
+    this.drawProjectiles(state);
+    this.drawEffects();
+    this.drawOverlays(state);
   }
 
   /**
@@ -900,7 +969,15 @@ export class Renderer {
   private drawEffects(): void {
     const { ctx, camera } = this;
     const zoom = camera.zoom;
+    const vis = this.view.vis();
+    const map = this.world.map;
     for (const fx of this.world.effects) {
+      // Nothing shows on unexplored ground; over the GL fog the 2D canvas dims it itself.
+      const tx = Math.floor(fx.x);
+      const ty = Math.floor(fx.y);
+      const v = map.inBounds(tx, ty) ? vis[map.idx(tx, ty)] : 0;
+      if (v === 0) continue;
+      ctx.globalAlpha = v === 1 && this.gl ? 0.5 : 1;
       const [sx, sy] = camera.project(fx.x, fx.y, 6);
       const k = fx.t / fx.dur;
       switch (fx.kind) {
@@ -1050,6 +1127,7 @@ export class Renderer {
         }
       }
     }
+    ctx.globalAlpha = 1;
   }
 
   /**

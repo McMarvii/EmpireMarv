@@ -46,6 +46,19 @@ button {
   background: var(--bg);
 }
 
+/* WebGL draws the map underneath; the 2D canvas on top keeps effects, bars and input. */
+#game-gl {
+  position: fixed;
+  inset: 0;
+  display: block;
+  background: var(--bg);
+  pointer-events: none;
+}
+
+#game.over-gl {
+  background: transparent;
+}
+
 /* ------------------------------------------------------------- top bar */
 
 #topbar {
