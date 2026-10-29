@@ -116,7 +116,9 @@ export class SpriteAtlas {
 
   /** The picture to draw `s` with at this zoom, painting it if needed (null: none yet, skip it). */
   cell(s: SceneSprite, zoom: number, dpr: number, time: number): Cell | null {
-    const scale = rasterZoom(zoom) * dpr;
+    // Big rings at a high zoom would not fit a layer: they are painted coarser and drawn enlarged.
+    const box = this.outline(s);
+    const scale = Math.min(rasterZoom(zoom) * dpr, (SIZE - PAD * 2 - 2) / Math.max(box.x1 - box.x0, box.y1 - box.y0));
     const anim = s.anim;
     const animated = anim.kind !== 'still' && this.isMoving(s);
     let base: string;
@@ -245,6 +247,8 @@ export class SpriteAtlas {
     const h = Math.ceil((box.y1 - box.y0) * scale) + PAD * 2;
     if (w > SIZE || h > SIZE) return null;
     let c = into && into.w === w && into.h === h ? into : null;
+    // A finished building has another outline than its building site: the old picture is let go.
+    if (into && !c) this.pages[into.layer].cells.delete(into);
     if (!c) {
       const spot = this.alloc(w, h);
       if (!spot) return null;
