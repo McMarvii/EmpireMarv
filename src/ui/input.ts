@@ -394,6 +394,11 @@ export class Input {
       game.hud.showHelp();
       return;
     }
+    if (e.key === 'F3') {
+      e.preventDefault();
+      game.hud.togglePerf();
+      return;
+    }
     if (e.key === 'F2') {
       e.preventDefault();
       if (game.hud.overlayOpen()) game.menuPause(false);

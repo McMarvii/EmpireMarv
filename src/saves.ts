@@ -2,7 +2,7 @@ import { MAP_TYPE_BY_ID } from './data/maps';
 import type { Replay } from './replay';
 import { decodeState, encodeState } from './sim/snapshot';
 import type { GameSettings, World, WorldSnapshot } from './sim/world';
-import { GAME_VERSION } from './version';
+import { GAME_VERSION, SIM_VERSION } from './version';
 
 export const SAVE_FORMAT = 'empiremarv-save';
 /** Ids of the two rolling slots. */
@@ -43,11 +43,11 @@ export function makeSave(world: World, me: number, replay: Replay, camera: SaveG
   return {
     format: SAVE_FORMAT,
     version: 1,
-    game: GAME_VERSION,
+    game: SIM_VERSION,
     summary: {
       name,
       date: new Date().toISOString(),
-      game: GAME_VERSION,
+      game: SIM_VERSION,
       ticks: world.tick,
       map: map === 'random' ? 'Zufall' : (MAP_TYPE_BY_ID.get(map)?.name ?? map),
       epoch: world.players[me].epoch,
@@ -76,7 +76,7 @@ export function parseSave(text: string): SaveGame {
   }
   if (save?.format !== SAVE_FORMAT || !save.world || !save.settings) throw new Error('Die Datei ist kein EmpireMarv-Spielstand.');
   if (save.version !== 1) throw new Error('Dieser Spielstand stammt aus einer neueren Spielversion.');
-  if (save.game !== GAME_VERSION) {
+  if (save.game !== SIM_VERSION) {
     throw new Error(`Dieser Spielstand stammt aus Version ${save.game}. Version ${GAME_VERSION} rechnet anders und kann ihn nicht fortsetzen.`);
   }
   return save as SaveGame;

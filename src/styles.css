@@ -46,6 +46,19 @@ button {
   background: var(--bg);
 }
 
+/* WebGL draws the map underneath; the 2D canvas on top keeps effects, bars and input. */
+#game-gl {
+  position: fixed;
+  inset: 0;
+  display: block;
+  background: var(--bg);
+  pointer-events: none;
+}
+
+#game.over-gl {
+  background: transparent;
+}
+
 /* ------------------------------------------------------------- top bar */
 
 #topbar {
@@ -936,6 +949,40 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.gfx-list {
+  display: grid;
+  gap: 10px;
+  margin: 6px 0 14px;
+  max-width: 520px;
+}
+
+.gfx-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.gfx-option input {
+  margin-top: 4px;
+  accent-color: var(--gold);
+}
+
+/* F3: frame rate and drawing time. */
+#perf {
+  position: fixed;
+  top: 44px;
+  right: 12px;
+  padding: 3px 8px;
+  font: 12px/1.4 ui-monospace, monospace;
+  color: #e8dcc0;
+  background: rgba(10, 8, 6, 0.72);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 4;
 }
 
 .dialog.wide {

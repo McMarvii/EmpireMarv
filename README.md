@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.8).** Wirtschaft, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände sowie **Luftkrieg** und ein **geführtes Tutorial** funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.9).** Wirtschaft, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände, Luftkrieg, ein geführtes Tutorial und ein **WebGL-Renderer** für große Schlachten funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -53,6 +53,9 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 - **Geführtes Tutorial**: eine Übungspartie in 14 geprüften Schritten, von der Kamera über Sammeln, Bauen, Forschen und den Aufstieg bis zum Angriff auf ein Räuberlager. Was man schon kann, hakt es von selbst ab.
 - **Spielstände**: Partien gegen den Computer lassen sich speichern und später genau dort fortsetzen. Es gibt `Strg`+`S`, automatisches Speichern alle 5 Minuten und das Speichern als Datei; geladen wird im Hauptmenü unter „Spielstände“.
 - **Lesbarkeit**: Einheiten, Minen und Büsche hinter Gebäuden scheinen durch.
+- **WebGL-Renderer** für große Schlachten: Mit Grafikbeschleunigung zeichnet WebGL 2 die Karte. In einer Schlacht mit 600 Einheiten braucht ein Bild nur noch ein Drittel bis ein Fünftel der Prozessorzeit des Canvas, ganz herausgezoomt 5 statt 26 ms.
+  - Wasser hat Tiefe, Wellen, Glanz und Brandung an der Küste. Geländearten gehen weich ineinander über. Der Nebel hat weiche Ränder und blendet ein und aus.
+  - Ohne Beschleunigung, also wenn WebGL nur in Software liefe, zeichnet automatisch der Canvas wie bisher. Umstellen geht unter Menü → Grafik. `F3` zeigt Bildrate und Zeichenzeit.
 - **Ton und Musik**, komplett im Browser erzeugt, ohne Audiodateien: Waffen klingen nach ihrer Epoche (Schleuder, Bogen, Muskete, Gewehr, Kanone, Laser), Bürger hacken, schürfen und hämmern, Einheiten antworten auf Befehle. Ein Alarm passend zur Ära (Kriegshorn, Glocke, Signalhorn, Sirene) und eine Fanfare beim Aufstieg. Die Musik wird für jede Ära neu komponiert, von der Knochenflöte bis zum Synthesizer, und wird im Kampf treibender. Man hört nur, was man sieht.
 - **KI-Gegner** in drei Stufen: baut Wirtschaft und die nötigen Gebäude auf, steigt in Epochen auf, erkundet mit Spähern, mauert ihre Basis ein, verteidigt, greift in Wellen an und kontert deine Armee. Sie setzt Helden und ihre Fähigkeiten ein, bekehrt, ruft Katastrophen auf deine Truppen, baut Wunder und greift fremde Wunder gezielt an. Zur See fischt sie, baut eine Flotte und setzt auf der Inselkarte ihre Armeen per Schiff über. In der Luft hält sie einen Ballon über der Front, fliegt Bombenangriffe mit Jägerbegleitung und jagt feindliche Flugzeuge über ihrer Basis.
 - **Formationen** Linie, Block und Keil: Infanterie vorn, Fernkampf und Belagerung hinten. Gruppen marschieren im Gleichschritt und kommen gleichzeitig an (mit `L` abschaltbar). Nach einem Sieg im Gefecht greifen Soldaten zuerst die nächste feindliche Einheit an, erst dann Gebäude. Rechts-Ziehen legt die Blickrichtung mit einem Pfeil fest.
@@ -94,6 +97,7 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 | `Entf`                          | Auswahl abreißen bzw. entlassen                     |
 | `A`, `S`, `D` … (Gebäude gewählt) | Nächste Stufe eines Forschungszweigs              |
 | `F2` oder „Forschung“           | Technologiebaum                                     |
+| `F3`                            | Bildrate und Zeichenzeit anzeigen (Grafik: Menü → Grafik) |
 | Buchstaben                      | Befehle (stehen auf den Knöpfen, z. B. `H` = Haus)  |
 | Umschalt + Bauen / Ausbilden    | Mehrfach platzieren, nacheinander bauen / 5 Einheiten |
 | `Strg`+`1–9`, dann `1–9`        | Gruppe speichern / wählen (zweimal: hinspringen); auch über die Gruppenleiste |
@@ -119,7 +123,8 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 src/
   data/      Spielinhalte als Daten: Epochen, Einheiten, Gebäude, Kampfdreieck
   sim/       Deterministische Simulation: Welt, Befehle, Verhalten, Kampf, Wegfindung, KI
-  render/    Isometrische Darstellung, prozedurale Sprites, Minimap
+  render/    Isometrische Darstellung, prozedurale Sprites, Minimap; Szene für Canvas und WebGL
+  render/gl/ WebGL 2: Sprite-Atlas, Gelände- und Nebel-Shader, Sprite-Stapel
   audio/     Prozedurale Klänge, generative Musik je Ära, Mischpult
   net/       Mehrspieler: Lockstep-Sitzungen, Protokoll, WebRTC, Vermittlung
   ui/        HUD, Eingabe, Startmenü, Lobby, Chat, Wiedergabe-Leiste, Tutorial-Feld
@@ -127,7 +132,7 @@ src/
   replay.ts  Aufzeichnen, Speichern und Laden von Wiedergaben
   saves.ts   Spielstände: Schnappschuss, Browser-Speicher, Datei
   tutorial.ts Die Übungspartie: Karte, Räuberlager, die 14 geprüften Schritte
-tests/       Vitest: Daten, Kartentypen, Wegfindung, Wirtschaft, Kampf, Seekrieg, Luftkrieg, Helden, Glaube, Wunder, KI-gegen-KI (auch auf Inseln und in der Luft), Klänge, Determinismus, Lockstep mit Latenz, Wiedergaben, Spielstände, Tutorial
+tests/       Vitest: Daten, Kartentypen, Wegfindung, Wirtschaft, Kampf, Seekrieg, Luftkrieg, Helden, Glaube, Wunder, KI-gegen-KI (auch auf Inseln und in der Luft), Klänge, Determinismus, Lockstep mit Latenz, Wiedergaben, Spielstände, Tutorial, Sprite-Schlüssel des Atlas
 docs/        Game Design und Screenshots
 ```
 

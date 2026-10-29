@@ -4,7 +4,7 @@ import { ReplaySession } from '../src/session';
 import { Rng } from '../src/sim/rng';
 import { createWorld } from '../src/sim/setup';
 import type { Command, GameSettings, World } from '../src/sim/world';
-import { GAME_VERSION } from '../src/version';
+import { GAME_VERSION, SIM_VERSION } from '../src/version';
 
 const SETTINGS: Partial<GameSettings> = {
   seed: 8,
@@ -55,7 +55,7 @@ describe('replays', () => {
     const { world, replay } = record(1500);
     expect(replay.commands.length).toBeGreaterThan(10);
     expect(replay.checks.length).toBe(15);
-    expect(replay.game).toBe(GAME_VERSION);
+    expect(replay.game).toBe(SIM_VERSION);
     const file = parseReplay(JSON.stringify(replay));
     const { world: again, session } = play(file);
     expect(again.tick).toBe(world.tick);

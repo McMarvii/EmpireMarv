@@ -9,6 +9,7 @@ import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
 import { ABILITY_COLOR } from './render/colors';
 import { MARK_TIME, Renderer, type CastPreview, type Mark, type Marker, type OrderPreview, type Placement } from './render/renderer';
+import { loadGraphics } from './render/graphics';
 import { View } from './render/view';
 import { normalize, Recorder, storeLastReplay, type Replay } from './replay';
 import { LocalSession, ReplaySession, type Session } from './session';
@@ -92,6 +93,8 @@ export class Game {
   preview: OrderPreview | null = null;
   lastAlert: { x: number; y: number; time: number } | null = null;
   animTime = 0;
+  /** Frame rate and milliseconds to draw a frame, smoothed (for the F3 readout). */
+  readonly perf = { fps: 0, drawMs: 0 };
   /** Fast-forwarding up to this tick (rejoin, replay seek); the screen shows progress meanwhile. */
   catchUpTo: number | null = null;
   /** The world waits for commands that have not arrived (lockstep). */
@@ -126,7 +129,9 @@ export class Game {
     this.audio = new GameAudio(this);
     const canvas = root.querySelector<HTMLCanvasElement>('#game')!;
     this.renderer = new Renderer(canvas, this.world, this.camera, this.view);
+    this.renderer.setGraphics(loadGraphics());
     this.hud = new Hud(this);
+    this.renderer.onGraphicsLost = () => this.hud.message('warn', 'Die Grafikkarte hat WebGL beendet – das Spiel zeichnet jetzt mit Canvas weiter.');
     this.minimap = new Minimap(root.querySelector<HTMLCanvasElement>('#minimap')!, this.world, this.camera, this.view);
     this.input = new Input(this, canvas);
     this.netUi = this.net ? new NetUi(this, this.net) : null;
@@ -189,6 +194,7 @@ export class Game {
     this.netUi?.destroy();
     this.replayBar?.destroy();
     this.tutorial?.destroy();
+    this.renderer.destroy();
   }
 
   resize(): void {
@@ -211,6 +217,8 @@ export class Game {
     for (const id of [...this.selection]) if (!this.world.get(id)) this.selection.delete(id);
     if (this.placement) this.refreshPlacement();
 
+    if (dt > 0) this.perf.fps += (1 / dt - this.perf.fps) * 0.05;
+    const drawStart = performance.now();
     this.renderer.render({
       selection: this.selection,
       hoverId: this.input.hoverId,
@@ -223,6 +231,7 @@ export class Game {
       marks: this.marks,
       cast: this.castPreview(),
     });
+    this.perf.drawMs += (performance.now() - drawStart - this.perf.drawMs) * 0.05;
     if (this.marker && (this.marker.t += dt) > 0.6) this.marker = null;
     for (const m of this.marks) m.age += dt;
     this.marks = this.marks.filter((m) => m.age < MARK_TIME);
