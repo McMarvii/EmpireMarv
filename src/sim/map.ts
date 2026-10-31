@@ -110,6 +110,17 @@ export class GameMap {
     return this.blocked[i] === 0 || (!naval && team >= 0 && this.blocked[i] === 1 && this.gateTeam[i] === team);
   }
 
+  /**
+   * Whether a walker may move from the tile (x0, y0) into the tile (x1, y1). On a diagonal step one of
+   * the two tiles beside the shared corner must be open too, so nobody squeezes through the zero-wide
+   * gap between two diagonal wall segments (or two diagonal shores for ships).
+   */
+  stepClear(x0: number, y0: number, x1: number, y1: number, team: number, naval = false): boolean {
+    if (!this.passableFor(x1, y1, team, naval)) return false;
+    if (x0 === x1 || y0 === y1) return true;
+    return this.passableFor(x1, y0, team, naval) || this.passableFor(x0, y1, team, naval);
+  }
+
   setGate(x: number, y: number, team: number): void {
     if (!this.inBounds(x, y)) return;
     this.gateTeam[this.idx(x, y)] = team;

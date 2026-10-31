@@ -865,7 +865,7 @@ export interface BuildingLook {
   built: boolean;
   hpRatio: number;
   seed: number;
-  /** Walls: bitmask of connected neighbours (LINK_N | LINK_E | LINK_S | LINK_W). */
+  /** Walls: bitmask of connected neighbours (LINK_N … LINK_W, and the diagonals LINK_NE … LINK_NW). */
   links?: number;
   /** Gates: drawn open while friendly units pass. */
   open?: boolean;
@@ -877,6 +877,32 @@ export const LINK_N = 1;
 export const LINK_E = 2;
 export const LINK_S = 4;
 export const LINK_W = 8;
+/** Diagonal neighbours; only set where no straight neighbour already closes the corner. */
+export const LINK_NE = 16;
+export const LINK_SE = 32;
+export const LINK_SW = 64;
+export const LINK_NW = 128;
+
+/**
+ * Neighbour bitmask of a wall tile, from a tile → joins lookup. A diagonal neighbour joins only where
+ * neither tile beside the shared corner does, so a staircase isn't drawn with a shortcut across.
+ */
+export function linkMask(at: (x: number, y: number) => boolean, tx: number, ty: number): number {
+  let m = 0;
+  const n = at(tx, ty - 1);
+  const e = at(tx + 1, ty);
+  const s = at(tx, ty + 1);
+  const w = at(tx - 1, ty);
+  if (n) m |= LINK_N;
+  if (e) m |= LINK_E;
+  if (s) m |= LINK_S;
+  if (w) m |= LINK_W;
+  if (!n && !e && at(tx + 1, ty - 1)) m |= LINK_NE;
+  if (!s && !e && at(tx + 1, ty + 1)) m |= LINK_SE;
+  if (!s && !w && at(tx - 1, ty + 1)) m |= LINK_SW;
+  if (!n && !w && at(tx - 1, ty - 1)) m |= LINK_NW;
+  return m;
+}
 
 export function roofPyramid(ctx: Ctx, project: Project, x0: number, y0: number, x1: number, y1: number, z: number, h: number, color: string): void {
   const cx = (x0 + x1) / 2;
@@ -977,25 +1003,43 @@ const WALL_LOOK: Record<EraStyle, WallLook> = {
   future: { h: 21, thick: 0.07, body: '#4e626e', top: '#38d6f5' },
 };
 
+/** Neighbour directions, back to front: arms behind the post are drawn before it. */
 const LINK_DIRS: Array<[number, number, number]> = [
+  [LINK_NW, -1, -1],
   [LINK_N, 0, -1],
   [LINK_W, -1, 0],
+  [LINK_NE, 1, -1],
+  [LINK_SW, -1, 1],
   [LINK_E, 1, 0],
   [LINK_S, 0, 1],
+  [LINK_SE, 1, 1],
 ];
+/** LINK_DIRS before this index lie behind (or level with) the post. */
+const LINK_FRONT = 5;
+const DIAGONAL = LINK_NE | LINK_SE | LINK_SW | LINK_NW;
 
-/** One wall arm from the tile center towards a neighbour (dx, dy). */
-function wallArm(ctx: Ctx, project: Project, cx: number, cy: number, dx: number, dy: number, style: EraStyle, h: number, scale: number, time: number): void {
+/**
+ * One wall arm from the tile center towards a neighbour (dx, dy), reaching the shared edge or, for a
+ * diagonal neighbour, the shared corner. `from`: share of that length left open at the center (gates).
+ */
+function wallArm(ctx: Ctx, project: Project, cx: number, cy: number, dx: number, dy: number, style: EraStyle, h: number, scale: number, time: number, from = 0): void {
   const L = WALL_LOOK[style];
-  const facing = dx !== 0 ? 0 : Math.PI / 2;
-  const mx = cx + dx * 0.25;
-  const my = cy + dy * 0.25;
+  const facing = dy === 0 ? 0 : dx === 0 ? Math.PI / 2 : Math.atan2(dy, dx);
+  // Along the unit direction: from t0 to the edge or corner at t1 (half a tile, or half a diagonal).
+  const len = dx !== 0 && dy !== 0 ? Math.SQRT2 : 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const t1 = 0.5 * len;
+  const t0 = from * t1;
+  const mid = (t0 + t1) / 2;
+  const mx = cx + ux * mid;
+  const my = cy + uy * mid;
   switch (style) {
     case 'stone': {
       // Sharpened stakes.
-      for (let t = 0.08; t <= 0.5; t += 0.105) {
-        const px = cx + dx * t;
-        const py = cy + dy * t;
+      for (let t = t0 + 0.08; t <= t1; t += 0.105) {
+        const px = cx + ux * t;
+        const py = cy + uy * t;
         const [ax, ay] = project(px, py, 0);
         const [bx, by] = project(px, py, h);
         line(ctx, ax, ay, bx, by, L.body, 3.4 * scale);
@@ -1004,33 +1048,35 @@ function wallArm(ctx: Ctx, project: Project, cx: number, cy: number, dx: number,
       break;
     }
     case 'future': {
-      const [ax, ay] = project(cx, cy, 2);
-      const [bx, by] = project(cx + dx * 0.5, cy + dy * 0.5, 2);
-      const [cx2, cy2] = project(cx + dx * 0.5, cy + dy * 0.5, h);
-      const [dx2, dy2] = project(cx, cy, h);
+      const [ax, ay] = project(cx + ux * t0, cy + uy * t0, 2);
+      const [bx, by] = project(cx + ux * t1, cy + uy * t1, 2);
+      const [cx2, cy2] = project(cx + ux * t1, cy + uy * t1, h);
+      const [dx2, dy2] = project(cx + ux * t0, cy + uy * t0, h);
       const glow = 0.3 + 0.12 * Math.sin(time * 3 + cx + cy);
       poly(ctx, [[ax, ay], [bx, by], [cx2, cy2], [dx2, dy2]], `rgba(56,214,245,${glow})`);
       line(ctx, dx2, dy2, cx2, cy2, '#bff4ff', 1.2 * scale);
       break;
     }
     default: {
-      box3d(ctx, project, mx, my, facing, 0.25 + L.thick * 0.5, L.thick, 0, h, L.top, L.body);
+      const half = (t1 - t0) / 2 + L.thick * 0.5;
+      box3d(ctx, project, mx, my, facing, half, L.thick, 0, h, L.top, L.body);
       if (style === 'imperial') {
         // Sloped glacis at the foot of the bastion wall.
-        box3d(ctx, project, mx, my, facing, 0.25 + L.thick * 0.5, L.thick * 1.45, 0, h * 0.35, shade(L.body, -0.05), L.body);
+        box3d(ctx, project, mx, my, facing, half, L.thick * 1.45, 0, h * 0.35, shade(L.body, -0.05), L.body);
       }
       if (style === 'medieval') {
-        // Merlons.
-        for (const t of [0.12, 0.38]) {
-          box3d(ctx, project, cx + dx * t, cy + dy * t, facing, 0.06, L.thick, h, h + 5, L.top, L.body);
+        // Merlons, one more on the long diagonal arm.
+        for (const k of len > 1 ? [0.17, 0.5, 0.83] : [0.24, 0.76]) {
+          const t = t0 + (t1 - t0) * k;
+          box3d(ctx, project, cx + ux * t, cy + uy * t, facing, 0.06, L.thick, h, h + 5, L.top, L.body);
         }
       }
       if (style === 'modern') {
         // Barbed wire on top.
         const pts: Pt[] = [];
         for (let i = 0; i <= 6; i++) {
-          const t = i / 12;
-          pts.push(project(cx + dx * t, cy + dy * t, h + 2 + (i % 2) * 3));
+          const t = t0 + ((t1 - t0) * i) / 6;
+          pts.push(project(cx + ux * t, cy + uy * t, h + 2 + (i % 2) * 3));
         }
         ctx.beginPath();
         ctx.moveTo(pts[0][0], pts[0][1]);
@@ -1062,23 +1108,35 @@ function drawWall(ctx: Ctx, project: Project, scale: number, b: BuildingLook, ti
     drawGate(ctx, project, scale, b, style, h, links, time);
   } else {
     // Arms behind the post first, then the post, then the arms in front.
-    for (const [bit, dx, dy] of LINK_DIRS.slice(0, 2)) if (links & bit) wallArm(ctx, project, cx, cy, dx, dy, style, h, scale, time);
+    for (const [bit, dx, dy] of LINK_DIRS.slice(0, LINK_FRONT)) if (links & bit) wallArm(ctx, project, cx, cy, dx, dy, style, h, scale, time);
     const post = style === 'future' ? 0.09 : L.thick + 0.05;
     box3d(ctx, project, cx, cy, 0, post, post, 0, h + 3, b.color, style === 'future' ? '#5d707c' : L.body);
-    for (const [bit, dx, dy] of LINK_DIRS.slice(2)) if (links & bit) wallArm(ctx, project, cx, cy, dx, dy, style, h, scale, time);
+    for (const [bit, dx, dy] of LINK_DIRS.slice(LINK_FRONT)) if (links & bit) wallArm(ctx, project, cx, cy, dx, dy, style, h, scale, time);
   }
   ctx.globalAlpha = 1;
 }
 
 function drawGate(ctx: Ctx, project: Project, scale: number, b: BuildingLook, style: EraStyle, h: number, links: number, time: number): void {
   const L = WALL_LOOK[style];
-  // The gate runs along the wall: east-west unless only north/south neighbours exist.
+  // The gate runs along the wall: east-west unless only north/south neighbours exist; in a diagonal
+  // wall it turns with the wall.
+  const straight = links & (LINK_N | LINK_E | LINK_S | LINK_W);
   const alongX = (links & (LINK_E | LINK_W)) !== 0 || (links & (LINK_N | LINK_S)) === 0;
   const cx = b.tx + 0.5;
   const cy = b.ty + 0.5;
-  const ax = alongX ? 1 : 0;
-  const ay = alongX ? 0 : 1;
-  const facing = alongX ? 0 : Math.PI / 2;
+  let ax = alongX ? 1 : 0;
+  let ay = alongX ? 0 : 1;
+  if (!straight && links & DIAGONAL) {
+    // North-east to south-west, or north-west to south-east.
+    ax = Math.SQRT1_2;
+    ay = links & (LINK_NE | LINK_SW) ? -Math.SQRT1_2 : Math.SQRT1_2;
+  }
+  const facing = Math.atan2(ay, ax);
+  // Across the passage, on the viewer's side.
+  const px = ay !== 0 && ax !== 0 ? -ay : ay;
+  const py = ax;
+  // Wall stubs out to the corner where a diagonal neighbour joins.
+  for (const [bit, dx, dy] of LINK_DIRS.slice(0, LINK_FRONT)) if (links & bit & DIAGONAL) wallArm(ctx, project, cx, cy, dx, dy, style, h, scale, time, 0.6);
   const tall = h + 9;
   const post = Math.max(0.12, L.thick + 0.06);
   const pillar = (t: number) =>
@@ -1098,8 +1156,8 @@ function drawGate(ctx: Ctx, project: Project, scale: number, b: BuildingLook, st
   } else if (b.built && style !== 'future') {
     // Swung-open leaves along the passage.
     const door = '#6b4a2b';
-    box3d(ctx, project, cx - ax * 0.3 + ay * 0.18, cy - ay * 0.3 + ax * 0.18, facing + Math.PI / 2, 0.16, 0.04, 0, h * 0.8, shade(door, 0.15), door);
-    box3d(ctx, project, cx + ax * 0.3 + ay * 0.18, cy + ay * 0.3 + ax * 0.18, facing + Math.PI / 2, 0.16, 0.04, 0, h * 0.8, shade(door, 0.15), door);
+    box3d(ctx, project, cx - ax * 0.3 + px * 0.18, cy - ay * 0.3 + py * 0.18, facing + Math.PI / 2, 0.16, 0.04, 0, h * 0.8, shade(door, 0.15), door);
+    box3d(ctx, project, cx + ax * 0.3 + px * 0.18, cy + ay * 0.3 + py * 0.18, facing + Math.PI / 2, 0.16, 0.04, 0, h * 0.8, shade(door, 0.15), door);
   }
   // Lintel joining the pillars (a barrier arm for modern gates).
   if (style === 'modern') {
@@ -1111,6 +1169,7 @@ function drawGate(ctx: Ctx, project: Project, scale: number, b: BuildingLook, st
     box3d(ctx, project, cx, cy, facing, 0.38 + post, post * 0.8, h, h + 5, L.top, L.body);
   }
   pillar(0.38);
+  for (const [bit, dx, dy] of LINK_DIRS.slice(LINK_FRONT)) if (links & bit & DIAGONAL) wallArm(ctx, project, cx, cy, dx, dy, style, h, scale, time, 0.6);
 }
 
 type RoofKind = 'pyramid' | 'gable' | 'temple' | 'dome' | 'flat' | 'glass';
