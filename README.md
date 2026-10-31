@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.10).** Wirtschaft, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände, Luftkrieg, ein geführtes Tutorial, ein **WebGL-Renderer** und eine **schnelle Simulation** für große Schlachten funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.10.1).** Wirtschaft, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände, Luftkrieg, ein geführtes Tutorial, ein **WebGL-Renderer** und eine **schnelle Simulation** für große Schlachten funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -35,7 +35,7 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 - **Kampfdreieck**, das über alle Epochen gleich bleibt: Sturminfanterie › Abwehrinfanterie › Kavallerie & Fahrzeuge › Fernkampf › Sturminfanterie. Belagerung und Artillerie zerstören Gebäude.
 - **16 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
 - **Zuflucht**: Auf Knopfdruck im Dorfzentrum (`Z`) suchen sich alle Bürger einen Platz im nächsten Dorfzentrum oder Turm, bis zu 5 je Gebäude. Jeder Bürger darin schießt einen zusätzlichen Pfeil. Erneut drücken gibt Entwarnung, alle gehen an ihre Arbeit zurück.
-- **Mauern und Tore**, als Linie gezogen: Palisade, Lehmziegel, Zinnenmauer, Bastion, Beton, Energiebarriere. Tore lassen nur das eigene Team durch.
+- **Mauern und Tore**, als Linie gezogen, auch schräg: Palisade, Lehmziegel, Zinnenmauer, Bastion, Beton, Energiebarriere. Beim Ziehen steht neben der Linie, wie viele Teile es werden und was sie zusammen kosten. Schräge Teile schließen an der Ecke dicht, Tore lassen nur das eigene Team durch.
 - **Späher** mit großer Sichtweite und **Erkundenmodus** für jede Einheit.
 - **Moral**: Häuser stärken Einheiten in ihrer Nähe – sichtbar als Punkte am Lebensbalken und als Kreis um das Haus.
 - **Helden** aus dem Dorfzentrum, je einer pro Art: Der **Stratege** führt (Aura: Moral und Heilung) und hat Sammelruf, Schildwall und Feldlazarett. Der **Krieger** feuert an (Aura: +15 % Angriff) und hat Kampfschrei, Wirbelschlag und Blutrausch. Beide tragen je Epoche einen neuen Titel, vom Häuptling bis zum Kommandanten, vom Recken bis zum Elitekämpfer.
