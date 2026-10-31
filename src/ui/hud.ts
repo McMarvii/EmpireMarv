@@ -24,6 +24,7 @@ import { convertTime } from '../sim/behavior';
 import { AURA_INSPIRED, AURA_LED, type Building, type Entity, type Unit } from '../sim/entities';
 import { FORMATION_LABEL, FORMATIONS, type Formation } from '../sim/formation';
 import { MAX_TECH_QUEUE, TICK_RATE, type GameEvent } from '../sim/world';
+import { morph } from './morph';
 
 export interface CommandButton {
   key: string;
@@ -107,6 +108,9 @@ export class Hud {
   private els: Record<string, HTMLElement>;
   private resEls: Record<string, HTMLElement> = {};
   private sig = '';
+  private epochHtml = '';
+  private wonderHtml = '';
+  private lineTip = '';
   private groupSig = '';
   private prodSig = '';
   /** Tab was pressed: the production bar shows which letter selects what. */
@@ -213,16 +217,19 @@ export class Hud {
     const epoch = EPOCHS[player.epoch];
     const research = world.buildings.find((b) => b.owner === me && b.research);
     const pending = research ? null : world.buildings.find((b) => b.owner === me && b.pendingAdvance);
-    let epochHtml = `<img class="ep-icon" src="${epochIcon(player.epoch, 32)}" alt=""><span class="ep-num">${epochNumeral(player.epoch)}</span> ${esc(epoch.name)}`;
+    let epochHtml = `<img class="ep-icon" src="${epochIcon(player.epoch, 32)}" alt=""><span class="ep-num">${epochNumeral(player.epoch)}</span> <span class="ep-name">${esc(epoch.name)}</span>`;
     if (research) {
       const target = research.research!.targetEpoch;
       const pct = Math.floor((research.research!.progress / research.research!.total) * 100);
-      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> ${esc(EPOCHS[target].name)} ${pct} %`;
+      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> <span class="ep-name">${esc(EPOCHS[target].name)}</span> ${pct} %`;
     } else if (pending) {
       const target = pending.pendingAdvance!.targetEpoch;
-      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> ${esc(EPOCHS[target].name)} wartet`;
+      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> <span class="ep-name">${esc(EPOCHS[target].name)}</span> wartet`;
     }
-    if (this.els.epoch.innerHTML !== epochHtml) this.els.epoch.innerHTML = epochHtml;
+    if (this.epochHtml !== epochHtml) {
+      this.epochHtml = epochHtml;
+      morph(this.els.epoch, epochHtml);
+    }
     const idle = String(this.game.idleCitizens().length);
     if (this.els.idleCount.textContent !== idle) {
       this.els.idleCount.textContent = idle;
@@ -232,6 +239,7 @@ export class Hud {
     if (this.els.clock.textContent !== clock) this.els.clock.textContent = clock;
     this.updatePerf();
     this.updateWonders();
+    this.updateLineTip();
 
     for (const ev of world.events) this.handleEvent(ev);
     world.events.length = 0;
@@ -245,6 +253,31 @@ export class Hud {
     }
   }
 
+  /** While a wall or gate line is dragged: how many segments it gets and what they cost together. */
+  private updateLineTip(): void {
+    const p = this.game.placement;
+    const line = p?.line;
+    if (!p || !line || line.length === 0) {
+      if (this.lineTip) {
+        this.lineTip = '';
+        this.hideTooltip();
+      }
+      return;
+    }
+    const ok = line.filter((seg) => seg.valid).length;
+    const each = BUILDING_DEFS[p.type].cost;
+    const total: Cost = {};
+    for (const r of RESOURCES) if (each[r]) total[r] = (each[r] ?? 0) * ok;
+    const name = buildingName(p.type, this.game.world.players[this.game.me].epoch);
+    const html =
+      `<b>${esc(name)}: ${ok} ${ok === 1 ? 'Teil' : 'Teile'}</b><div>${costHtml(total)}</div>` +
+      (ok < line.length ? `<p class="warn">${line.length - ok} rot markiert: blockiert oder zu teuer – wird übersprungen.</p>` : '') +
+      '<p class="dim">Loslassen: bauen · Rechtsklick oder Esc: abbrechen</p>';
+    if (html === this.lineTip) return;
+    this.lineTip = html;
+    this.showTooltip(html);
+  }
+
   /** Topbar: every wonder counting down to victory, the closest first. Click jumps there. */
   private updateWonders(): void {
     const { world } = this.game;
@@ -254,7 +287,10 @@ export class Hud {
       .map((b) => `<span style="color:${world.players[b.owner].color}">⌛ ${esc(buildingName(b.type, b.epoch))} ${fmtTime(b.countdown / TICK_RATE)}</span>`)
       .join(' ');
     el.hidden = !html;
-    if (el.innerHTML !== html) el.innerHTML = html;
+    if (this.wonderHtml !== html) {
+      this.wonderHtml = html;
+      morph(el, html);
+    }
     const first = counting[0];
     el.onclick = first ? () => this.game.centerOn(first.x, first.y) : null;
   }
@@ -292,7 +328,7 @@ export class Hud {
     el.hidden = entries.length === 0 && !this.prefix;
     el.classList.toggle('prefix', this.prefix);
     const hint = this.prefix ? '<div class="prod-hint">Tab: jetzt Gebäudetaste drücken</div>' : '';
-    el.innerHTML =
+    const html =
       hint +
       entries
         .map(({ b, bars, waiting, idle }) => {
@@ -307,6 +343,7 @@ export class Hud {
           );
         })
         .join('');
+    morph(el, html);
     el.querySelectorAll<HTMLElement>('[data-prod]').forEach((btn) => {
       const id = Number(btn.dataset.prod);
       btn.onclick = (ev) => {
@@ -361,13 +398,14 @@ export class Hud {
     this.groupSig = sig;
     const el = this.els.groups;
     el.hidden = entries.length === 0;
-    el.innerHTML = entries
+    const html = entries
       .map(
         (g) =>
           `<button class="grp${g.key === game.activeGroup ? ' active' : ''}" data-grp="${g.key}" title="Gruppe ${g.key}: ${g.count} Einheiten (Doppelklick: hinspringen)">` +
           `<img src="${unitIcon(g.top!.role, g.top!.stats.epoch, color, 32)}" alt=""><span class="grp-key">${g.key}</span><span class="grp-count">${g.count}</span></button>`,
       )
       .join('');
+    morph(el, html);
     el.querySelectorAll<HTMLElement>('[data-grp]').forEach((b) => {
       b.onclick = () => game.recallGroup(b.dataset.grp!);
       b.ondblclick = () => game.recallGroup(b.dataset.grp!, true);
@@ -413,7 +451,7 @@ export class Hud {
     if (sig === this.sig) return;
     this.sig = sig;
     this.commands = commands;
-    this.els.selection.innerHTML = this.selectionHtml(ents);
+    morph(this.els.selection, this.selectionHtml(ents));
     this.bindSelection(ents);
     this.renderCommands();
   }
@@ -1039,7 +1077,7 @@ export class Hud {
 
   private renderCommands(): void {
     const el = this.els.commands;
-    el.innerHTML = this.commands
+    const html = this.commands
       .map(
         (c, i) =>
           `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}${c.active ? ' active' : ''}${c.key === this.hintKey ? ' hint' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
@@ -1049,6 +1087,7 @@ export class Hud {
           `</button>`,
       )
       .join('');
+    morph(el, html);
     el.querySelectorAll<HTMLButtonElement>('button.cmd').forEach((btn) => {
       const i = Number(btn.dataset.i);
       btn.onclick = (ev) => {

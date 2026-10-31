@@ -280,7 +280,7 @@ button.primary {
   bottom: 0;
   height: 172px;
   display: grid;
-  grid-template-columns: 262px minmax(0, 1fr) 330px;
+  grid-template-columns: 262px minmax(0, 1fr) 380px;
   background: linear-gradient(#211c15, #120f0b);
   border-top: 2px solid var(--border);
   box-shadow: 0 -3px 10px rgba(0, 0, 0, 0.5);
@@ -745,11 +745,13 @@ button.primary {
 /* ----------------------------------------------------------- commands */
 
 #commands {
+  /* Seven columns: the 19 commands of citizens fit three rows without a hidden fourth. */
+  --cmd: 48px;
   padding: 10px;
   border-left: 1px solid var(--border-soft);
   display: grid;
-  grid-template-columns: repeat(6, 48px);
-  grid-auto-rows: 48px;
+  grid-template-columns: repeat(7, var(--cmd));
+  grid-auto-rows: var(--cmd);
   gap: 4px;
   align-content: start;
   overflow-y: auto;
@@ -770,8 +772,8 @@ button.primary {
 }
 
 .cmd img {
-  width: 42px;
-  height: 42px;
+  width: calc(var(--cmd) - 6px);
+  height: calc(var(--cmd) - 6px);
   display: block;
   margin: 2px auto 0;
 }
@@ -1260,7 +1262,11 @@ table.help td:first-child {
   width: 64px;
   text-align: center;
   font-size: 10.5px;
+  line-height: 1.2;
   color: var(--dim);
+  /* Long names (Spätmittelalter) break inside the item instead of running into the next one. */
+  hyphens: auto;
+  overflow-wrap: anywhere;
 }
 
 .tl-item img {
@@ -1800,9 +1806,38 @@ table.help td:first-child {
 
 /* --------------------------------------------------------- small screens */
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
+  /* The top bar keeps its buttons on screen: numbers without resource names. */
+  #topbar {
+    gap: 12px;
+  }
+
   #resources b {
     display: none;
+  }
+
+  #bottombar {
+    grid-template-columns: 262px minmax(0, 1fr) 332px;
+  }
+
+  #commands {
+    --cmd: 42px;
+    padding: 8px;
+    gap: 3px;
+  }
+}
+
+@media (max-width: 900px) {
+  #topbar {
+    gap: 9px;
+  }
+
+  #topbar .ep-name {
+    display: none;
+  }
+
+  .top-buttons button {
+    padding: 4px 8px;
   }
 
   .top-group .label {
@@ -1810,7 +1845,7 @@ table.help td:first-child {
   }
 
   #bottombar {
-    grid-template-columns: 170px minmax(0, 1fr) 278px;
+    grid-template-columns: 170px minmax(0, 1fr) 290px;
   }
 
   #minimap {
@@ -1819,7 +1854,7 @@ table.help td:first-child {
   }
 
   #commands {
-    grid-template-columns: repeat(5, 48px);
+    --cmd: 36px;
   }
 
   #groups {
