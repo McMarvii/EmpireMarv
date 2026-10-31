@@ -16,6 +16,7 @@ export function emptyWorld(overrides: Partial<GameSettings> = {}): World {
   w.compact();
   // Flatten the battlefield so tests never depend on generated lakes.
   w.map.terrain.fill(0);
+  w.map.version++;
   return w;
 }
 

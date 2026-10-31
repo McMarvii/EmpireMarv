@@ -20,7 +20,7 @@ export class GameMap {
   readonly shade: Uint8Array;
   /** Team whose units may pass a finished gate on this tile, or -1. */
   readonly gateTeam: Int16Array;
-  /** Bumped whenever passability changes, so caches can invalidate. */
+  /** Bumped whenever passability changes, so caches can invalidate (also after editing `terrain` by hand). */
   version = 0;
   /**
    * Connected stretches of land and of water by terrain alone (1, 2, …; 0
