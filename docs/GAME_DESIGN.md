@@ -360,7 +360,7 @@ Gespeichert wird ein **Schnappschuss** der ganzen Simulation, nicht die Befehlsl
   - geladen wird im Hauptmenü unter „Spielstände“.
 - **Grenzen**:
   - Nur Partien gegen den Computer; im Mehrspieler gibt es den Wiedereinstieg per Link.
-  - Ein Spielstand gehört zu seiner Simulationsversion (`SIM_VERSION`), denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt. Die Simulationsversion steigt nur, wenn die Simulation anders rechnet, nicht bei Grafik oder Bedienung: Spielstände und Wiedergaben aus 0.8 laufen in 0.9 weiter.
+  - Ein Spielstand gehört zu seiner Simulationsversion (`SIM_VERSION`), denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt. Die Simulationsversion steigt nur, wenn die Simulation anders rechnet, nicht bei Grafik oder Bedienung: Spielstände und Wiedergaben aus 0.8 liefen in 0.9 weiter. 0.10 findet andere Wege, deshalb enden Stände aus 0.8 und 0.9 dort.
 
 ## KI
 
@@ -411,8 +411,12 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
     - Der Nebel hat weiche Ränder und blendet in etwa einer Siebtelsekunde ein und aus.
   - Effekte, Geschosse, Balken und alle Bedienelemente zeichnet weiter die 2D-Ebene darüber.
   - „Automatisch“ nimmt WebGL nur mit Grafikbeschleunigung. Läuft WebGL nur in Software (gesperrte Treiber), ist der Canvas schneller. Bei Kontextverlust oder einem Fehler mitten im Spiel übernimmt der Canvas.
-- **Wegfindung**:
+- **Wegfindung** (`src/sim/pathfinding.ts`):
   - A* auf 8er-Nachbarschaft mit wiederverwendeten Puffern und String-Pulling-Glättung, getrennt für Land und Wasser. Flieger fliegen ohne Suche geradeaus.
+  - **Direktlinie**: Ist der Weg frei, braucht es keine Suche. Die Prüfung läuft zeilenweise über alle Felder, die die Einheit mit 0,3 Feldern Schulterbreite berührt.
+  - **Gruppen-Wegsuche**: Ein Marschbefehl sucht einmal rückwärts vom Ziel, bis alle Mitglieder und ihre Formationsplätze erreicht sind. Jeder Weg wird aus diesem Suchbaum abgelesen: vom Mitglied hinauf bis zum Ast seines Platzes, dann hinunter. Plätze in eingeschlossenen Taschen weichen dem nächsten erreichbaren Feld, ein eingeschlossenes Ziel dem nächsten erreichbaren Punkt.
+  - **Erreichbarkeit**: Zusammenhängende Flächen aus Gelände, Gebäuden und Bäumen werden je Team berechnet, weil eigene Tore offen sind, und bei jeder Kartenänderung neu bestimmt. Erst eine Suche, die über 1 024 Felder läuft, fragt sie ab. Liegt das Ziel auf einer anderen Fläche, geht es zur nächsten erreichbaren Stelle statt durch alles Erreichbare.
+  - Nach einem Sieg im Angriffsmarsch plant eine Einheit erst weiter, wenn sie keinen neuen Gegner sieht. Vorher plante sie bei jedem Sieg den ganzen Weg neu und warf ihn einen Schritt später fort.
   - Zusammenhängende Land- und Wasserregionen sind nach der Kartenerzeugung per Flutfüllung bekannt; so prüfen KI und Transporte ohne Suche, ob etwas zu Land erreichbar ist.
 - **Audio** (`src/audio`): Synthese-Bausteine, Instrumente, Klangrezepte, reiner Musik-Komponist (testbar ohne Browser) und ein Mischpult mit Bussen für Effekte, Oberfläche und Musik.
 
@@ -430,8 +434,9 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | 0.6 | ✔ **Helden** (Stratege und Krieger mit Auren, je 3 Fähigkeiten, Titel je Epoche), ✔ **Tempel, Priester und Propheten** (Bekehren, Heilen, vier Katastrophen nur gegen Gegner, Gegenmittel-Techniken), ✔ **Wunder** (eines je Ära mit eigener Wirkung) mit einstellbarem **Wundersieg**, ✔ KI nutzt alles davon |
 | 0.7 | ✔ **Kartentypen** (Kontinent, Küste, Binnenmeer, Inseln, Flüsse, Steppe, Zufall; Fischgründe), ✔ **Seekrieg** (Hafen, Fischerboot, Transport-, Kriegs- und Belagerungsschiff je Ära; Einsteigen und Entladen; Land gegen See nur auf Distanz), ✔ KI fischt, kämpft zur See und **landet auf fremden Inseln**, ✔ **Speichern & Laden** (Schnappschuss, Strg+S, automatisch, als Datei) |
 | 0.8 | ✔ **Luftkrieg** (Ballon ab XII; Flugplatz, Jäger und Bomber ab XIV; nur Flugabwehr trifft Flugzeuge; Treibstoff und Bombenlast mit Rückflug zum Flugplatz; vier neue Technikzweige), ✔ KI mit Ballon, Bombenangriffen und Luftabwehr, ✔ **geführtes Tutorial** (Übungspartie mit 14 geprüften Schritten und einem Gefecht gegen ein Räuberlager) |
-| **0.9** (jetzt) | ✔ **WebGL-Renderer** für große Schlachten (Sprite-Atlas mit Einzelbildern je Bewegungszyklus und Zoomstufen, ein Zeichenaufruf je Durchgang), ✔ **Gelände-Shader** mit weichen Übergängen, Wasser mit Tiefe, Wellen und Brandung, ✔ weicher, ein- und ausblendender **Nebel**, ✔ Grafik-Einstellung mit automatischem Rückfall auf Canvas, ✔ Bildrate (F3), ✔ Gelände im Canvas über 30-mal schneller beim Herauszoomen |
-| 1.0 | Kampagne und Szenario-Editor, Balancing, Lokalisierung, schnellere Simulation für große Schlachten |
+| 0.9 | ✔ **WebGL-Renderer** für große Schlachten (Sprite-Atlas mit Einzelbildern je Bewegungszyklus und Zoomstufen, ein Zeichenaufruf je Durchgang), ✔ **Gelände-Shader** mit weichen Übergängen, Wasser mit Tiefe, Wellen und Brandung, ✔ weicher, ein- und ausblendender **Nebel**, ✔ Grafik-Einstellung mit automatischem Rückfall auf Canvas, ✔ Bildrate (F3), ✔ Gelände im Canvas über 30-mal schneller beim Herauszoomen |
+| **0.10** (jetzt) | ✔ **Schnellere Simulation** für große Schlachten: Gruppen-Wegsuche für Marschbefehle, Direktlinien ohne Suche, Erreichbarkeit über zusammenhängende Flächen. Eine Schlacht mit 1 000 Einheiten braucht 1,9 statt 6 ms je Schritt (Spitzen 14 statt 144 ms), ein Marschbefehl für 400 Einheiten 20–50 statt bis zu 980 ms |
+| 1.0 | Kampagne und Szenario-Editor, Balancing, Lokalisierung |
 
 ### Interview-Ergebnisse (Oktober 2026)
 
@@ -447,4 +452,4 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 1. **Endgültige Plattform**: Bleibt es ein Browserspiel (sofort spielbar, leicht teilbar) oder kommt später ein Port in eine Engine wie Godot (3D, Steam)? Die Simulation ist so geschrieben, dass beides möglich bleibt.
 2. **Grafikstil**: Prozedurale Vektorgrafik (wie jetzt) gegen gezeichnete oder gerenderte Sprites. Mit echten Assets steigt der Produktionsaufwand stark. Der Sprite-Atlas von 0.9 nähme gezeichnete Sprites ohne Umbau auf.
 3. **Name**: „EmpireMarv“ ist ein Arbeitstitel. Ein eigener Name ist nötig, bevor das Spiel öffentlich beworben wird.
-4. **Simulation bei großen Schlachten**: Seit 0.9 ist bei vielen Einheiten nicht mehr das Zeichnen der Engpass, sondern die Simulation. Gemessen: Bei 1 000 Einheiten im Gefecht kostet ein Tick 7–15 ms, also 13–29 % der Rechenzeit, meist für Wegsuche beim Zielwechsel. Abhilfe wären Gruppen-Wegsuche (Flussfelder) oder die Simulation in einem Web Worker.
+4. **Simulation in einem Web Worker**: 0.10 hat die Wegsuche als Engpass beseitigt. Gemessen auf der echten Karte mit Wald: 1 000 Einheiten im Gefecht brauchen 1,9 ms je Schritt (vorher 6 ms), das sind knapp 4 % der Rechenzeit bei 20 Schritten pro Sekunde. Größter Posten ist jetzt das Auseinanderschieben dichter Haufen. Ein Web Worker würde die Simulation ganz vom Zeichnen trennen. Er lohnt sich erst, wenn Karten oder Armeen deutlich größer werden, denn der Zustand müsste dann jeden Schritt zum Zeichnen herübergereicht werden.

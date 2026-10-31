@@ -294,6 +294,8 @@ export class World {
   private statCache: Array<Map<string, UnitStats>> = [];
   private grid: Unit[][];
   private gridCols: number;
+  /** Cells of `grid` holding units, so rebuilding it skips the empty ones. */
+  private gridUsed: number[] = [];
   private lastAlertTick: number[] = [];
   /** Not saved: only throttles a warning. */
   private lastFuelWarn: number[] = [];
@@ -859,13 +861,18 @@ export class World {
   }
 
   private rebuildGrid(): void {
-    for (const cell of this.grid) cell.length = 0;
+    // Only the cells filled last time need emptying.
+    for (const c of this.gridUsed) this.grid[c].length = 0;
+    this.gridUsed.length = 0;
     const max = this.gridCols - 1;
     for (const u of this.units) {
       if (u.dead) continue;
       const cx = Math.max(0, Math.min(max, Math.floor(u.x / GRID_CELL)));
       const cy = Math.max(0, Math.min(max, Math.floor(u.y / GRID_CELL)));
-      this.grid[cy * this.gridCols + cx].push(u);
+      const c = cy * this.gridCols + cx;
+      const cell = this.grid[c];
+      if (cell.length === 0) this.gridUsed.push(c);
+      cell.push(u);
     }
   }
 
@@ -1283,13 +1290,46 @@ export class World {
    * Orders that never end on their own (idle, gathering, exploring,
    * patrolling) give way at once, so a queued build doesn't wait forever.
    */
-  private assign(u: Unit, plan: Plan, queue: boolean): void {
+  private assign(u: Unit, plan: Plan, queue: boolean, route?: Point[]): void {
     if (queue && !isEndless(u.order)) {
       if (u.queue.length < MAX_QUEUE) u.queue.push(plan);
       return;
     }
     if (!queue) u.queue = [];
-    startPlan(this, u, plan);
+    startPlan(this, u, plan, route);
+  }
+
+  /**
+   * Ways for a group setting off together: one search for all who walk (and
+   * one for all who sail) instead of one each. Members with open ground to
+   * their spot, aircraft and lone walkers get nothing and plan on their own,
+   * which costs them next to nothing. Moves a member's spot (in `targets`)
+   * when it cannot be reached.
+   */
+  private groupRoutes(units: Unit[], targets: Point[], x: number, y: number): Array<Point[] | undefined> {
+    const routes: Array<Point[] | undefined> = units.map(() => undefined);
+    for (const naval of [false, true]) {
+      const team = this.teamOf(units[0].owner);
+      const members = units.flatMap((u, i) =>
+        !isAir(u.role) && isNaval(u.role) === naval && !this.pathfinder.lineClear(u, targets[i], team, naval) ? [i] : [],
+      );
+      if (members.length < 2) continue;
+      const found = this.pathfinder.groupPaths(
+        members.map((i) => units[i]),
+        members.map((i) => targets[i]),
+        { x, y },
+        team,
+        naval,
+      );
+      members.forEach((i, k) => {
+        const r = found[k];
+        if (!r) return;
+        routes[i] = r;
+        // A spot shut in by woods or walls gave way to the nearest one the member can reach.
+        if (r.length > 0) targets[i] = r[r.length - 1];
+      });
+    }
+    return routes;
   }
 
   /** Where a unit will be once its current and queued orders are done. */
@@ -1340,8 +1380,10 @@ export class World {
             inStep.map((i) => targets[i]),
           )
         : null;
+    // Queued moves set off later, from wherever the orders before them end.
+    const routes = queue ? null : this.groupRoutes(units, targets, x, y);
     units.forEach((u, i) => {
-      this.assign(u, { kind: 'move', x: targets[i].x, y: targets[i].y, attackMove, pace: pace?.get(u.id) }, queue);
+      this.assign(u, { kind: 'move', x: targets[i].x, y: targets[i].y, attackMove, pace: pace?.get(u.id) }, queue, routes?.[i]);
     });
   }
 

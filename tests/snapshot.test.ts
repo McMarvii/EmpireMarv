@@ -83,6 +83,7 @@ describe('saved games', () => {
     const w = emptyWorld({ wonderVictory: 5 });
     for (let y = 0; y < 48; y++) for (let x = 20; x <= 34; x++) w.map.terrain[w.map.idx(x, y)] = Terrain.Water;
     w.map.computeRegions();
+    w.map.version++;
     w.players[0].epoch = w.players[1].epoch = 9;
     const ship = w.spawnUnit(0, 'transport', 21.5, 18.5, bestTier('transport', 9));
     const troops = [0, 1, 2].map((i) => w.spawnUnit(0, 'assault', 16.5 + i, 18.5, bestTier('assault', 9)));

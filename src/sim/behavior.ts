@@ -320,14 +320,19 @@ function updateRefuel(w: World, u: Unit): void {
   routeTo(w, u);
 }
 
-/** Turns a queued command into the unit's current order. */
-export function startPlan(w: World, u: Unit, plan: Plan): void {
+/** Turns a queued command into the unit's current order. `route`: a way to a move's goal, already planned for the whole group. */
+export function startPlan(w: World, u: Unit, plan: Plan, route?: Point[]): void {
   u.path = [];
   u.repathTick = -1000;
   switch (plan.kind) {
     case 'move':
       u.order = { kind: 'move', x: plan.x, y: plan.y, attackMove: plan.attackMove, pace: plan.pace };
-      setPathTo(w, u, { kind: 'point', x: plan.x, y: plan.y });
+      if (route) {
+        u.path = route;
+        u.repathTick = w.tick;
+      } else {
+        setPathTo(w, u, { kind: 'point', x: plan.x, y: plan.y });
+      }
       break;
     case 'attack': {
       const t = w.get(plan.targetId);
@@ -481,7 +486,11 @@ function endAttack(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind === 'attack' && o.resume) {
     u.order = o.resume;
-    routeTo(w, u);
+    // The way on is planned by the resumed order, and only if the scan right
+    // after this finds no next foe: in a melee it nearly always does, and a
+    // route planned now would be thrown away a tick later.
+    u.path = [];
+    u.repathTick = -1000;
   } else {
     goIdle(u);
   }
@@ -1198,11 +1207,16 @@ export function separateUnits(w: World): void {
     let pushX = 0;
     let pushY = 0;
     const domain = domainOf(u.role);
-    w.forUnitsNear(u.x, u.y, minDist, (o) => {
+    const ux = u.x;
+    const uy = u.y;
+    w.forUnitsNear(ux, uy, minDist, (o) => {
+      if (o === u) return;
+      const dx = ux - o.x;
+      const dy = uy - o.y;
+      // Most of a crowd is too far off along one axis already.
+      if (dx >= minDist || dx <= -minDist || dy >= minDist || dy <= -minDist) return;
       // Ships and walkers pass each other at the shore, aircraft over everybody's heads.
-      if (o === u || domainOf(o.role) !== domain) return;
-      const dx = u.x - o.x;
-      const dy = u.y - o.y;
+      if (domainOf(o.role) !== domain) return;
       const d = hypot(dx, dy);
       if (d >= minDist) return;
       if (d < 1e-4) {
