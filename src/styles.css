@@ -182,6 +182,7 @@ button {
 .top-buttons button,
 .dialog-buttons button,
 .menu-card button,
+#net-invite button,
 #tutorial button:not(.primary) {
   background: linear-gradient(#3a3226, #251f17);
   border: 1px solid var(--border);
@@ -200,6 +201,12 @@ button.primary {
   color: #1d1408;
   font-weight: 700;
   border-color: #f3d48e;
+}
+
+.menu-card button:disabled,
+#net-invite button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* ------------------------------------------------------------- messages */
@@ -1565,6 +1572,7 @@ table.help td:first-child {
 
 .settings-grid label,
 .mp-name,
+.new-code,
 .invite label,
 .code-box label {
   display: flex;
@@ -1584,6 +1592,7 @@ table.help td:first-child {
 .settings-grid select,
 .settings-grid input[type='number'],
 .menu-card input:not([type]),
+#net-invite input,
 .menu-card .slot select {
   font: inherit;
   color: var(--text);
@@ -1868,6 +1877,60 @@ table.help td:first-child {
   font-variant-numeric: tabular-nums;
 }
 
+#net-players .np-rejoin {
+  margin-top: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  pointer-events: auto;
+  background: linear-gradient(#3a3226, #251f17);
+  border: 1px solid var(--gold-dark);
+  border-radius: 4px;
+}
+
+#net-invite {
+  position: fixed;
+  top: 128px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(480px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--panel-solid);
+  border: 1px solid var(--gold-dark);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
+  z-index: 9;
+  zoom: var(--ui-scale, 1);
+}
+
+#net-invite h3 {
+  margin: 0;
+}
+
+#net-invite p {
+  margin: 0;
+  font-size: 13px;
+}
+
+#net-invite label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--dim);
+  font-size: 13px;
+}
+
+#net-invite > button {
+  align-self: flex-start;
+}
+
+.join-version {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
 #chatlog {
   position: fixed;
   left: 270px;
@@ -2137,6 +2200,15 @@ table.help td:first-child {
   }
 
   #net-players {
+    display: none;
+  }
+
+  /* Small screens hide the list, but not the way back for a player who dropped out. */
+  #net-players.with-rejoin {
+    display: flex;
+  }
+
+  #net-players.with-rejoin .np-row {
     display: none;
   }
 

@@ -46,6 +46,8 @@ export interface GameOptions {
   save?: SaveGame;
   /** The guided practice match: the tutorial panel watches and explains (not recorded, not saved). */
   tutorial?: boolean;
+  /** Network guests: back to the join screen with the same invitation once the connection is lost. */
+  rejoin?: () => void;
 }
 
 /** Steps run per frame at most, so a slow frame cannot snowball. */
@@ -999,6 +1001,14 @@ export class Game {
     if (this.paused) next.setPaused(true);
     next.start();
     (window as unknown as { game: Game }).game = next;
+  }
+
+  /** A guest whose connection broke: this screen goes, the join screen comes back for the same match. */
+  rejoin(): void {
+    if (!this.options.rejoin) return;
+    this.keepReplay();
+    this.destroy();
+    this.options.rejoin();
   }
 
   /** Leaves the match; it stays available as "Letzte Partie ansehen". */

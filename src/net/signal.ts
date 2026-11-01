@@ -14,6 +14,10 @@ export interface SignalMessage {
 
 export interface Signal {
   readonly id: string;
+  /** False while the connection to the server is gone and being rebuilt. */
+  readonly online: boolean;
+  /** Called whenever `online` changes. */
+  onstate: ((online: boolean) => void) | null;
   send(type: Exclude<SignalMessage['type'], 'EXPIRE'>, dst: string, payload: unknown): void;
   /** Subscribes to handshake messages; returns the unsubscribe function. */
   on(fn: (m: SignalMessage) => void): () => void;
@@ -24,6 +28,8 @@ const PEERJS_HOST = '0.peerjs.com';
 const PEERJS_KEY = 'peerjs';
 const HEARTBEAT_MS = 5000;
 const OPEN_TIMEOUT_MS = 10_000;
+/** Waits between attempts to get back to the server; the first one goes at once. */
+const RETRY_MS = [0, 1000, 2000, 4000, 8000, 15_000];
 
 /**
  * The PeerJS server checks every handshake message against the fields its own client sends and
@@ -63,63 +69,136 @@ class Listeners {
  * Speaks the PeerJS server protocol directly (a WebSocket with JSON
  * messages), so the game needs no library. Resolves once the server has
  * registered the id.
+ *
+ * Once open, a dropped connection is rebuilt with the same id and token (the server hands the id
+ * back to the same token), for as long as the signal is not closed. Browsers slow down the
+ * heartbeat of a tab in the background, and the server drops ids that stay silent too long:
+ * without this, an invitation link would stop working while the host sends it around.
  */
 export function openPeerJs(id: string): Promise<Signal> {
   return new Promise((resolve, reject) => {
     const token = Math.random().toString(36).slice(2);
-    const ws = new WebSocket(`wss://${PEERJS_HOST}/peerjs?key=${PEERJS_KEY}&id=${encodeURIComponent(id)}&token=${token}&version=1.5.4`);
     const listeners = new Listeners();
+    let ws: WebSocket;
     let opened = false;
+    let closed = false;
+    let online = false;
     let heartbeat = 0;
-    const fail = (text: string) => {
-      clearTimeout(timeout);
-      clearInterval(heartbeat);
-      ws.close();
-      if (!opened) reject(new Error(text));
-    };
+    let retry = 0;
+    let retryTimer = 0;
     const timeout = setTimeout(() => fail('Der Vermittlungsserver antwortet nicht.'), OPEN_TIMEOUT_MS);
+    const setOnline = (on: boolean) => {
+      if (online === on) return;
+      online = on;
+      signal.onstate?.(on);
+    };
+    const registered = () => {
+      retry = 0;
+      setOnline(true);
+      if (opened) return;
+      opened = true;
+      clearTimeout(timeout);
+      resolve(signal);
+    };
+    /** Before the first OPEN: give up with a message. Afterwards: try again. */
+    const fail = (text: string, final = false) => {
+      clearInterval(heartbeat);
+      ws.onclose = null;
+      ws.close();
+      if (!opened) {
+        clearTimeout(timeout);
+        closed = true;
+        document.removeEventListener('visibilitychange', wake);
+        reject(new Error(text));
+        return;
+      }
+      setOnline(false);
+      if (final) closed = true;
+      else reconnect();
+    };
+    const reconnect = () => {
+      if (closed || retryTimer) return;
+      const wait = RETRY_MS[Math.min(retry++, RETRY_MS.length - 1)];
+      retryTimer = window.setTimeout(() => {
+        retryTimer = 0;
+        if (!closed) connect();
+      }, wait);
+    };
     const signal: Signal = {
       id,
+      get online() {
+        return online;
+      },
+      onstate: null,
       send(type, dst, payload) {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, payload: peerJsPayload(type, payload), dst }));
       },
       on: (fn) => listeners.on(fn),
       close() {
+        closed = true;
         clearInterval(heartbeat);
+        clearTimeout(retryTimer);
+        ws.onclose = null;
         ws.close();
       },
     };
-    ws.onmessage = (ev) => {
-      let msg: { type?: string; src?: string; payload?: { msg?: string } };
-      try {
-        msg = JSON.parse(String(ev.data));
-      } catch {
-        return;
-      }
-      switch (msg.type) {
-        case 'OPEN':
-          opened = true;
-          clearTimeout(timeout);
-          heartbeat = window.setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'HEARTBEAT' })), HEARTBEAT_MS);
-          resolve(signal);
+    const connect = () => {
+      ws = new WebSocket(`wss://${PEERJS_HOST}/peerjs?key=${PEERJS_KEY}&id=${encodeURIComponent(id)}&token=${token}&version=1.5.4`);
+      ws.onopen = () => {
+        clearInterval(heartbeat);
+        heartbeat = window.setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ type: 'HEARTBEAT' })), HEARTBEAT_MS);
+        // A known id that comes back gets no new OPEN from the server, the open socket is enough.
+        if (opened) registered();
+      };
+      ws.onmessage = (ev) => {
+        let msg: { type?: string; src?: string; payload?: { msg?: string } };
+        try {
+          msg = JSON.parse(String(ev.data));
+        } catch {
           return;
-        case 'ID-TAKEN':
-          fail('Diese Spiel-ID ist schon vergeben.');
-          return;
-        case 'ERROR':
-        case 'INVALID-KEY':
-          fail(`Vermittlungsserver: ${msg.payload?.msg ?? 'Fehler'}`);
-          return;
-        case 'OFFER':
-        case 'ANSWER':
-        case 'CANDIDATE':
-        case 'EXPIRE':
-          if (msg.src) listeners.emit({ type: msg.type, src: msg.src, payload: msg.payload });
-          return;
-      }
+        }
+        switch (msg.type) {
+          case 'OPEN':
+            registered();
+            return;
+          case 'ID-TAKEN':
+            // On a retry: someone else got the id meanwhile, this invitation is gone for good.
+            fail('Diese Spiel-ID ist schon vergeben.', true);
+            return;
+          case 'ERROR':
+          case 'INVALID-KEY':
+            fail(`Vermittlungsserver: ${msg.payload?.msg ?? 'Fehler'}`);
+            return;
+          case 'OFFER':
+          case 'ANSWER':
+          case 'CANDIDATE':
+          case 'EXPIRE':
+            if (msg.src) listeners.emit({ type: msg.type, src: msg.src, payload: msg.payload });
+            return;
+          case 'LEAVE':
+            // The server found the other side's connection dead: for the dialling side as good as EXPIRE.
+            if (msg.src) listeners.emit({ type: 'EXPIRE', src: msg.src, payload: msg.payload });
+            return;
+        }
+      };
+      ws.onerror = () => fail('Der Vermittlungsserver ist nicht erreichbar.');
+      ws.onclose = () => fail('Die Verbindung zum Vermittlungsserver wurde getrennt.');
     };
-    ws.onerror = () => fail('Der Vermittlungsserver ist nicht erreichbar.');
-    ws.onclose = () => fail('Die Verbindung zum Vermittlungsserver wurde getrennt.');
+    // Back in the foreground: do not wait for the next retry.
+    const wake = () => {
+      if (closed || document.hidden || online || !opened || !retryTimer) return;
+      clearTimeout(retryTimer);
+      retryTimer = 0;
+      retry = 0;
+      connect();
+    };
+    document.addEventListener('visibilitychange', wake);
+    const close = signal.close;
+    signal.close = () => {
+      document.removeEventListener('visibilitychange', wake);
+      close();
+    };
+    connect();
   });
 }
 
@@ -133,6 +212,8 @@ export function openLocal(id: string): Promise<Signal> {
   };
   return Promise.resolve({
     id,
+    online: true,
+    onstate: null,
     send(type, dst, payload) {
       channel.postMessage({ type, src: id, dst, payload });
     },

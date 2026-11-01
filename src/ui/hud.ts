@@ -1381,15 +1381,20 @@ export class Hud {
   }
 
   /** The network match is over for this player (host gone, connection lost). */
-  showNetLost(reason: string, save: () => void): void {
+  /** `rejoin`: the match goes on without this guest, who can come back to their seat. */
+  showNetLost(reason: string, save: () => void, rejoin?: () => void): void {
+    const back = rejoin
+      ? `<p class="dim">Das Spiel läuft beim Gastgeber weiter (eine Minute lang wartet es auf dich, danach spielt der Computer für dich). Mit „Wieder beitreten“ kommst du auf deinen Platz zurück.</p>`
+      : '';
     this.openOverlay(
       'gameover',
       `<h2>Verbindung beendet</h2>
        <p>${esc(reason)}</p>
+       ${back}
        <p class="dim">Die Partie bis hierher lässt sich als Wiedergabe speichern und später ansehen.</p>
-       <div class="dialog-buttons"><button data-act="save">Wiedergabe speichern</button><button data-act="quit" class="primary">Hauptmenü</button></div>`,
+       <div class="dialog-buttons"><button data-act="save">Wiedergabe speichern</button><button data-act="quit"${rejoin ? '' : ' class="primary"'}>Hauptmenü</button>${rejoin ? '<button data-act="rejoin" class="primary">Wieder beitreten</button>' : ''}</div>`,
     );
-    this.bindOverlay({ save, quit: () => this.game.exitToMenu() });
+    this.bindOverlay({ save, quit: () => this.game.exitToMenu(), ...(rejoin ? { rejoin } : {}) });
   }
 
   toggleMute(): void {

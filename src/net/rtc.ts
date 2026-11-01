@@ -38,44 +38,70 @@ class Candidates {
   }
 }
 
+/** How often a guest asks again when the server says the host is not there (it may be reconnecting). */
+const DIAL_RETRIES = 2;
+const DIAL_RETRY_MS = 2500;
+
 /** Guest side: connects to the host behind `hostId`. */
 export function dial(signal: Signal, hostId: string): Promise<Transport> {
   return new Promise((resolve, reject) => {
-    const cid = Math.random().toString(36).slice(2);
-    const pc = new RTCPeerConnection(RTC_CONFIG);
-    const dc = pc.createDataChannel('empiremarv', { ordered: true });
-    const candidates = new Candidates(pc);
+    let attempt = 0;
     let done = false;
-    const finish = (err?: Error) => {
+    let pc: RTCPeerConnection;
+    let off: () => void = () => {};
+    let retryTimer = 0;
+    const finish = (result: Error | Transport) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      clearTimeout(retryTimer);
       off();
-      if (err) {
+      if (result instanceof Error) {
         pc.close();
-        reject(err);
-      } else resolve(channelTransport(pc, dc));
+        reject(result);
+      } else resolve(result);
     };
-    const timer = setTimeout(() => finish(new Error(pc.iceConnectionState === 'checking' ? NO_ROUTE : 'Der Gastgeber antwortet nicht. Stimmt der Link, und ist das Spiel noch offen?')), CONNECT_TIMEOUT_MS);
-    const off = signal.on((m: SignalMessage) => {
-      if (m.src !== hostId) return;
-      if (m.type === 'EXPIRE') return finish(new Error('Kein offenes Spiel unter diesem Link. Ist er aktuell, und hat der Gastgeber die Lobby noch offen?'));
-      const p = m.payload as Handshake;
-      if (p?.cid !== cid) return;
-      if (m.type === 'ANSWER' && p.sdp) pc.setRemoteDescription(p.sdp).then(() => candidates.flush(), (e) => finish(e));
-      else if (m.type === 'CANDIDATE' && p.candidate) candidates.add(p.candidate);
-    });
-    pc.onicecandidate = (ev) => {
-      if (ev.candidate) signal.send('CANDIDATE', hostId, { cid, candidate: ev.candidate.toJSON() } satisfies Handshake);
+    const timer = setTimeout(
+      () => finish(new Error(pc.iceConnectionState === 'checking' ? NO_ROUTE : 'Der Gastgeber antwortet nicht. Stimmt der Link, und ist das Spiel noch offen?')),
+      CONNECT_TIMEOUT_MS,
+    );
+    const start = () => {
+      off();
+      pc?.close();
+      const cid = Math.random().toString(36).slice(2);
+      const conn = new RTCPeerConnection(RTC_CONFIG);
+      pc = conn;
+      const dc = conn.createDataChannel('empiremarv', { ordered: true });
+      const candidates = new Candidates(conn);
+      off = signal.on((m: SignalMessage) => {
+        if (m.src !== hostId || done) return;
+        if (m.type === 'EXPIRE') {
+          if (attempt++ >= DIAL_RETRIES) return finish(new Error('Kein offenes Spiel unter diesem Link. Ist er aktuell, und hat der Gastgeber das Spiel noch offen?'));
+          off();
+          retryTimer = window.setTimeout(start, DIAL_RETRY_MS);
+          return;
+        }
+        const p = m.payload as Handshake;
+        if (p?.cid !== cid) return;
+        if (m.type === 'ANSWER' && p.sdp) conn.setRemoteDescription(p.sdp).then(() => candidates.flush(), (e) => finish(e));
+        else if (m.type === 'CANDIDATE' && p.candidate) candidates.add(p.candidate);
+      });
+      conn.onicecandidate = (ev) => {
+        if (ev.candidate && conn === pc) signal.send('CANDIDATE', hostId, { cid, candidate: ev.candidate.toJSON() } satisfies Handshake);
+      };
+      conn.oniceconnectionstatechange = () => {
+        if (conn === pc && conn.iceConnectionState === 'failed') finish(new Error(NO_ROUTE));
+      };
+      dc.onopen = () => {
+        if (conn === pc) finish(channelTransport(conn, dc));
+      };
+      conn
+        .createOffer()
+        .then((offer) => conn.setLocalDescription(offer))
+        .then(() => signal.send('OFFER', hostId, { cid, sdp: conn.localDescription!.toJSON() } satisfies Handshake))
+        .catch((e) => conn === pc && finish(e));
     };
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'failed') finish(new Error(NO_ROUTE));
-    };
-    dc.onopen = () => finish();
-    pc.createOffer()
-      .then((offer) => pc.setLocalDescription(offer))
-      .then(() => signal.send('OFFER', hostId, { cid, sdp: pc.localDescription!.toJSON() } satisfies Handshake))
-      .catch((e) => finish(e));
+    start();
   });
 }
 
