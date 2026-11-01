@@ -39,7 +39,8 @@ export interface PeerStatus {
 }
 
 export type HostMessage =
-  | { t: 'welcome'; slot: number; token: string }
+  /** `v`: the host's game version (missing before 0.11.1). */
+  | { t: 'welcome'; slot: number; token: string; v?: string }
   | { t: 'refuse'; reason: string }
   | { t: 'lobby'; slots: LobbySlot[]; options: MatchOptions }
   | {
@@ -65,7 +66,8 @@ export type HostMessage =
   | { t: 'end'; reason: string };
 
 export type GuestMessage =
-  | { t: 'hello'; name: string; token?: string }
+  /** `v`: the guest's game version (missing before 0.11.1); both sides must run the same one. */
+  | { t: 'hello'; name: string; token?: string; v?: string }
   | { t: 'name'; name: string }
   | { t: 'cmd'; c: Command }
   /** Ticks run so far, with the state checksum when `n` is a multiple of HASH_EVERY. */

@@ -1,5 +1,6 @@
 import type { Session } from '../session';
 import type { Command, GameSettings, World } from '../sim/world';
+import { GAME_VERSION } from '../version';
 import {
   ACK_EVERY,
   delayFor,
@@ -30,8 +31,8 @@ export interface NetClient {
   /** Players or the waiting state changed. */
   status(): void;
   desync(tick: number, player: number): void;
-  /** The match cannot go on (host gone, connection lost). */
-  lost(reason: string): void;
+  /** The match cannot go on here (connection lost); `final`: the match itself is over (the host left). */
+  lost(reason: string, final?: boolean): void;
 }
 
 export interface SessionClock {
@@ -95,9 +96,15 @@ export abstract class NetSession implements Session {
 
   abstract behind(tick: number): number;
 
+  /** Runs once when the session closes (the lobby hangs up the signalling server). */
+  onClose: (() => void) | null = null;
+
   close(): void {
     clearInterval(this.timer);
     if (this.clock.timers) window.removeEventListener('pagehide', this.onHide);
+    const done = this.onClose;
+    this.onClose = null;
+    done?.();
   }
 }
 
@@ -137,6 +144,8 @@ export class HostSession extends NetSession {
   settings: GameSettings | null = null;
   /** Lobby changed (someone joined, left, renamed). */
   onLobby: (() => void) | null = null;
+  /** The invitation link while the signalling server is reachable: players who dropped out come back with it. */
+  rejoinLink: string | null = null;
   private peers: Peer[] = [];
   private pending: Command[] = [];
   private frames = new Map<number, Command[]>();
@@ -260,7 +269,7 @@ export class HostSession extends NetSession {
     if (!msg || typeof msg !== 'object') return;
     peer.lastSeen = this.clock.now();
     if (msg.t === 'hello') {
-      if (peer.slot < 0) this.hello(peer, msg.name, msg.token);
+      if (peer.slot < 0) this.hello(peer, msg.name, msg.token, msg.v);
       return;
     }
     if (peer.slot < 0) return;
@@ -309,10 +318,19 @@ export class HostSession extends NetSession {
     }
   }
 
-  private hello(peer: Peer, name: string, token?: string): void {
+  private hello(peer: Peer, name: string, token?: string, version?: string): void {
+    if (version !== GAME_VERSION) {
+      // Another version computes differently: the match would split apart at once.
+      const reason = `Andere Spielversion: Gastgeber ${GAME_VERSION}, du ${version ?? 'eine ältere'}. Lade die Seite neu (Strg+F5) und tritt dann erneut bei.`;
+      peer.transport?.send({ t: 'refuse', reason } satisfies HostMessage);
+      peer.transport?.close();
+      return;
+    }
     if (this.inGame) {
-      // Only a player of this match may come back, into their old seat.
-      const old = this.peers.find((p) => p.token && p.token === token && p.state !== 'ok' && p.state !== 'catching');
+      // Only a player of this match may come back, into their old seat: by the token from the
+      // first join, or (a new tab, another browser) by the same name on a seat nobody holds.
+      const away = (p: Peer) => p.state !== 'ok' && p.state !== 'catching';
+      const old = this.peers.find((p) => p.token && p.token === token && away(p)) ?? this.peers.find((p) => p.name === cleanName(name) && away(p));
       if (!old) {
         peer.transport?.send({ t: 'refuse', reason: 'Das Spiel läuft bereits.' } satisfies HostMessage);
         peer.transport?.close();
@@ -328,7 +346,7 @@ export class HostSession extends NetSession {
       old.ai = false;
       old.state = 'catching';
       old.desynced = false;
-      this.send(old, { t: 'welcome', slot: old.slot, token: old.token });
+      this.send(old, { t: 'welcome', slot: old.slot, token: old.token, v: GAME_VERSION });
       this.sendStart(old, true);
       this.refreshStatus(true);
       return;
@@ -344,7 +362,7 @@ export class HostSession extends NetSession {
     peer.token = randomToken();
     this.peers.push(peer);
     Object.assign(this.slots[slot], { kind: 'human', name: peer.name });
-    this.send(peer, { t: 'welcome', slot, token: peer.token });
+    this.send(peer, { t: 'welcome', slot, token: peer.token, v: GAME_VERSION });
     this.lobbyChanged();
   }
 
@@ -533,6 +551,8 @@ export class HostSession extends NetSession {
 /** A guest: sends its commands to the host and runs the frames it gets back. */
 export class GuestSession extends NetSession {
   readonly kind = 'guest';
+  /** The invitation this guest came with (link or code), to come back after a lost connection. */
+  invite = '';
   slot = -1;
   token = '';
   slots: LobbySlot[] = [];
@@ -560,7 +580,7 @@ export class GuestSession extends NetSession {
     this.lastHeard = clock.now();
     transport.onmessage = (msg) => this.receive(msg as HostMessage);
     transport.onclose = () => this.lose('Die Verbindung zum Gastgeber ist abgebrochen.');
-    this.send({ t: 'hello', name: cleanName(name), token });
+    this.send({ t: 'hello', name: cleanName(name), token, v: GAME_VERSION });
   }
 
   private send(msg: GuestMessage): void {
@@ -572,6 +592,14 @@ export class GuestSession extends NetSession {
     this.lastHeard = this.clock.now();
     switch (msg.t) {
       case 'welcome':
+        if (msg.v !== GAME_VERSION) {
+          this.ended = true;
+          this.onRefused?.(`Andere Spielversion: Gastgeber ${msg.v ?? 'eine ältere'}, du ${GAME_VERSION}. Der Gastgeber lädt die Seite neu (Strg+F5) und eröffnet das Spiel noch einmal.`);
+          // Hanging up frees the seat on the host's side.
+          this.transport.onclose = null;
+          this.transport.close();
+          return;
+        }
         this.slot = msg.slot;
         this.token = msg.token;
         return;
@@ -627,16 +655,16 @@ export class GuestSession extends NetSession {
         this.send({ t: 'rtt', at: msg.at });
         return;
       case 'end':
-        this.lose(msg.reason);
+        this.lose(msg.reason, true);
         return;
     }
   }
 
-  private lose(reason: string): void {
+  private lose(reason: string, final = false): void {
     if (this.ended) return;
     this.ended = true;
     this.close();
-    if (this.client) this.client.lost(reason);
+    if (this.client) this.client.lost(reason, final);
     else this.onLost?.(reason);
   }
 

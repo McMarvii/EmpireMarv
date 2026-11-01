@@ -1,5 +1,5 @@
 /** Shown in the menu; kept equal to package.json by a test. */
-export const GAME_VERSION = '0.11.0';
+export const GAME_VERSION = '0.11.1';
 
 /**
  * The simulation's version, stored in saves and replays: a save only plays

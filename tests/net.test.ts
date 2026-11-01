@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GRACE_MS, PLAYER_COLORS, type MatchOptions } from '../src/net/protocol';
+import { GRACE_MS, PLAYER_COLORS, type GuestMessage, type HostMessage, type MatchOptions } from '../src/net/protocol';
 import { GuestSession, HostSession, type NetClient } from '../src/net/session';
 import { memoryPair } from '../src/net/transport';
 import { peerJsPayload } from '../src/net/signal';
@@ -7,6 +7,7 @@ import { normalize } from '../src/replay';
 import { Rng } from '../src/sim/rng';
 import { createWorld } from '../src/sim/setup';
 import type { World } from '../src/sim/world';
+import { GAME_VERSION } from '../src/version';
 
 /** Messages with latency and jitter on a fake clock. */
 class FakeNet {
@@ -65,8 +66,10 @@ class Client implements NetClient {
   desync(tick: number) {
     this.desyncAt ??= tick;
   }
-  lost(reason: string) {
+  lostFinal: boolean | null = null;
+  lost(reason: string, final?: boolean) {
     this.lostReason = reason;
+    this.lostFinal = final ?? false;
   }
 }
 
@@ -337,6 +340,91 @@ describe('talking', () => {
     env.host.leave();
     env.net.run(500);
     expect(env.peers[0].client.lostReason).toMatch(/Gastgeber hat das Spiel verlassen/);
+    // Nothing to come back to.
+    expect(env.peers[0].client.lostFinal).toBe(true);
+  });
+
+  it('offers a way back when only the connection broke', () => {
+    const env = setup(1);
+    env.host.setSlot(1, { team: 2 });
+    env.hostPeer.world = createWorld(env.host.start());
+    env.net.run(300);
+    (env.peers[0].session as GuestSession)['transport'].close();
+    env.net.run(300);
+    expect(env.peers[0].client.lostReason).toMatch(/abgebrochen/);
+    expect(env.peers[0].client.lostFinal).toBe(false);
+  });
+});
+
+describe('versions and seats', () => {
+  it('refuses a guest that runs another version (or one too old to say)', () => {
+    const env = setup(0);
+    env.host.setSlot(1, { kind: 'open' });
+    for (const v of ['0.10.1', undefined]) {
+      const [a, b] = memoryPair(env.net.link(), env.net.link());
+      env.host.addPeer(b);
+      const got: HostMessage[] = [];
+      a.onmessage = (m) => got.push(m as HostMessage);
+      a.send({ t: 'hello', name: 'Alt', v } satisfies GuestMessage);
+      env.net.run(300);
+      expect(got[0]).toMatchObject({ t: 'refuse' });
+      expect((got[0] as { reason: string }).reason).toContain(GAME_VERSION);
+      expect(env.host.slots[1].kind).toBe('open');
+    }
+  });
+
+  it('leaves a host that runs another version (or one too old to say)', () => {
+    for (const v of ['0.10.1', undefined]) {
+      const net = new FakeNet();
+      const [a, b] = memoryPair(net.link(), net.link());
+      b.onmessage = (m) => {
+        if ((m as GuestMessage).t === 'hello') b.send({ t: 'welcome', slot: 1, token: 'x', v } satisfies HostMessage);
+      };
+      let hungUp = false;
+      b.onclose = () => (hungUp = true);
+      const guest = new GuestSession(a, 'Neu', undefined, { now: () => net.time, timers: false });
+      let refused = '';
+      guest.onRefused = (r) => (refused = r);
+      net.run(300);
+      expect(refused).toMatch(/Andere Spielversion/);
+      expect(guest.slot).toBe(-1);
+      expect(hungUp).toBe(true);
+    }
+  });
+
+  it('lets a player who lost the token (new tab, other browser) back in by name', () => {
+    const env = setup(2);
+    startMatch(env);
+    play(env, 3000);
+    (env.peers[1].session as GuestSession)['transport'].close();
+    env.peers[1].world = null;
+    play(env, 1000);
+    // A stranger gets no seat, the same name does, without a token.
+    const stranger = env.join('Fremd');
+    let refused = '';
+    (stranger.session as GuestSession).onRefused = (r) => (refused = r);
+    env.net.run(500);
+    expect(refused).toMatch(/läuft bereits/);
+    const back = env.join('Gast2');
+    env.peers[1] = back;
+    env.net.run(500);
+    const s = back.session as GuestSession;
+    expect(s.me).toBe(2);
+    drive(back, s.upTo + 1);
+    play(env, 3000);
+    expect(env.host.waiting).toBeNull();
+    expect(new Set(settle(env)).size).toBe(1);
+  });
+
+  it('keeps a seat that is still connected away from a namesake', () => {
+    const env = setup(2);
+    startMatch(env);
+    play(env, 1000);
+    const twin = env.join('Gast2');
+    let refused = '';
+    (twin.session as GuestSession).onRefused = (r) => (refused = r);
+    env.net.run(500);
+    expect(refused).toMatch(/läuft bereits/);
   });
 });
 

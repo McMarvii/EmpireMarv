@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.11.0).** Wirtschaft mit Jagd, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände, Luftkrieg, ein geführtes Tutorial, ein **WebGL-Renderer** und eine **schnelle Simulation** für große Schlachten funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.11.1).** Wirtschaft mit Jagd, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände, Luftkrieg, ein geführtes Tutorial, ein **WebGL-Renderer** und eine **schnelle Simulation** für große Schlachten funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -160,9 +160,11 @@ Einmalig nötig: unter *Settings → Pages → Build and deployment → Source* 
 ## Mehrspieler: was man wissen sollte
 
 - **Verbindungsaufbau**: Nur der Handschlag läuft über den kostenlosen öffentlichen [PeerJS](https://peerjs.com)-Server (`0.peerjs.com`). Spieldaten gehen direkt von Browser zu Browser. Ist der Server nicht erreichbar, gibt es in der Lobby „Einladung per Code“: Der Gastgeber schickt einen Code, der Mitspieler schickt einen Antwortcode zurück.
+- **Der Link lebt mit dem Tab des Gastgebers**: Bricht dessen Verbindung zum Server ab (Tab lange im Hintergrund, WLAN-Wechsel), baut das Spiel sie von selbst wieder auf; die Lobby zeigt das an. Schließt der Gastgeber den Tab, ist der Link tot.
+- **Wiedereinstieg**: Per Link öffnet man einfach denselben Link wieder (oder „Wieder beitreten“ im Abbruch-Fenster). Per Code geht das nicht mit dem alten Code, denn jeder Code verbindet nur einmal: Der Gastgeber holt den Spieler über „Zurückholen …“ in der Spielerliste oben rechts mit einem neuen Code zurück. Erkannt wird der Spieler an seinem Kennwort im Browser oder, in einem neuen Browser, an seinem Namen.
 - **Nicht jedes Netz klappt**: Ohne Relay-Server (TURN) können strenge Firewalls, manche Firmen- und Mobilfunknetze keine direkte Verbindung aufbauen. Dann erscheint ein Hinweis statt endlosem Warten.
 - **Der Gastgeber ist der Taktgeber**: Verlässt er das Spiel, endet es für alle (die Partie lässt sich als Wiedergabe speichern).
-- **Gleiche Version**: Alle Spieler brauchen dieselbe Spielversion. Weicht ein Spielstand trotzdem ab, meldet das Spiel es (Prüfsumme jede Sekunde).
+- **Gleiche Version**: Alle Spieler brauchen dieselbe Spielversion; ab 0.11.1 prüft der Gastgeber sie beim Beitritt und nennt beide Nummern (dann hilft Neuladen mit Strg+F5). Weicht ein Spielstand trotzdem ab, meldet das Spiel es (Prüfsumme jede Sekunde).
 - **Datenschutz**: Beim Verbindungsaufbau sehen sich die Browser gegenseitig ihre IP-Adressen, der PeerJS-Server sieht sie ebenfalls.
 
 ## Rechtliches
