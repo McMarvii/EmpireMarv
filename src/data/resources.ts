@@ -12,7 +12,7 @@ export const RES_LABEL: Record<Res, string> = {
 };
 
 export const RES_COLOR: Record<Res, string> = {
-  food: '#e0a33a',
+  food: '#6cc24a',
   wood: '#8a5a2b',
   stone: '#9aa0a6',
   gold: '#f2c84b',

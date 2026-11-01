@@ -6,7 +6,7 @@ import { rectOf, type Building, type Entity, type Hazard, type Order, type Plan,
 import { hasStatus } from '../sim/status';
 import { Terrain } from '../sim/map';
 import type { Point } from '../sim/pathfinding';
-import type { World } from '../sim/world';
+import { jobTime, type World } from '../sim/world';
 import { Camera, TILE_W } from './camera';
 import { ABILITY_COLOR, alpha as withAlpha, TERRAIN_COLORS } from './colors';
 import { ALTITUDE, airPose, type AirPose } from './planes';
@@ -1305,7 +1305,8 @@ export class Renderer {
       if (!b.built) bar(sx, sy - 7, w, b.progress, '#d7b46a');
       bar(sx, sy, w, b.hp / b.maxHp, hpColor(b.hp / b.maxHp));
       if (selected && b.research) bar(sx, sy + 6, w, b.research.progress / b.research.total, '#7fb6ff');
-      if (selected && b.tech) bar(sx, sy + 6, w, b.tech.progress / b.tech.total, '#b48cff');
+      const tech = selected ? b.queue.find((q) => q.tech !== undefined && q.progress > 0) : undefined;
+      if (tech) bar(sx, sy + 6, w, tech.progress / jobTime(tech), '#b48cff');
     }
   }
 
@@ -1431,7 +1432,7 @@ export class Renderer {
     for (const b of world.buildings) {
       if (b.dead || !this.view.sees(b)) continue;
       const depth = b.tx + b.ty + b.size;
-      if (depth > bestDepth && hitsSprite(b, buildingTopZ(b.type, b.epoch, b.size))) {
+      if (depth > bestDepth && this.hitsBuilding(b, sx, sy)) {
         best = b;
         bestDepth = depth;
       }
@@ -1439,6 +1440,26 @@ export class Renderer {
     if (best) return best;
     nodes(true);
     return best;
+  }
+
+  /**
+   * Whether a screen point lies on a building: inside the outline of its block (footprint and walls up
+   * to the roof), not just its bounding box. The box reaches far into the empty corners left and right
+   * of the roof, where a building behind shows, and the front one took those clicks.
+   */
+  private hitsBuilding(b: Building, sx: number, sy: number): boolean {
+    const project = this.camera.project;
+    const e = b.size;
+    const top = Math.max(12, buildingTopZ(b.type, b.epoch, b.size) * (b.built ? 1 : Math.min(1, b.progress * 1.2)));
+    const pts = [
+      project(b.tx, b.ty + e),
+      project(b.tx + e, b.ty + e),
+      project(b.tx + e, b.ty),
+      project(b.tx + e, b.ty, top),
+      project(b.tx, b.ty, top),
+      project(b.tx, b.ty + e, top),
+    ];
+    return insideConvex(pts, sx, sy);
   }
 
   /** Screen position of a unit (or a building's centre), used for box selection. */
@@ -1451,3 +1472,16 @@ export class Renderer {
   }
 }
 
+/** Whether a point lies inside a convex polygon given in either winding. */
+export function insideConvex(pts: Array<[number, number]>, x: number, y: number): boolean {
+  let sign = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [ax, ay] = pts[i];
+    const [bx, by] = pts[(i + 1) % pts.length];
+    const cross = (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+    if (cross === 0) continue;
+    if (sign === 0) sign = Math.sign(cross);
+    else if (Math.sign(cross) !== sign) return false;
+  }
+  return true;
+}

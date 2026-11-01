@@ -582,7 +582,7 @@ export function abilityIcon(kind: string, size = 44): string {
   });
 }
 
-export type CommandGlyph = 'attack' | 'patrol' | 'explore' | 'stop' | 'cancel' | 'demolish' | 'dismiss' | 'lockstep' | 'shelter' | 'allclear' | 'unload';
+export type CommandGlyph = 'attack' | 'patrol' | 'explore' | 'stop' | 'cancel' | 'demolish' | 'dismiss' | 'lockstep' | 'shelter' | 'allclear' | 'unload' | 'upgrade';
 
 /** Pictograms for the order buttons that have no unit, building or tech to show. */
 export function commandIcon(kind: CommandGlyph, size = 44): string {
@@ -702,6 +702,23 @@ export function commandIcon(kind: CommandGlyph, size = 44): string {
         line([[-0.95, 0.9], [0.95, 0.9]]);
         ctx.stroke();
         break;
+      case 'upgrade': {
+        // Two chevrons up over a gold coin: re-equip for gold.
+        ctx.strokeStyle = '#8dff5a';
+        ctx.lineWidth = Math.max(2, size / 11);
+        line([[-0.6, -0.05], [0, -0.6], [0.6, -0.05]]);
+        ctx.stroke();
+        line([[-0.6, -0.5], [0, -1.05], [0.6, -0.5]]);
+        ctx.stroke();
+        ctx.fillStyle = '#f2c84b';
+        ctx.strokeStyle = '#a77d1e';
+        ctx.lineWidth = Math.max(1, size / 28);
+        ctx.beginPath();
+        ctx.ellipse(c, c + 0.6 * r, 0.55 * r, 0.32 * r, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        break;
+      }
       case 'unload':
         // An arrow from the boat down onto the shore.
         ctx.fillStyle = '#2c6ea3';

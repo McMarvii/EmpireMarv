@@ -110,6 +110,7 @@ export const GUEST_COMMANDS = new Set<Command['type']>([
   'cancel',
   'advance',
   'research',
+  'upgrade',
   'cancelTech',
   'rally',
   'deposit',

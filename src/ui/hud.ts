@@ -21,9 +21,9 @@ import { applyUiScale, loadGraphics, loadPerf, loadUiScale, saveGraphics, savePe
 import { abilityIcon, buildingIcon, commandIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
 import { convertTime } from '../sim/behavior';
-import { AURA_INSPIRED, AURA_LED, type Building, type Entity, type Unit } from '../sim/entities';
+import { AURA_INSPIRED, AURA_LED, type Building, type Entity, type QueueItem, type Unit } from '../sim/entities';
 import { FORMATION_LABEL, FORMATIONS, type Formation } from '../sim/formation';
-import { MAX_TECH_QUEUE, TICK_RATE, type GameEvent } from '../sim/world';
+import { jobTime, MAX_JOBS, TICK_RATE, UPGRADE_REACH, upgradeGold, type GameEvent } from '../sim/world';
 import { morph } from './morph';
 
 type LogFilter = 'all' | 'fight' | 'progress' | 'note';
@@ -455,7 +455,7 @@ export class Hud {
       .sort((a, b) => PROD_ORDER.indexOf(a.type) - PROD_ORDER.indexOf(b.type) || a.id - b.id);
     const entries = list.map((b) => {
       const bars = this.jobBars(b);
-      const waiting = Math.max(0, b.queue.length - 1) + b.techQueue.length + (b.pendingAdvance ? 1 : 0);
+      const waiting = Math.max(0, b.queue.length - 1) + (b.pendingAdvance ? 1 : 0);
       return { b, bars, waiting, idle: !isBusy(b) };
     });
     const sig =
@@ -499,18 +499,20 @@ export class Hud {
     });
   }
 
-  /** What runs in a building right now (advance, unit, research), each with its share done. */
+  /** What runs in a building right now (advance, or the job worked on), with its share done. */
   private jobBars(b: Building): Array<{ cls: string; pct: number; label: string }> {
-    const player = this.game.world.players[b.owner];
     const bars: Array<{ cls: string; pct: number; label: string }> = [];
-    const unit = b.queue[0];
     if (b.research) bars.push({ cls: 'adv', pct: b.research.progress / b.research.total, label: `Aufstieg: ${EPOCHS[b.research.targetEpoch].name}` });
-    if (unit) {
-      const tier = Math.max(0, bestTier(unit.role, player.epoch));
-      bars.push({ cls: 'unit', pct: unit.progress / ROLE_DEFS[unit.role].trainTime, label: ROLE_DEFS[unit.role].tiers[tier].name });
-    }
-    if (b.tech) bars.push({ cls: 'tech', pct: b.tech.progress / b.tech.total, label: `Forschung: ${TECH_BY_ID.get(b.tech.id)!.name}` });
+    const job = b.queue.find((q) => q.progress > 0) ?? b.queue[0];
+    if (job) bars.push({ cls: job.tech !== undefined ? 'tech' : 'unit', pct: job.progress / jobTime(job), label: this.jobName(job, b.owner) });
     return bars;
+  }
+
+  /** A queued unit by its name in the owner's epoch, a technology as research. */
+  private jobName(job: QueueItem, owner: number): string {
+    if (job.tech !== undefined) return `Forschung: ${TECH_BY_ID.get(job.tech)!.name}`;
+    const tier = Math.max(0, bestTier(job.role, this.game.world.players[owner].epoch));
+    return ROLE_DEFS[job.role].tiers[tier].name;
   }
 
   /** Bar of control groups: number, portrait of the most common unit, head count. */
@@ -599,10 +601,9 @@ export class Hud {
     return shown
       .map((e) => {
         if (e.kind === 'building') {
-          const q = e.queue.map((i) => `${i.role}${Math.floor(i.progress * 2)}`).join('');
-          const tech = e.tech ? `${e.tech.id}${Math.floor(e.tech.progress)}` : '';
-          const waiting = `${e.techQueue.map((j) => j.id).join('')}${e.pendingAdvance ? `a${e.pendingAdvance.ahead}` : ''}`;
-          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${tech}${waiting}${e.popBlocked}${Math.ceil(e.countdown / TICK_RATE)}${e.garrison.length}`;
+          const q = e.queue.map((i) => `${i.tech ?? i.role}${Math.floor(i.progress * 2)}`).join('');
+          const waiting = e.pendingAdvance ? `a${e.pendingAdvance.ahead}` : '';
+          return `${e.built}${Math.floor(e.progress * 100)}${q}${e.research ? Math.floor(e.research.progress) : ''}${waiting}${e.popBlocked}${Math.ceil(e.countdown / TICK_RATE)}${e.garrison.length}`;
         }
         if (e.kind === 'unit') {
           const states = Object.values(e.status).filter((t) => (t ?? 0) > this.game.world.tick).length;
@@ -624,7 +625,7 @@ export class Hud {
       const blds = ents as Building[];
       return `<div class="sel-multi">${blds
         .map((b) => {
-          const waiting = b.queue.length + b.techQueue.length + (b.tech ? 1 : 0) + (b.research || b.pendingAdvance ? 1 : 0);
+          const waiting = b.queue.length + (b.research || b.pendingAdvance ? 1 : 0);
           const bars = b.owner === me ? this.jobBars(b) : [];
           const title = `${buildingName(b.type, b.epoch)}: ${waiting ? `${waiting} in Arbeit` : 'untätig'}${bars.map((x) => ` · ${x.label} ${Math.floor(x.pct * 100)} %`).join('')}`;
           return (
@@ -708,6 +709,13 @@ export class Hud {
         ...(e.aura & AURA_INSPIRED ? ['vom Krieger angefeuert'] : []),
       ];
       const statusLine = states.length ? `<div class="status-line">${states.map((t) => esc(t)).join(' · ')}</div>` : '';
+      // Of an older epoch: where to re-equip it, and for how much.
+      const newer = e.owner === me && !isHero(e.role) ? bestTier(e.role, world.players[me].epoch) : -1;
+      const trainer = (Object.keys(BUILDING_DEFS) as BuildingType[]).find((t) => BUILDING_DEFS[t].trains.includes(e.role));
+      const outdatedLine =
+        newer > e.tier && trainer
+          ? `<div class="status-line">Veraltet: ${esc(ROLE_DEFS[e.role].tiers[newer].name)} gibt es schon – bei ${esc(buildingName(trainer, world.players[me].epoch))} aufrüsten (U), ${upgradeGold(e.role, newer)} Gold</div>`
+          : '';
       const fuelBar =
         isPlane(e.role) && e.owner === me
           ? `<div class="fuelbar${e.fuel < s.fuel * 0.25 ? ' low' : ''}"><div style="width:${(e.fuel / s.fuel) * 100}%"></div><span>Treibstoff ${Math.ceil(e.fuel)} s${s.bombs ? ` · Bomben ${e.ammo} / ${s.bombs}` : ''}</span></div>`
@@ -729,6 +737,7 @@ export class Hud {
           ${fuelBar}
           ${moraleLine}
           ${statusLine}
+          ${outdatedLine}
           ${cargoLine}
           <div class="stats">${isFaithful(e.role) ? '' : `<span>Angriff ${s.dmg}</span>`}<span>Rüstung ${s.armor}</span>${isFaithful(e.role) ? '' : `<span>Reichweite ${s.range.toFixed(1)}</span>`}<span>Tempo ${s.speed.toFixed(1)}</span></div>
           ${
@@ -747,15 +756,9 @@ export class Hud {
       const def = BUILDING_DEFS[e.type];
       const lines: string[] = [];
       if (!e.built) lines.push(`Im Bau: ${Math.floor(e.progress * 100)} %`);
-      if (e.tech && e.owner === me) {
-        const t = TECH_BY_ID.get(e.tech.id)!;
-        lines.push(
-          `<div class="progress research tech-progress" data-cancel-tech title="Klick: Forschung abbrechen (Rohstoffe zurück)"><div style="width:${(e.tech.progress / e.tech.total) * 100}%"></div><span>Forschung: ${esc(t.name)}</span></div>`,
-        );
-      }
       if (e.pendingAdvance && e.owner === me) {
         const n = e.pendingAdvance.ahead;
-        lines.push(`Aufstieg: ${esc(EPOCHS[e.pendingAdvance.targetEpoch].name)} – wartet auf ${n} ${n === 1 ? 'Einheit' : 'Einheiten'}`);
+        lines.push(`Aufstieg: ${esc(EPOCHS[e.pendingAdvance.targetEpoch].name)} – wartet auf ${n} ${n === 1 ? 'Auftrag' : 'Aufträge'} davor`);
       }
       if (e.research) {
         lines.push(
@@ -775,10 +778,23 @@ export class Hud {
       if (e.popBlocked) lines.push('<span class="warn">Bevölkerungslimit erreicht</span>');
       let queue = '';
       if ((e.queue.length || e.pendingAdvance) && e.owner === me) {
+        // Units and research in one line, in the order given; each shows how far it is.
+        const techs = world.players[me].techs;
         const items = e.queue.map((item, i) => {
-          const tier = Math.max(0, bestTier(item.role, world.players[me].epoch));
-          const pct = i === 0 ? (item.progress / ROLE_DEFS[item.role].trainTime) * 100 : 0;
-          return `<button class="q-item" data-cancel="${i}" title="Abbrechen"><img src="${unitIcon(item.role, ROLE_DEFS[item.role].tiers[tier].epoch, owner!.color, 32)}"><div class="q-bar" style="width:${pct}%"></div></button>`;
+          const pct = (item.progress / jobTime(item)) * 100;
+          const name = this.jobName(item, me);
+          let icon: string;
+          let note = '';
+          if (item.tech !== undefined) {
+            const t = TECH_BY_ID.get(item.tech)!;
+            icon = techIcon(t, 32);
+            const missing = t.requires.filter((r) => !techs.has(r)).map((r) => TECH_BY_ID.get(r)!.name);
+            if (missing.length && item.progress === 0) note = ` – wartet auf ${missing.join(', ')}`;
+          } else {
+            const tier = Math.max(0, bestTier(item.role, world.players[me].epoch));
+            icon = unitIcon(item.role, ROLE_DEFS[item.role].tiers[tier].epoch, owner!.color, 32);
+          }
+          return `<button class="q-item${item.tech !== undefined ? ' q-tech' : ''}" data-cancel="${i}" title="${esc(name + note)} – Klick: abbrechen (Rohstoffe zurück)"><img src="${icon}"><div class="q-bar" style="width:${pct}%"></div></button>`;
         });
         if (e.pendingAdvance) {
           // The advance waits behind the units queued before it.
@@ -789,14 +805,6 @@ export class Hud {
           );
         }
         queue = `<div class="queue">${items.join('')}</div>`;
-      }
-      if (e.techQueue.length && e.owner === me) {
-        queue += `<div class="queue tech-queue"><span class="dim">Danach:</span>${e.techQueue
-          .map((job, i) => {
-            const t = TECH_BY_ID.get(job.id)!;
-            return `<button class="q-item" data-cancel-tech="${i}" title="${esc(t.name)} – Klick: abbrechen (Rohstoffe zurück)"><img src="${techIcon(t, 32)}"></button>`;
-          })
-          .join('')}</div>`;
       }
       return `<div class="sel-single">
         <img class="portrait" src="${buildingIcon(e.type, e.epoch, owner!.color, 64)}">
@@ -809,7 +817,7 @@ export class Hud {
         </div></div>`;
     }
 
-    const names: Record<string, string> = { tree: 'Baum', berries: 'Beerenstrauch', stone: 'Steinbruch', gold: 'Goldmine', iron: 'Eisenmine', fish: 'Fischgrund' };
+    const names: Record<string, string> = { tree: 'Baum', berries: 'Beerenstrauch', stone: 'Steinbruch', gold: 'Goldmine', iron: 'Eisenmine', fish: 'Fischgrund', deer: 'Wild' };
     return `<div class="sel-single"><div class="sel-info">
       <div class="sel-name">${names[e.nodeType]}</div>
       <div class="sel-sub">${RES_LABEL[e.res]}: ${Math.floor(e.amount)} übrig</div>
@@ -831,10 +839,6 @@ export class Hud {
     });
     const b = ents[0];
     if (b && b.kind === 'building') {
-      this.els.selection.querySelectorAll<HTMLElement>('[data-cancel-tech]').forEach((el) => {
-        const index = el.dataset.cancelTech;
-        el.onclick = () => this.game.cancelTech(b.id, index ? Number(index) : undefined);
-      });
       this.els.selection.querySelectorAll<HTMLElement>('[data-cancel]').forEach((el) => {
         el.onclick = () => this.game.cancelQueue(b.id, Number(el.dataset.cancel));
       });
@@ -980,6 +984,8 @@ export class Hud {
       const def = BUILDING_DEFS[b.type];
       const keys = TRAIN_KEYS[b.type] ?? SLOT_KEYS;
       def.trains.forEach((role, i) => cmds.push(this.trainButton(sites, role, keys[i])));
+      const upgrade = this.upgradeButton(sites);
+      if (upgrade) cmds.push(upgrade);
       if (b.type === 'towncenter') {
         if (b.research || b.pendingAdvance) {
           cmds.push({
@@ -1070,13 +1076,13 @@ export class Hud {
     const planned = world.plannedTechs(me);
     const tech = TECHS.find((t) => t.branch.id === branchId && !planned.has(t.id));
     if (!tech) return null;
-    const inBranch = (id: string) => TECH_BY_ID.get(id)!.branch.id === branchId;
-    const busy = sites.reduce((n, s) => n + (s.tech && inBranch(s.tech.id) ? 1 : 0) + s.techQueue.filter((j) => inBranch(j.id)).length, 0);
-    const running = sites.reduce((pct, s) => (s.tech && inBranch(s.tech.id) ? Math.max(pct, s.tech.progress / s.tech.total) : pct), -1);
+    const inBranch = (q: QueueItem) => q.tech !== undefined && TECH_BY_ID.get(q.tech)!.branch.id === branchId;
+    const busy = sites.reduce((n, s) => n + s.queue.filter(inBranch).length, 0);
+    const running = sites.reduce((pct, s) => s.queue.filter((q) => inBranch(q) && q.progress > 0).reduce((p, q) => Math.max(p, q.progress / jobTime(q)), pct), -1);
     const future = tech.epoch > player.epoch;
     const missingReq = tech.requires.filter((r) => !planned.has(r)).map((r) => TECH_BY_ID.get(r)!);
     const plannable = world.techPlannable(me, tech);
-    const room = sites.some((s) => s.techQueue.length < MAX_TECH_QUEUE);
+    const room = sites.some((s) => s.queue.length < MAX_JOBS);
     return {
       key,
       icon: techIcon(tech, 44),
@@ -1095,10 +1101,45 @@ export class Hud {
           return;
         }
         if (!room) {
-          this.message('warn', 'Die Forschungs-Warteschlange ist voll.');
+          this.message('warn', 'Die Warteschlange ist voll.');
           return;
         }
         game.research(sites, tech.id);
+      },
+    };
+  }
+
+  /**
+   * Re-equipping: units of the roles a building trains, of an older epoch, standing near it, are
+   * brought up to the current epoch for gold. Null where nothing but heroes is trained.
+   */
+  private upgradeButton(sites: Building[]): CommandButton | null {
+    const game = this.game;
+    const { world, me } = game;
+    if (!sites.length || !BUILDING_DEFS[sites[0].type].trains.some((r) => !isHero(r))) return null;
+    const seen = new Set<number>();
+    const list = sites.flatMap((s) => world.upgradable(s)).filter((o) => !seen.has(o.unit.id) && seen.add(o.unit.id));
+    const gold = list.reduce((n, o) => n + upgradeGold(o.unit.role, o.tier), 0);
+    const stock = world.players[me].stock.gold;
+    const cheapest = list.reduce((n, o) => Math.min(n, upgradeGold(o.unit.role, o.tier)), Infinity);
+    return {
+      key: 'U',
+      icon: commandIcon('upgrade'),
+      enabled: list.length > 0 && stock >= cheapest,
+      badge: list.length ? String(list.length) : undefined,
+      title: 'Aufrüsten',
+      tooltip:
+        `<b>Aufrüsten</b> <kbd>U</kbd><p>Bringt Einheiten einer früheren Epoche auf den Stand von heute: neue Waffen, neue Rüstung, die Lebenspunkte bleiben anteilig. ` +
+        `Kostet Gold, halb so viel wie eine neue Einheit, und wirkt auf alle veralteten Einheiten bis ${UPGRADE_REACH} Felder um das Gebäude.</p>` +
+        (list.length
+          ? `<p>${list.length} ${list.length === 1 ? 'Einheit' : 'Einheiten'} in der Nähe: <b>${gold} Gold</b>${stock < gold ? ` <span class="warn">(du hast ${Math.floor(stock)})</span>` : ''}</p>`
+          : '<p class="dim">Keine veralteten Einheiten in der Nähe – schick sie her.</p>'),
+      action: () => {
+        if (!list.length) {
+          this.message('warn', `Keine veralteten Einheiten in der Nähe (bis ${UPGRADE_REACH} Felder).`);
+          return;
+        }
+        game.upgrade(sites);
       },
     };
   }
@@ -1225,6 +1266,7 @@ export class Hud {
       )
       .join('');
     morph(el, html);
+    el.classList.toggle('many', this.commands.length > 21);
     el.querySelectorAll<HTMLButtonElement>('button.cmd').forEach((btn) => {
       const i = Number(btn.dataset.i);
       btn.onclick = (ev) => {
@@ -1497,7 +1539,8 @@ export class Hud {
         <tr><td>L</td><td>Gleichschritt an/aus (Armee ausgewählt)</td></tr>
         <tr><td>Z (Dorfzentrum oder Turm gewählt)</td><td>Zuflucht: Bürger gehen in Dorfzentrum und Türme (je 5, +1 Pfeil pro Bürger); nochmal = Entwarnung</td></tr>
         <tr><td>E</td><td>Erkunden (Einheiten ausgewählt)</td></tr>
-        <tr><td>M / G, dann ziehen</td><td>Mauer / Tor als Linie bauen</td></tr>
+        <tr><td>M, dann ziehen</td><td>Mauer als Linie bauen</td></tr>
+        <tr><td>G / T auf eine Mauer</td><td>Tor oder Turm in die Mauer setzen (ersetzt die Stücke darunter)</td></tr>
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>
         <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren, Bauaufträge nacheinander / 5 Einheiten</td></tr>
         <tr><td>Rechtsklick mit Flugzeugen auf eigenen Flugplatz</td><td>Tanken, Bomben laden, reparieren – mit leerem Tank oder leeren Bomben fliegen sie von selbst zurück</td></tr>
@@ -1542,8 +1585,11 @@ export class Hud {
     const running = new Map<string, number>();
     const queued = new Set<string>();
     for (const b of world.buildingsOf(me)) {
-      if (b.tech) running.set(b.tech.id, b.tech.progress / b.tech.total);
-      for (const j of b.techQueue) queued.add(j.id);
+      for (const j of b.queue) {
+        if (j.tech === undefined) continue;
+        if (j.progress > 0) running.set(j.tech, j.progress / jobTime(j));
+        else queued.add(j.tech);
+      }
     }
     const rows = branchesAt(tab)
       .map((branch) => {
@@ -1586,7 +1632,7 @@ export class Hud {
         const t = TECH_BY_ID.get(el.dataset.tech!)!;
         if (!world.techPlannable(me, t)) return;
         const built = world.buildingsOf(me, t.building).filter((b) => b.built);
-        const sites = built.filter((b) => b.techQueue.length < MAX_TECH_QUEUE);
+        const sites = built.filter((b) => b.queue.length < MAX_JOBS);
         if (!sites.length) {
           this.message('warn', built.length ? `Die Warteschlangen aller Gebäude vom Typ ${buildingName(t.building, player.epoch)} sind voll.` : `Erst ${buildingName(t.building, player.epoch)} bauen.`);
           return;

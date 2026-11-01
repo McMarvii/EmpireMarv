@@ -144,11 +144,13 @@ describe('map types', () => {
       h = Math.imul(h ^ (v | 0), 16777619) >>> 0;
     };
     for (let i = 0; i < w.map.terrain.length; i++) add(w.map.terrain[i]);
-    for (const r of w.resources) {
+    // Wild game came later and rolls its own dice; the rest must not move.
+    for (const r of w.resources.filter((n) => n.nodeType !== 'deer')) {
       add(r.tx);
       add(r.ty);
       add(r.size);
-      add(r.amount);
+      // Mines hold twice as much since 0.10.2; the layout is what this guards.
+      add(r.nodeType === 'gold' || r.nodeType === 'stone' || r.nodeType === 'iron' ? r.amount / 2 : r.amount);
       add(r.variant);
     }
     expect(h).toBe(3312152833);

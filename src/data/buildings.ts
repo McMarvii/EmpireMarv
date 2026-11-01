@@ -36,8 +36,10 @@ export interface BuildingDef {
   attack?: { dmg: number; range: number; cooldown: number };
   /** Citizens that can shelter inside; each one fires an extra arrow. */
   garrison?: number;
-  /** Placed by dragging a line of 1×1 segments (walls and gates). */
+  /** 1×1 segments that join up into a line (walls and gates). */
   line?: boolean;
+  /** Placed by dragging out a whole line at once (walls). */
+  drag?: boolean;
   /** Lets units of the owner's team through, blocks everyone else. */
   gate?: boolean;
   /** Stands in the water at the shore instead of on dry land. */
@@ -205,7 +207,7 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     attack: { dmg: 8, range: 7, cooldown: 1.8 },
     garrison: 5,
     hotkey: 'T',
-    description: 'Verteidigungsturm. Wird mit jeder Epoche stärker.',
+    description: 'Verteidigungsturm. Wird mit jeder Epoche stärker. Lässt sich in eine Mauer setzen und ersetzt die Stücke darunter.',
   },
   smithy: {
     type: 'smithy',
@@ -272,6 +274,7 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     line: true,
     hotkey: 'M',
     description: 'Sperrt Gegner aus. Ziehen baut eine ganze Linie, Türme dürfen direkt anschließen.',
+    drag: true,
   },
   gate: {
     type: 'gate',
@@ -295,7 +298,7 @@ export const BUILDING_DEFS: Record<BuildingType, BuildingDef> = {
     line: true,
     gate: true,
     hotkey: 'G',
-    description: 'Durchgang in der Mauer: lässt eigene und verbündete Einheiten durch, Gegner nicht.',
+    description: 'Durchgang in der Mauer: lässt eigene und verbündete Einheiten durch, Gegner nicht. Auf eine fertige Mauer gesetzt, ersetzt es das Mauerstück.',
   },
   temple: {
     type: 'temple',

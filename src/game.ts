@@ -714,10 +714,10 @@ export class Game {
     this.refreshPlacement();
   }
 
-  /** Walls and gates: the mouse button went down, start a line there. */
+  /** Walls: the mouse button went down, start a line there. */
   startLine(): void {
     const p = this.placement;
-    if (!p || !BUILDING_DEFS[p.type].line) return;
+    if (!p || !BUILDING_DEFS[p.type].drag) return;
     p.anchor = { tx: p.tx, ty: p.ty };
     this.refreshPlacement();
   }
@@ -749,7 +749,7 @@ export class Game {
       this.cancelMode();
       return;
     }
-    if (BUILDING_DEFS[p.type].line) {
+    if (BUILDING_DEFS[p.type].drag) {
       const tiles = (p.line ?? [{ tx: p.tx, ty: p.ty }]).map((t) => ({ x: t.tx, y: t.ty }));
       p.anchor = null;
       p.line = null;
@@ -802,13 +802,14 @@ export class Game {
 
   /** Researches in the least busy of the given buildings. */
   research(buildings: Building[], tech: string): void {
-    const load = (b: Building) => (b.tech ? 1 : 0) + b.techQueue.length + (b.research ? 1 : 0);
+    const load = (b: Building) => b.queue.length + (b.research ? 1 : 0);
     const b = [...buildings].filter((x) => x.built).sort((a, c) => load(a) - load(c) || a.id - c.id)[0];
     if (b) this.issue({ type: 'research', player: this.me, buildingId: b.id, tech });
   }
 
-  cancelTech(buildingId: number, index?: number): void {
-    this.issue({ type: 'cancelTech', player: this.me, buildingId, index });
+  /** Re-equips the outdated units around each of the buildings. */
+  upgrade(buildings: Building[]): void {
+    for (const b of buildings) this.issue({ type: 'upgrade', player: this.me, buildingId: b.id });
   }
 
   cancelQueue(buildingId: number, index: number): void {
@@ -1037,5 +1038,5 @@ export function lineTiles(x0: number, y0: number, x1: number, y1: number): Array
 
 /** Whether a building is producing or researching anything. */
 export function isBusy(b: Building): boolean {
-  return b.queue.length > 0 || b.tech !== null || b.techQueue.length > 0 || b.research !== null || b.pendingAdvance !== null;
+  return b.queue.length > 0 || b.research !== null || b.pendingAdvance !== null;
 }

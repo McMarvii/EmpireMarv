@@ -171,8 +171,8 @@ export class Input {
     }
     if (game.mode === 'place') {
       game.updatePlacement(e.clientX, e.clientY);
-      // Walls are dragged out as a line and placed on release.
-      if (game.placement && BUILDING_DEFS[game.placement.type].line) game.startLine();
+      // Walls are dragged out as a line and placed on release; gates go one at a time.
+      if (game.placement && BUILDING_DEFS[game.placement.type].drag) game.startLine();
       else game.confirmPlacement(e.shiftKey);
       return;
     }

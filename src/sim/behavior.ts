@@ -29,6 +29,8 @@ import { DT, LANDING_REACH, TICK_RATE, type World } from './world';
 
 const WORK_REACH = 1.0;
 const APPROACH_REACH = 0.85;
+/** Hunting yields food faster than picking berries or farming. */
+const HUNT_RATE = 1.5;
 /** How close gatherers stand to a node's edge while working. */
 const SNUG_REACH = 0.2;
 const SCAN_INTERVAL = 8;
@@ -135,7 +137,7 @@ function followPath(w: World, u: Unit): void {
   const dist = hypot(dx, dy);
   const o = u.order;
   const v = unitSpeed(w, u);
-  const speed = o.kind === 'move' && o.pace ? Math.min(v, o.pace) : v;
+  const speed = (o.kind === 'move' || o.kind === 'attack') && o.pace ? Math.min(v, o.pace) : v;
   const step = speed * DT;
   u.moving = true;
   if (dist > 1e-6) u.facing = atan2(dy, dx);
@@ -343,7 +345,7 @@ export function startPlan(w: World, u: Unit, plan: Plan, route?: Point[]): void 
     case 'attack': {
       const t = w.get(plan.targetId);
       if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner)) return goIdle(u);
-      u.order = { kind: 'attack', targetId: t.id, resume: null, leash: null };
+      u.order = { kind: 'attack', targetId: t.id, resume: null, leash: null, pace: plan.pace };
       break;
     }
     case 'gather': {
@@ -474,7 +476,8 @@ function updateMove(w: World, u: Unit): void {
   if (o.attackMove && !isPeaceful(u.role) && scanDue(w, u)) {
     const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, isSiege(u), u);
     if (target) {
-      u.order = { kind: 'attack', targetId: target.id, resume: { kind: 'move', x: o.x, y: o.y, attackMove: true }, leash: null };
+      // The group keeps its marching pace into the fight and afterwards.
+      u.order = { kind: 'attack', targetId: target.id, resume: { kind: 'move', x: o.x, y: o.y, attackMove: true, pace: o.pace }, leash: null, pace: o.pace };
       u.path = [];
       return;
     }
@@ -503,12 +506,38 @@ function endAttack(w: World, u: Unit): void {
   u.scanTick = w.tick;
 }
 
+/** Within this many tiles beyond its range a unit leaves the group's pace and closes in at full speed. */
+const CHARGE = 3;
+
+/**
+ * The target of an order to attack it fell or slipped out of sight. Units that had not got there yet
+ * go on to where it was last seen and fight whatever they meet there, instead of stopping halfway.
+ */
+function loseTarget(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind === 'attack' && !o.resume && !o.leash && o.at && hypot(o.at.x - u.x, o.at.y - u.y) > Math.max(2, u.stats.range)) {
+    u.order = { kind: 'move', x: o.at.x, y: o.at.y, attackMove: true, pace: o.pace };
+    u.path = [];
+    u.repathTick = -1000;
+    return;
+  }
+  endAttack(w, u);
+}
+
 function updateAttack(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'attack') return;
   const t = w.get(o.targetId);
-  if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner) || !canHit(u, t)) return endAttack(w, u);
-  if (t.kind === 'unit' && !w.inSight(u.owner, t)) return endAttack(w, u);
+  // Fallen, or gone into a building or aboard a ship.
+  if (!t) return loseTarget(w, u);
+  if (t.kind === 'resource' || !w.areEnemies(u.owner, t.owner) || !canHit(u, t)) return endAttack(w, u);
+  if (t.kind === 'unit' && !w.inSight(u.owner, t)) return loseTarget(w, u);
+  if (o.at) {
+    o.at.x = t.x;
+    o.at.y = t.y;
+  } else {
+    o.at = { x: t.x, y: t.y };
+  }
   // Hacking at a building while enemy troops close in: turn to fight them first (siege keeps shelling).
   if (t.kind === 'building' && !isSiege(u) && scanDue(w, u)) {
     const foe = findTarget(w, u.owner, u.x, u.y, u.stats.sight, false, u);
@@ -525,6 +554,7 @@ function updateAttack(w: World, u: Unit): void {
     return;
   }
   const d = distTo(u, t);
+  if (o.pace !== undefined && d <= u.stats.range + CHARGE) o.pace = undefined;
   if (d <= u.stats.range) {
     u.path = [];
     face(u, t);
@@ -684,7 +714,7 @@ function updateGather(w: World, u: Unit): void {
     node &&
     (node.kind === 'resource' || (node.kind === 'building' && node.type === 'farm' && node.owner === u.owner && node.built));
   if (!validNode) {
-    const next = w.nearestResource(o.res, o.lx, o.ly, 10, u.owner, 0, fishing);
+    const next = w.nextNode(u, o.res, o.lx, o.ly, 10, 0, fishing);
     if (next) {
       o.targetId = next.id;
       o.lx = next.x;
@@ -729,7 +759,7 @@ function updateGather(w: World, u: Unit): void {
       if (!reached) {
         // Node is fenced in by other nodes or buildings: skip it for a while and try another one.
         if (target.kind === 'resource') target.blockedUntil = w.tick + 60 * TICK_RATE;
-        const alt = isFarm ? null : w.nearestResource(o.res, u.x, u.y, 12, u.owner, target.id, fishing);
+        const alt = isFarm ? null : w.nextNode(u, o.res, u.x, u.y, 12, target.id, fishing);
         if (alt) {
           o.targetId = alt.id;
           o.lx = alt.x;
@@ -749,7 +779,8 @@ function updateGather(w: World, u: Unit): void {
     u.carry = o.res;
     u.carryAmount = 0;
   }
-  const bonus = fishing ? player.mods.fishing : player.mods.gather[o.res] * (isFarm ? player.mods.farm : 1);
+  const hunting = target.kind === 'resource' && target.nodeType === 'deer';
+  const bonus = fishing ? player.mods.fishing : player.mods.gather[o.res] * (isFarm ? player.mods.farm : 1) * (hunting ? HUNT_RATE : 1);
   const wonder = w.wonderEffect(u.owner, 'gather') ? WONDER_GATHER : 1;
   let amount = gatherRate(player.epoch) * player.gatherBonus * bonus * wonder * DT;
   if (target.kind === 'resource') {
@@ -1151,28 +1182,23 @@ export function updateBuilding(w: World, b: Building): void {
     return;
   }
 
-  if (b.tech) {
-    b.tech.progress += DT * player.mods.research * (w.wonderEffect(b.owner, 'research') ? WONDER_RESEARCH : 1);
-    if (b.tech.progress >= b.tech.total) {
-      const tech = TECH_BY_ID.get(b.tech.id)!;
-      b.tech = null;
-      w.completeTech(b.owner, tech.id);
-      w.emit({ type: 'tech', player: b.owner, text: `Erforscht: ${tech.name} – ${tech.branch.text}.`, tech: tech.id });
-    }
-  }
-  w.startQueuedTech(b);
-
-  const item = b.queue[0];
-  if (!item) {
-    b.popBlocked = false;
+  // One job at a time, in the order given; a unit without room in the population or a technology
+  // still waiting for its prerequisite lets the next job go first.
+  const popFull = b.queue.some((q) => q.tech === undefined) && w.popCount(b.owner) >= w.popLimit();
+  if (popFull && !b.popBlocked) w.emit({ type: 'warn', player: b.owner, text: 'Bevölkerungslimit erreicht.' });
+  b.popBlocked = popFull;
+  const at = w.activeJob(b);
+  if (at < 0) return;
+  const item = b.queue[at];
+  if (item.tech !== undefined) {
+    const tech = TECH_BY_ID.get(item.tech)!;
+    item.progress += DT * player.mods.research * (w.wonderEffect(b.owner, 'research') ? WONDER_RESEARCH : 1);
+    if (item.progress < tech.time) return;
+    w.dropJob(b, at);
+    w.completeTech(b.owner, tech.id);
+    w.emit({ type: 'tech', player: b.owner, text: `Erforscht: ${tech.name} – ${tech.branch.text}.`, tech: tech.id });
     return;
   }
-  if (w.popCount(b.owner) >= w.popLimit()) {
-    if (!b.popBlocked) w.emit({ type: 'warn', player: b.owner, text: 'Bevölkerungslimit erreicht.' });
-    b.popBlocked = true;
-    return;
-  }
-  b.popBlocked = false;
   item.progress += DT * player.mods.train * (w.wonderEffect(b.owner, 'train') ? WONDER_TRAIN : 1);
   if (item.progress < ROLE_DEFS[item.role].trainTime) return;
   const towards = b.rally[0] ?? { x: b.x + b.size, y: b.y + b.size };
@@ -1180,8 +1206,7 @@ export function updateBuilding(w: World, b: Building): void {
   // Aircraft take turns on the airfield's parking places.
   const spot = w.findSpawnPoint(b, towards, domain === 'air' ? player.stats.unitsTrained : 0, domain);
   if (!spot) return;
-  b.queue.shift();
-  if (b.pendingAdvance) b.pendingAdvance.ahead--;
+  w.dropJob(b, at);
   const u = w.spawnUnit(b.owner, item.role, spot.x, spot.y);
   player.stats.unitsTrained++;
   w.emit({ type: 'trained', player: b.owner, text: `${u.stats.name} bereit.` });

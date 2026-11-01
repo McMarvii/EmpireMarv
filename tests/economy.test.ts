@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EPOCHS } from '../src/data/epochs';
 import { rectOf } from '../src/sim/entities';
 import { distToRect } from '../src/sim/pathfinding';
+import { World } from '../src/sim/world';
 import { emptyWorld, run } from './helpers';
 
 describe('economy', () => {
@@ -35,6 +36,62 @@ describe('economy', () => {
     const before = w.players[0].stock.wood;
     run(w, 60);
     expect(w.players[0].stock.wood).toBeGreaterThan(before + 60);
+  });
+
+  it('woodcutters of a felled tree spread over the next trees instead of crowding one', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    // An almost felled tree and a loose row of trees behind it.
+    const last = w.addResource('tree', tc.tx + 8, tc.ty + 1, 1, 6);
+    const row = [0, 1, 2, 3].map((i) => w.addResource('tree', tc.tx + 10 + i * 2, tc.ty + 1, 1, 200));
+    const citizens = w.unitsOf(0).filter((u) => u.role === 'citizen').slice(0, 4);
+    // One by one, so all four really work the same tree.
+    for (const u of citizens) w.issue({ type: 'gather', player: 0, ids: [u.id], targetId: last.id });
+    for (let i = 0; i < 20 * 40 && !last.dead; i++) w.step();
+    expect(last.dead).toBe(true);
+    w.step();
+    const next = citizens.map((u) => (u.order as { targetId: number }).targetId);
+    expect(next.every((id) => row.some((t) => t.id === id))).toBe(true);
+    expect(new Set(next).size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('every base has a herd of deer close by, more roam the land', () => {
+    for (const mapType of ['continent', 'islands'] as const) {
+      const w = new World({ seed: 11, mapSize: 96, mapType, players: [{ name: 'A', color: '#2f7de1', isAI: false, team: 0 }, { name: 'B', color: '#d9412b', isAI: false, team: 1 }] });
+      const deer = w.resources.filter((n) => n.nodeType === 'deer');
+      for (const s of w.startPositions) {
+        const near = deer.filter((n) => Math.hypot(n.x - s.x, n.y - s.y) < 17);
+        expect(near.length).toBeGreaterThanOrEqual(5);
+        // On the same land as the base.
+        for (const n of near.slice(0, 5)) expect(w.map.sameLand(n.x, n.y, s.x, s.y)).toBe(true);
+      }
+      expect(deer.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('hunting is faster than picking berries, and units walk through the herd', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    const deer = w.addResource('deer', tc.tx + 6, tc.ty + 1, 1, 150);
+    const bush = w.addResource('berries', tc.tx + 6, tc.ty + 3, 1, 150);
+    expect(deer.res).toBe('food');
+    expect(w.map.passable(deer.tx, deer.ty)).toBe(true);
+    expect(w.map.buildable(deer.tx, deer.ty)).toBe(false);
+    const [a, b] = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    w.issue({ type: 'gather', player: 0, ids: [a.id], targetId: deer.id });
+    w.issue({ type: 'gather', player: 0, ids: [b.id], targetId: bush.id });
+    run(w, 40);
+    expect(150 - deer.amount).toBeGreaterThan((150 - bush.amount) * 1.3);
+    // Hunted out: the tiles are free again.
+    w.remove(deer);
+    expect(w.map.buildable(deer.tx, deer.ty)).toBe(true);
+  });
+
+  it('mines hold 5000 each', () => {
+    const w = new World({ seed: 5, mapSize: 64, players: [{ name: 'A', color: '#2f7de1', isAI: false, team: 0 }, { name: 'B', color: '#d9412b', isAI: false, team: 1 }] });
+    const mines = w.resources.filter((n) => n.nodeType === 'gold' || n.nodeType === 'stone' || n.nodeType === 'iron');
+    expect(mines.length).toBeGreaterThan(0);
+    for (const m of mines) expect(m.amount).toBe(5000);
   });
 
   it('miners sent together still work the deposit they were sent to', () => {

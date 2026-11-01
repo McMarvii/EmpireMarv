@@ -3,16 +3,17 @@ import type { NodeType } from './entities';
 import { cos, hypot, sin } from './fmath';
 import { Terrain } from './map';
 import type { Point } from './pathfinding';
-import { valueNoise } from './rng';
+import { Rng, valueNoise } from './rng';
 import type { World } from './world';
 
 const NODE_AMOUNT: Record<NodeType, number> = {
   tree: 120,
   berries: 200,
-  stone: 2500,
-  gold: 2500,
-  iron: 2500,
+  stone: 5000,
+  gold: 5000,
+  iron: 5000,
   fish: 400,
+  deer: 150,
 };
 
 type Noise = (x: number, y: number) => number;
@@ -264,11 +265,53 @@ export function generateMap(w: World): Point[] {
   scatter('iron', Math.round((area / 1500) * plenty), 2);
   scatter('berries', Math.round((area / 2200) * plenty), 1);
 
+  placeWildlife(w, starts, distStart);
+
   // Islands stay apart: that is the point of them.
   if (type !== 'islands') ensureConnected(w, starts);
   w.compact();
   map.computeRegions();
   return starts;
+}
+
+/**
+ * Wild game: a herd of five within reach of every base, more herds out on the open land. It rolls its
+ * own dice, so terrain, forests and deposits stay exactly what they were before animals existed.
+ */
+function placeWildlife(w: World, starts: Point[], distStart: (x: number, y: number) => number): void {
+  const { map } = w;
+  const W = map.width;
+  const H = map.height;
+  const dice = new Rng((w.settings.seed ^ 0x5bd1e995) >>> 0);
+  const open = (x: number, y: number) => map.buildable(x, y) && map.terrainAt(x, y) !== Terrain.Sand && distStart(x + 0.5, y + 0.5) >= 6;
+  const herd = (cx: number, cy: number, count: number): number => {
+    let placed = 0;
+    for (let attempt = 0; attempt < 40 && placed < count; attempt++) {
+      const x = Math.floor(cx + dice.range(-2.5, 2.5));
+      const y = Math.floor(cy + dice.range(-2.5, 2.5));
+      if (!open(x, y)) continue;
+      w.addResource('deer', x, y, 1, NODE_AMOUNT.deer, dice.int(0, 4));
+      placed++;
+    }
+    return placed;
+  };
+  for (const s of starts) {
+    // Every base gets its herd: round the base until five found room.
+    const a = dice.range(0, Math.PI * 2);
+    let left = 5;
+    for (let round = 0; round < 8 && left > 0; round++) {
+      const d = 11 + (round % 3);
+      left -= herd(s.x + cos(a + round * 0.8) * d, s.y + sin(a + round * 0.8) * d, left);
+    }
+  }
+  const want = Math.round((W * H) / 2600);
+  let herds = 0;
+  for (let attempt = 0; attempt < want * 20 && herds < want; attempt++) {
+    const x = dice.int(3, W - 3);
+    const y = dice.int(3, H - 3);
+    if (distStart(x, y) < 16 || !open(x, y)) continue;
+    if (herd(x, y, dice.int(3, 6)) > 0) herds++;
+  }
 }
 
 /** How far from its base every player finds a shore (harbour site and fish) on water maps. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { BUILDING_DEFS } from '../src/data/buildings';
 import { lineTiles } from '../src/game';
 import { GameMap } from '../src/sim/map';
 import { linkMask, LINK_E, LINK_N, LINK_NE, LINK_S, LINK_SW, LINK_W } from '../src/render/sprites';
@@ -54,6 +55,53 @@ describe('walls and gates', () => {
     run(w, 10);
     expect(foe.x).toBeLessThan(x);
     expect(target.hp).toBe(target.maxHp);
+  });
+
+  it('a gate set onto a finished wall replaces the segment and lets own units through', () => {
+    const w = emptyWorld({ startEpoch: 3 });
+    w.players[0].stock.stone = 5000;
+    w.players[0].stock.wood = 5000;
+    const x = freeColumn(w, 26);
+    for (let y = 0; y < w.map.height; y++) w.addBuilding(0, 'wall', x, y, true);
+    const [builder] = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    expect(w.canPlace(0, 'gate', x, 20)).toBe(true);
+    // Only into own walls: the enemy cannot set a gate into this one.
+    expect(w.canPlace(1, 'gate', x, 20)).toBe(false);
+    w.issue({ type: 'place', player: 0, ids: [builder.id], building: 'gate', tx: x, ty: 20 });
+    const at = w.buildings.filter((b) => !b.dead && b.tx === x && b.ty === 20);
+    expect(at.map((b) => b.type)).toEqual(['gate']);
+    run(w, 90);
+    expect(at[0].built).toBe(true);
+    const friend = w.spawnUnit(0, 'citizen', x - 4, 18);
+    const foe = w.spawnUnit(1, 'citizen', x - 4, 22);
+    w.issue({ type: 'move', player: 0, ids: [friend.id], x: x + 4, y: 18 });
+    w.issue({ type: 'move', player: 1, ids: [foe.id], x: x + 4, y: 22 });
+    run(w, 40);
+    expect(friend.x).toBeGreaterThan(x + 1);
+    expect(foe.x).toBeLessThan(x);
+  });
+
+  it('a tower set into a wall takes the place of the segments under it', () => {
+    const w = emptyWorld({ startEpoch: 3 });
+    w.players[0].stock.stone = 5000;
+    w.players[0].stock.wood = 5000;
+    const x = freeColumn(w, 26);
+    for (let y = 10; y < 20; y++) w.addBuilding(0, 'wall', x, y, true);
+    const [builder] = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    expect(w.canPlace(0, 'tower', x, 14)).toBe(true);
+    w.issue({ type: 'place', player: 0, ids: [builder.id], building: 'tower', tx: x, ty: 14 });
+    const live = w.buildings.filter((b) => !b.dead);
+    // Nothing overlaps: the two wall tiles under the 2×2 tower are gone, the rest stands.
+    for (let y = 10; y < 20; y++) {
+      const here = live.filter((b) => b.tx <= x && x < b.tx + b.size && b.ty <= y && y < b.ty + b.size);
+      expect(here).toHaveLength(1);
+      expect(here[0].type).toBe(y === 14 || y === 15 ? 'tower' : 'wall');
+    }
+  });
+
+  it('walls are dragged out as a line, gates are placed one at a time', () => {
+    expect(BUILDING_DEFS.wall.drag).toBe(true);
+    expect(BUILDING_DEFS.gate.drag).toBeFalsy();
   });
 
   it('builds a dragged wall line segment by segment', () => {

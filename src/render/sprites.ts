@@ -1938,6 +1938,41 @@ export function drawNode(ctx: Ctx, project: Project, scale: number, n: NodeLook,
       }
       break;
     }
+    case 'deer': {
+      // Grazing deer, facing left or right by variant; once hunted, the carcass shrinks as it is cut up.
+      const dir = n.variant % 2 === 0 ? 1 : -1;
+      const fur = n.variant >= 2 ? '#9a6a3c' : '#a8743f';
+      ellipse(ctx, x, y + 1 * k, 7 * k, 2.6 * k, 'rgba(0,0,0,0.22)');
+      if (n.ratio < 1) {
+        const r = 0.45 + 0.55 * n.ratio;
+        ellipse(ctx, x, y - 1.6 * k, 6.5 * r * k, 2.6 * r * k, shade(fur, -0.1));
+        ellipse(ctx, x + dir * 1 * k, y - 1.8 * k, 3 * r * k, 1.3 * r * k, '#8e2a22');
+        line(ctx, x - dir * 5 * r * k, y - 1.5 * k, x - dir * 8 * r * k, y - 0.4 * k, shade(fur, -0.3), 1 * k);
+        break;
+      }
+      const graze = Math.sin(time * 0.9 + n.variant * 1.9 + n.tx * 0.37);
+      const down = graze > 0.2 ? Math.min(1, (graze - 0.2) * 2) : 0;
+      for (const [lx, ph] of [[-3, 0], [-1.6, 1], [2.2, 0.5], [3.4, 1.5]] as const) {
+        line(ctx, x + dir * lx * k, y - 6 * k, x + dir * (lx + Math.sin(ph) * 0.2) * k, y, shade(fur, -0.35), 1.1 * k);
+      }
+      ellipse(ctx, x, y - 7 * k, 5.2 * k, 2.6 * k, fur);
+      ellipse(ctx, x - dir * 0.5 * k, y - 6.2 * k, 3.6 * k, 1.2 * k, shade(fur, 0.25));
+      line(ctx, x - dir * 4.6 * k, y - 7.6 * k, x - dir * 5.6 * k, y - 8.6 * k, '#f2ead8', 1.1 * k);
+      // Neck and head: up and watchful, or down at the grass.
+      const hx = x + dir * (5.8 + down * 0.8) * k;
+      const hy = y - (11.5 - down * 7) * k;
+      line(ctx, x + dir * 3.6 * k, y - 7.8 * k, hx, hy, fur, 2 * k);
+      ellipse(ctx, hx + dir * 1 * k, hy + 0.3 * k, 1.9 * k, 1.1 * k, fur);
+      circle(ctx, hx + dir * 0.6 * k, hy - 0.3 * k, 0.35 * k, '#201812');
+      if (n.variant !== 3) {
+        // Antlers on the stags.
+        const ax = hx - dir * 0.3 * k;
+        const ay = hy - 1 * k;
+        line(ctx, ax, ay, ax - dir * 1.4 * k, ay - 3 * k, '#d9c7a0', 0.6 * k);
+        line(ctx, ax - dir * 0.8 * k, ay - 1.8 * k, ax + dir * 0.6 * k, ay - 3 * k, '#d9c7a0', 0.6 * k);
+      }
+      break;
+    }
     case 'berries': {
       const r = (4.5 + 2.5 * n.ratio) * k;
       ellipse(ctx, x, y + 1 * k, r * 1.2, r * 0.5, 'rgba(0,0,0,0.2)');

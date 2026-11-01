@@ -260,7 +260,10 @@ export function joinGame(root: HTMLElement, inviteText: string, exit: LobbyExit)
   let signal: Signal | null = null;
   const nameInput = q<HTMLInputElement>('input[name="name"]');
   nameInput.focus();
-  nameInput.onkeydown = (ev) => ev.key === 'Enter' && connect();
+  // A handler that returns false swallows the key, so typing would not reach the field.
+  nameInput.onkeydown = (ev) => {
+    if (ev.key === 'Enter') void connect();
+  };
 
   async function connect(): Promise<void> {
     const name = nameInput.value.trim() || 'Gast';

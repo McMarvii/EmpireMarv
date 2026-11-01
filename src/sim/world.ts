@@ -35,7 +35,7 @@ import { resolveMapType, type MapChoice } from '../data/maps';
 import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
 import { canGather, isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { canHit, updateProjectiles } from './combat';
-import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Order, type Plan, type Player, type ResourceNode, type Unit } from './entities';
+import { rectOf, walkableNode, type Building, type Entity, type Hazard, type NodeType, type Order, type Plan, type Player, type QueueItem, type ResourceNode, type Unit } from './entities';
 import { hypot } from './fmath';
 import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
 import { GameMap } from './map';
@@ -224,7 +224,9 @@ export type Command =
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
   | { type: 'research'; player: number; buildingId: number; tech: string }
-  /** Cancels the running tech (no index) or a waiting one (index into the tech queue). */
+  /** Re-equips the own outdated units near a building that trains them, for gold. */
+  | { type: 'upgrade'; player: number; buildingId: number }
+  /** Cancels the technology worked on (no index) or the index-th technology in the building's queue. */
   | { type: 'cancelTech'; player: number; buildingId: number; index?: number }
   | { type: 'rally'; player: number; buildingId: number; x: number; y: number; queue?: boolean }
   | { type: 'deposit'; player: number; ids: number[]; targetId: number; queue?: boolean }
@@ -251,12 +253,28 @@ const GRID_CELL = 4;
 export const MAX_LINE = 30;
 /** Woodcutters sent together spread over trees up to this many tiles from the one clicked. */
 export const TREE_SPREAD = 4;
+/** A worker already on a tree or bush counts like this many tiles of extra way for the next one. */
+export const CROWD_TILES = 3;
 /** Queued orders per unit (enough for a full wall line). */
 export const MAX_QUEUE = 40;
 /** Rally waypoints per building. */
 export const MAX_RALLY = 8;
-/** Technologies that may wait in one building's research queue. */
-export const MAX_TECH_QUEUE = 5;
+/** Outdated units within this many tiles of a building that trains them can be re-equipped there. */
+export const UPGRADE_REACH = 8;
+
+/** Gold to re-equip one unit to a tier: half of what that tier costs to train, at least 10. */
+export function upgradeGold(role: Role, tier: number): number {
+  const cost = unitStats(role, tier).cost;
+  return Math.max(10, Math.round(RESOURCES.reduce((n, r) => n + (cost[r] ?? 0), 0) / 2));
+}
+
+/** Jobs (units and technologies) that may wait in one building's queue. */
+export const MAX_JOBS = 10;
+
+/** Seconds a queued job takes at normal speed. */
+export function jobTime(job: QueueItem): number {
+  return job.tech !== undefined ? TECH_BY_ID.get(job.tech)!.time : ROLE_DEFS[job.role].trainTime;
+}
 
 /**
  * The complete, deterministic game state. Rendering and input only read
@@ -575,8 +593,6 @@ export class World {
       epoch,
       queue: [],
       research: null,
-      tech: null,
-      techQueue: [],
       pendingAdvance: null,
       rally: [],
       cooldown: 0,
@@ -653,8 +669,7 @@ export class World {
     const out = new Set(this.players[owner].techs);
     for (const b of this.buildings) {
       if (b.dead || b.owner !== owner) continue;
-      if (b.tech) out.add(b.tech.id);
-      for (const q of b.techQueue) out.add(q.id);
+      for (const q of b.queue) if (q.tech) out.add(q.tech);
     }
     return out;
   }
@@ -665,14 +680,30 @@ export class World {
     return tech.epoch <= this.players[owner].epoch && !planned.has(tech.id) && tech.requires.every((r) => planned.has(r));
   }
 
-  /** Starts the first waiting tech of a building once the building is free and its prerequisites are done. */
-  startQueuedTech(b: Building): void {
-    if (b.tech || b.research || !b.built || b.techQueue.length === 0) return;
-    const head = b.techQueue[0];
-    const tech = TECH_BY_ID.get(head.id)!;
-    if (!tech.requires.every((r) => this.players[b.owner].techs.has(r))) return;
-    b.techQueue.shift();
-    b.tech = { id: tech.id, progress: 0, total: tech.time, cost: head.cost };
+  /**
+   * Index of the job a building works on now: the first in its queue that can go on. A unit needs
+   * room in the population, a technology its prerequisites researched; jobs that cannot go on yet
+   * let the next one go first. -1: nothing can go on.
+   */
+  activeJob(b: Building): number {
+    const techs = this.players[b.owner].techs;
+    let popFull: boolean | null = null;
+    for (let i = 0; i < b.queue.length; i++) {
+      const q = b.queue[i];
+      if (q.tech !== undefined) {
+        if (TECH_BY_ID.get(q.tech)!.requires.every((r) => techs.has(r))) return i;
+      } else {
+        popFull ??= this.popCount(b.owner) >= this.popLimit();
+        if (!popFull) return i;
+      }
+    }
+    return -1;
+  }
+
+  /** Takes a finished or cancelled job out of the queue; an advance waiting behind it moves up. */
+  dropJob(b: Building, index: number): void {
+    b.queue.splice(index, 1);
+    if (b.pendingAdvance && index < b.pendingAdvance.ahead) b.pendingAdvance.ahead--;
   }
 
   /**
@@ -686,10 +717,11 @@ export class World {
       const planned = this.plannedTechs(owner);
       for (const b of this.buildings) {
         if (b.dead || b.owner !== owner) continue;
-        for (let i = b.techQueue.length - 1; i >= 0; i--) {
-          if (TECH_BY_ID.get(b.techQueue[i].id)!.requires.every((r) => planned.has(r))) continue;
-          refund(p.stock, b.techQueue[i].cost);
-          b.techQueue.splice(i, 1);
+        for (let i = b.queue.length - 1; i >= 0; i--) {
+          const job = b.queue[i];
+          if (job.tech === undefined || TECH_BY_ID.get(job.tech)!.requires.every((r) => planned.has(r))) continue;
+          refund(p.stock, job.cost);
+          this.dropJob(b, i);
           changed = true;
         }
       }
@@ -738,8 +770,8 @@ export class World {
     return owner >= 0 ? this.players[owner].team : -1;
   }
 
-  addResource(nodeType: NodeType, tx: number, ty: number, size: number, amount: number): ResourceNode {
-    const res: Res = nodeType === 'tree' ? 'wood' : nodeType === 'berries' || nodeType === 'fish' ? 'food' : nodeType;
+  addResource(nodeType: NodeType, tx: number, ty: number, size: number, amount: number, variant?: number): ResourceNode {
+    const res: Res = nodeType === 'tree' ? 'wood' : nodeType === 'berries' || nodeType === 'fish' || nodeType === 'deer' ? 'food' : nodeType;
     const n: ResourceNode = {
       kind: 'resource',
       id: this.nextId++,
@@ -756,12 +788,12 @@ export class World {
       maxHp: amount,
       dead: false,
       lastHitTick: -1000,
-      variant: this.rng.int(0, 4),
+      variant: variant ?? this.rng.int(0, 4),
       blockedUntil: 0,
     };
     this.entities.set(n.id, n);
     this.resources.push(n);
-    this.map.block(tx, ty, size, size, 1);
+    this.map.block(tx, ty, size, size, 1, walkableNode(nodeType));
     return n;
   }
 
@@ -773,7 +805,7 @@ export class World {
       this.map.block(e.tx, e.ty, e.size, e.size, -1, BUILDING_DEFS[e.type].walkable);
       if (BUILDING_DEFS[e.type].gate) this.map.setGate(e.tx, e.ty, -1);
     } else if (e.kind === 'resource') {
-      this.map.block(e.tx, e.ty, e.size, e.size, -1);
+      this.map.block(e.tx, e.ty, e.size, e.size, -1, walkableNode(e.nodeType));
     }
   }
 
@@ -903,6 +935,35 @@ export class World {
       const d = hypot(n.x - x, n.y - y);
       if (d < bestD) {
         bestD = d;
+        best = n;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * The next node for a gatherer whose node ran out or could not be reached. Trees and bushes count
+   * the owner's workers already on them (each one like `CROWD_TILES` of extra way), so the workers of
+   * a felled tree spread over the next ones instead of all walking to the same. Mines take many workers
+   * and go by distance alone.
+   */
+  nextNode(u: Unit, res: Res, x: number, y: number, maxDist: number, excludeId = 0, water = false): ResourceNode | null {
+    const crowd = new Map<number, number>();
+    for (const o of this.units) {
+      if (o === u || o.dead || o.owner !== u.owner || o.order.kind !== 'gather') continue;
+      crowd.set(o.order.targetId, (crowd.get(o.order.targetId) ?? 0) + 1);
+    }
+    let best: ResourceNode | null = null;
+    let bestScore = Infinity;
+    for (const n of this.resources) {
+      if (n.dead || n.res !== res || n.id === excludeId || n.blockedUntil > this.tick || (n.nodeType === 'fish') !== water) continue;
+      if (!this.isVisibleTo(u.owner, n)) continue;
+      const d = hypot(n.x - x, n.y - y);
+      if (d >= maxDist) continue;
+      const small = n.nodeType === 'tree' || n.nodeType === 'berries' || n.nodeType === 'deer';
+      const score = small ? d + CROWD_TILES * (crowd.get(n.id) ?? 0) : d;
+      if (score < bestScore) {
+        bestScore = score;
         best = n;
       }
     }
@@ -1057,9 +1118,11 @@ export class World {
     const vis = this.players[owner].vis;
     // Harbours stand in the water at the shore, everything else on dry land.
     if (BUILDING_DEFS[type].shore && !this.map.shoreSite(tx, ty, size)) return false;
+    // Gates and towers may go into an own wall: the segments under them make way.
+    const walls = this.wallsUnder(owner, type, tx, ty);
     for (let y = ty; y < ty + size; y++) {
       for (let x = tx; x < tx + size; x++) {
-        if (!BUILDING_DEFS[type].shore && !this.map.buildable(x, y)) return false;
+        if (!BUILDING_DEFS[type].shore && !this.map.buildable(x, y) && !walls.some((b) => b.tx === x && b.ty === y)) return false;
         if (!this.settings.revealMap && vis[this.map.idx(x, y)] === 0) return false;
       }
     }
@@ -1073,6 +1136,21 @@ export class World {
       if (tx < b.tx + b.size + 1 && tx + size + 1 > b.tx && ty < b.ty + b.size + 1 && ty + size + 1 > b.ty) return false;
     }
     return true;
+  }
+
+  /**
+   * The owner's wall segments a gate or tower placed here would replace: a gate on a wall tile,
+   * a tower over the walls under its footprint. Empty for everything else.
+   */
+  wallsUnder(owner: number, type: BuildingType, tx: number, ty: number): Building[] {
+    if (type !== 'gate' && type !== 'tower') return [];
+    const size = BUILDING_DEFS[type].size;
+    const out: Building[] = [];
+    for (const b of this.buildings) {
+      if (b.dead || b.type !== 'wall' || b.owner !== owner) continue;
+      if (b.tx >= tx && b.tx < tx + size && b.ty >= ty && b.ty < ty + size) out.push(b);
+    }
+    return out;
   }
 
   /** Whether a player may currently build a type (epoch requirement). */
@@ -1123,12 +1201,16 @@ export class World {
       case 'attack': {
         const target = this.get(cmd.targetId);
         if (!target || target.kind === 'resource' || !this.areEnemies(cmd.player, target.owner)) return;
-        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
+        const units = this.ownUnits(cmd.player, cmd.ids);
+        const fighters = units.filter((u) => u.role !== 'priest' && u.role !== 'prophet' && canHit(u, target));
+        // In step up to the target: the group closes in together, at the slowest one's pace.
+        const pace = cmd.queue ? null : this.groupPace(fighters, fighters, fighters.map(() => target));
+        for (const u of units) {
           // Priests answer an attack order by converting; prophets do not fight at all.
           if (u.role === 'priest') {
             if (target.kind === 'unit' && isConvertible(target.role)) this.assign(u, { kind: 'convert', targetId: target.id }, cmd.queue ?? false);
-          } else if (u.role !== 'prophet' && canHit(u, target)) {
-            this.assign(u, { kind: 'attack', targetId: target.id }, cmd.queue ?? false);
+          } else if (fighters.includes(u)) {
+            this.assign(u, { kind: 'attack', targetId: target.id, pace: pace?.get(u.id) }, cmd.queue ?? false);
           }
         }
         break;
@@ -1235,10 +1317,10 @@ export class World {
         }
         const item = b.queue[cmd.index];
         if (!item) return;
-        b.queue.splice(cmd.index, 1);
+        this.dropJob(b, cmd.index);
         refund(player.stock, item.cost);
-        // One unit fewer to wait for before the advance.
-        if (b.pendingAdvance && cmd.index < b.pendingAdvance.ahead) b.pendingAdvance.ahead--;
+        // Research that built on a cancelled technology cannot come either.
+        if (item.tech !== undefined) this.pruneTechQueues(cmd.player);
         break;
       }
       case 'advance':
@@ -1247,21 +1329,19 @@ export class World {
       case 'research':
         this.commandResearch(cmd.player, cmd.buildingId, cmd.tech);
         break;
+      case 'upgrade':
+        this.commandUpgrade(cmd.player, cmd.buildingId);
+        break;
       case 'cancelTech': {
         const b = this.get(cmd.buildingId);
         if (!b || b.kind !== 'building' || b.owner !== cmd.player) return;
-        if (cmd.index === undefined || cmd.index < 0) {
-          if (!b.tech) return;
-          refund(player.stock, b.tech.cost);
-          b.tech = null;
-        } else {
-          const job = b.techQueue[cmd.index];
-          if (!job) return;
-          refund(player.stock, job.cost);
-          b.techQueue.splice(cmd.index, 1);
-        }
+        // No index: the technology worked on; else the index-th technology in the queue.
+        const techs = b.queue.flatMap((q, i) => (q.tech !== undefined ? [i] : []));
+        const at = cmd.index === undefined || cmd.index < 0 ? (techs.find((i) => b.queue[i].progress > 0) ?? techs[0]) : techs[cmd.index];
+        if (at === undefined) return;
+        refund(player.stock, b.queue[at].cost);
+        this.dropJob(b, at);
         this.pruneTechQueues(cmd.player);
-        this.startQueuedTech(b);
         break;
       }
       case 'rally': {
@@ -1423,20 +1503,25 @@ export class World {
     if (units.length === 0) return;
     const starts = units.map((u) => (queue ? this.plannedEnd(u) : { x: u.x, y: u.y }));
     const targets = this.formationTargets(player, units, starts, x, y, facing);
-    // Everybody marching in step arrives together: the fast ones slow down to the group's pace (aircraft fly ahead).
-    const inStep = units.flatMap((u, i) => (u.lockstep && !isAir(u.role) ? [i] : []));
-    const pace =
-      inStep.length > 1
-        ? arrivalPace(
-            inStep.map((i) => ({ id: units[i].id, x: starts[i].x, y: starts[i].y, speed: units[i].stats.speed })),
-            inStep.map((i) => targets[i]),
-          )
-        : null;
+    const pace = this.groupPace(units, starts, targets);
     // Queued moves set off later, from wherever the orders before them end.
     const routes = queue ? null : this.groupRoutes(units, targets, x, y);
     units.forEach((u, i) => {
       this.assign(u, { kind: 'move', x: targets[i].x, y: targets[i].y, attackMove, pace: pace?.get(u.id) }, queue, routes?.[i]);
     });
+  }
+
+  /**
+   * Everybody marching in step goes at the pace of the slowest of them and arrives together (aircraft
+   * fly ahead); null when fewer than two march in step.
+   */
+  private groupPace(units: Unit[], starts: Point[], targets: Point[]): Map<number, number> | null {
+    const inStep = units.flatMap((u, i) => (u.lockstep && !isAir(u.role) ? [i] : []));
+    if (inStep.length < 2) return null;
+    return arrivalPace(
+      inStep.map((i) => ({ id: units[i].id, x: starts[i].x, y: starts[i].y, speed: units[i].stats.speed })),
+      inStep.map((i) => targets[i]),
+    );
   }
 
   private commandPatrol(player: number, ids: number[], x: number, y: number, queue: boolean): void {
@@ -1679,8 +1764,17 @@ export class World {
       return;
     }
     pay(p.stock, cost);
+    this.makeWay(player, type, tx, ty);
     const b = this.addBuilding(player, type, tx, ty, false);
     this.issue({ type: 'construct', player, ids, targetId: b.id, queue });
+  }
+
+  /** A gate or tower set into a wall: the segments under it make way (a site among them gives back its unbuilt share). */
+  private makeWay(player: number, type: BuildingType, tx: number, ty: number): void {
+    for (const wall of this.wallsUnder(player, type, tx, ty)) {
+      if (!wall.built) refund(this.players[player].stock, multiplyCost(buildingCost(wall.type, wall.epoch), 1 - wall.progress));
+      this.remove(wall);
+    }
   }
 
   private commandPlaceLine(player: number, ids: number[], type: BuildingType, tiles: Point[], queue: boolean): void {
@@ -1696,6 +1790,7 @@ export class World {
         break;
       }
       pay(p.stock, def.cost);
+      this.makeWay(player, type, t.x, t.y);
       placed.push(this.addBuilding(player, type, t.x, t.y, false));
     }
     if (short) this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, def.cost)}` });
@@ -1725,7 +1820,7 @@ export class World {
       this.emit({ type: 'warn', player, text: `Es gibt schon einen ${ROLE_DEFS[role].label.replace('Held: ', '')}en – jeder Held nur einmal.` });
       return false;
     }
-    if (b.queue.length >= 10) {
+    if (b.queue.length >= MAX_JOBS) {
       this.emit({ type: 'warn', player, text: 'Die Warteschlange ist voll.' });
       return false;
     }
@@ -1896,8 +1991,8 @@ export class World {
     const tech = TECH_BY_ID.get(id);
     if (!tech || !b || b.kind !== 'building' || b.owner !== player || !b.built || b.type !== tech.building) return;
     if (!this.techPlannable(player, tech)) return;
-    if (b.techQueue.length >= MAX_TECH_QUEUE) {
-      this.emit({ type: 'warn', player, text: 'Die Forschungs-Warteschlange ist voll.' });
+    if (b.queue.length >= MAX_JOBS) {
+      this.emit({ type: 'warn', player, text: 'Die Warteschlange ist voll.' });
       return;
     }
     if (!canAfford(p.stock, tech.cost)) {
@@ -1905,9 +2000,58 @@ export class World {
       return;
     }
     pay(p.stock, tech.cost);
-    // Queued behind what runs here; starts right away when the building is free.
-    b.techQueue.push({ id, cost: tech.cost });
-    this.startQueuedTech(b);
+    // In line with the units: it starts when its turn comes.
+    b.queue.push({ tech: id, progress: 0, cost: tech.cost });
+  }
+
+  /**
+   * Units of the roles a building trains that stand within reach of it and are of an older epoch than
+   * their owner, with the tier they would get. Heroes grow with the epoch on their own.
+   */
+  upgradable(b: Building): Array<{ unit: Unit; tier: number }> {
+    const epoch = this.players[b.owner].epoch;
+    const trains = BUILDING_DEFS[b.type].trains;
+    const rect = rectOf(b);
+    const out: Array<{ unit: Unit; tier: number }> = [];
+    if (!b.built || trains.length === 0) return out;
+    for (const u of this.units) {
+      if (u.dead || u.inside || u.owner !== b.owner || isHero(u.role) || !trains.includes(u.role)) continue;
+      const tier = bestTier(u.role, epoch);
+      if (tier <= u.tier || distToRect(u.x, u.y, rect) > UPGRADE_REACH) continue;
+      out.push({ unit: u, tier });
+    }
+    return out;
+  }
+
+  private commandUpgrade(player: number, buildingId: number): void {
+    const b = this.get(buildingId);
+    if (!b || b.kind !== 'building' || b.owner !== player) return;
+    const p = this.players[player];
+    const list = this.upgradable(b);
+    if (!list.length) {
+      this.emit({ type: 'warn', player, text: `Keine veralteten Einheiten in der Nähe (bis ${UPGRADE_REACH} Felder).` });
+      return;
+    }
+    let done = 0;
+    let paid = 0;
+    for (const { unit: u, tier } of list) {
+      const gold = upgradeGold(u.role, tier);
+      if (p.stock.gold < gold) break;
+      p.stock.gold -= gold;
+      paid += gold;
+      done++;
+      const ratio = u.hp / u.maxHp;
+      u.tier = tier;
+      u.stats = this.unitStatsFor(player, u.role, tier);
+      u.maxHp = u.stats.hp;
+      u.hp = Math.max(1, ratio * u.maxHp);
+      this.effects.push({ kind: 'heal', x: u.x, y: u.y, t: 0, dur: 0.8, size: 1 });
+    }
+    if (done) {
+      this.cue({ kind: 'heal', x: b.x, y: b.y, owner: player });
+      this.emit({ type: 'info', player, text: `${done} ${done === 1 ? 'Einheit' : 'Einheiten'} aufgerüstet (${paid} Gold).` });
+    }
+    if (done < list.length) this.emit({ type: 'warn', player, text: `Nicht genug Gold für ${list.length - done} weitere ${list.length - done === 1 ? 'Einheit' : 'Einheiten'}.` });
   }
 
   private commandAdvance(player: number, buildingId: number): void {
@@ -2017,7 +2161,7 @@ export class World {
       if (e.garrison.length) this.ejectGarrison(e);
       this.cue({ kind: 'collapse', x: e.x, y: e.y, owner: e.owner, epoch: e.epoch, size: e.size });
       // Research that depended on what ran here can no longer come.
-      if (e.tech || e.techQueue.length) this.pruneTechQueues(e.owner);
+      if (e.queue.some((q) => q.tech !== undefined)) this.pruneTechQueues(e.owner);
       this.effects.push({ kind: 'collapse', x: e.x, y: e.y, t: 0, dur: 1.6, size: e.size });
       if (e.type === 'towncenter') {
         this.emit({ type: 'warn', player: e.owner, text: `${buildingName(e.type, e.epoch)} wurde zerstört!`, x: e.x, y: e.y });
