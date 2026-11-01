@@ -9,9 +9,9 @@ import type { World } from './world';
 const NODE_AMOUNT: Record<NodeType, number> = {
   tree: 120,
   berries: 200,
-  stone: 2500,
-  gold: 2500,
-  iron: 2500,
+  stone: 5000,
+  gold: 5000,
+  iron: 5000,
   fish: 400,
 };
 

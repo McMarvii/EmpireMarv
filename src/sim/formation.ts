@@ -137,24 +137,27 @@ export function headingTo(members: Array<{ x: number; y: number; facing?: number
   return sx === 0 && sy === 0 ? 0 : atan2(sy, sx);
 }
 
-/** Slowest a unit is slowed down to keep pace, as a share of its own speed. */
+/** Slowest a unit is slowed down to keep pace, as a share of the group's pace. */
 export const MIN_PACE = 0.35;
 
 /**
- * Marching speed per unit so that everybody reaches their slot at the same
- * time: the unit with the longest way (measured in its own speed) sets the
- * time, the others slow down to match. Nobody gets faster than they are.
+ * Marching speed per unit in step. The group goes at the pace of its slowest member (siege engines
+ * set it for everybody), so nobody runs ahead. The unit with the longest way walks at that pace, the
+ * others slightly slower, so that all reach their slots together.
  */
 export function arrivalPace(from: Array<{ id: number; x: number; y: number; speed: number }>, to: Point[]): Map<number, number> {
   const pace = new Map<number, number>();
-  let time = 0;
+  let slowest = Infinity;
+  let far = 0;
   from.forEach((m, i) => {
-    time = Math.max(time, hypot(to[i].x - m.x, to[i].y - m.y) / m.speed);
+    slowest = Math.min(slowest, m.speed);
+    far = Math.max(far, hypot(to[i].x - m.x, to[i].y - m.y));
   });
+  const time = far / slowest;
   from.forEach((m, i) => {
     const d = hypot(to[i].x - m.x, to[i].y - m.y);
-    const v = time > 0 ? d / time : m.speed;
-    pace.set(m.id, Math.min(m.speed, Math.max(m.speed * MIN_PACE, v)));
+    const v = time > 0 ? d / time : slowest;
+    pace.set(m.id, Math.min(m.speed, slowest, Math.max(slowest * MIN_PACE, v)));
   });
   return pace;
 }

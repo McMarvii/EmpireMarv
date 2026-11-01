@@ -135,7 +135,7 @@ function followPath(w: World, u: Unit): void {
   const dist = hypot(dx, dy);
   const o = u.order;
   const v = unitSpeed(w, u);
-  const speed = o.kind === 'move' && o.pace ? Math.min(v, o.pace) : v;
+  const speed = (o.kind === 'move' || o.kind === 'attack') && o.pace ? Math.min(v, o.pace) : v;
   const step = speed * DT;
   u.moving = true;
   if (dist > 1e-6) u.facing = atan2(dy, dx);
@@ -343,7 +343,7 @@ export function startPlan(w: World, u: Unit, plan: Plan, route?: Point[]): void 
     case 'attack': {
       const t = w.get(plan.targetId);
       if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner)) return goIdle(u);
-      u.order = { kind: 'attack', targetId: t.id, resume: null, leash: null };
+      u.order = { kind: 'attack', targetId: t.id, resume: null, leash: null, pace: plan.pace };
       break;
     }
     case 'gather': {
@@ -474,7 +474,8 @@ function updateMove(w: World, u: Unit): void {
   if (o.attackMove && !isPeaceful(u.role) && scanDue(w, u)) {
     const target = findTarget(w, u.owner, u.x, u.y, u.stats.sight, isSiege(u), u);
     if (target) {
-      u.order = { kind: 'attack', targetId: target.id, resume: { kind: 'move', x: o.x, y: o.y, attackMove: true }, leash: null };
+      // The group keeps its marching pace into the fight and afterwards.
+      u.order = { kind: 'attack', targetId: target.id, resume: { kind: 'move', x: o.x, y: o.y, attackMove: true, pace: o.pace }, leash: null, pace: o.pace };
       u.path = [];
       return;
     }
@@ -503,12 +504,38 @@ function endAttack(w: World, u: Unit): void {
   u.scanTick = w.tick;
 }
 
+/** Within this many tiles beyond its range a unit leaves the group's pace and closes in at full speed. */
+const CHARGE = 3;
+
+/**
+ * The target of an order to attack it fell or slipped out of sight. Units that had not got there yet
+ * go on to where it was last seen and fight whatever they meet there, instead of stopping halfway.
+ */
+function loseTarget(w: World, u: Unit): void {
+  const o = u.order;
+  if (o.kind === 'attack' && !o.resume && !o.leash && o.at && hypot(o.at.x - u.x, o.at.y - u.y) > Math.max(2, u.stats.range)) {
+    u.order = { kind: 'move', x: o.at.x, y: o.at.y, attackMove: true, pace: o.pace };
+    u.path = [];
+    u.repathTick = -1000;
+    return;
+  }
+  endAttack(w, u);
+}
+
 function updateAttack(w: World, u: Unit): void {
   const o = u.order;
   if (o.kind !== 'attack') return;
   const t = w.get(o.targetId);
-  if (!t || t.kind === 'resource' || !w.areEnemies(u.owner, t.owner) || !canHit(u, t)) return endAttack(w, u);
-  if (t.kind === 'unit' && !w.inSight(u.owner, t)) return endAttack(w, u);
+  // Fallen, or gone into a building or aboard a ship.
+  if (!t) return loseTarget(w, u);
+  if (t.kind === 'resource' || !w.areEnemies(u.owner, t.owner) || !canHit(u, t)) return endAttack(w, u);
+  if (t.kind === 'unit' && !w.inSight(u.owner, t)) return loseTarget(w, u);
+  if (o.at) {
+    o.at.x = t.x;
+    o.at.y = t.y;
+  } else {
+    o.at = { x: t.x, y: t.y };
+  }
   // Hacking at a building while enemy troops close in: turn to fight them first (siege keeps shelling).
   if (t.kind === 'building' && !isSiege(u) && scanDue(w, u)) {
     const foe = findTarget(w, u.owner, u.x, u.y, u.stats.sight, false, u);
@@ -525,6 +552,7 @@ function updateAttack(w: World, u: Unit): void {
     return;
   }
   const d = distTo(u, t);
+  if (o.pace !== undefined && d <= u.stats.range + CHARGE) o.pace = undefined;
   if (d <= u.stats.range) {
     u.path = [];
     face(u, t);
@@ -684,7 +712,7 @@ function updateGather(w: World, u: Unit): void {
     node &&
     (node.kind === 'resource' || (node.kind === 'building' && node.type === 'farm' && node.owner === u.owner && node.built));
   if (!validNode) {
-    const next = w.nearestResource(o.res, o.lx, o.ly, 10, u.owner, 0, fishing);
+    const next = w.nextNode(u, o.res, o.lx, o.ly, 10, 0, fishing);
     if (next) {
       o.targetId = next.id;
       o.lx = next.x;
@@ -729,7 +757,7 @@ function updateGather(w: World, u: Unit): void {
       if (!reached) {
         // Node is fenced in by other nodes or buildings: skip it for a while and try another one.
         if (target.kind === 'resource') target.blockedUntil = w.tick + 60 * TICK_RATE;
-        const alt = isFarm ? null : w.nearestResource(o.res, u.x, u.y, 12, u.owner, target.id, fishing);
+        const alt = isFarm ? null : w.nextNode(u, o.res, u.x, u.y, 12, target.id, fishing);
         if (alt) {
           o.targetId = alt.id;
           o.lx = alt.x;

@@ -251,6 +251,8 @@ const GRID_CELL = 4;
 export const MAX_LINE = 30;
 /** Woodcutters sent together spread over trees up to this many tiles from the one clicked. */
 export const TREE_SPREAD = 4;
+/** A worker already on a tree or bush counts like this many tiles of extra way for the next one. */
+export const CROWD_TILES = 3;
 /** Queued orders per unit (enough for a full wall line). */
 export const MAX_QUEUE = 40;
 /** Rally waypoints per building. */
@@ -910,6 +912,35 @@ export class World {
   }
 
   /**
+   * The next node for a gatherer whose node ran out or could not be reached. Trees and bushes count
+   * the owner's workers already on them (each one like `CROWD_TILES` of extra way), so the workers of
+   * a felled tree spread over the next ones instead of all walking to the same. Mines take many workers
+   * and go by distance alone.
+   */
+  nextNode(u: Unit, res: Res, x: number, y: number, maxDist: number, excludeId = 0, water = false): ResourceNode | null {
+    const crowd = new Map<number, number>();
+    for (const o of this.units) {
+      if (o === u || o.dead || o.owner !== u.owner || o.order.kind !== 'gather') continue;
+      crowd.set(o.order.targetId, (crowd.get(o.order.targetId) ?? 0) + 1);
+    }
+    let best: ResourceNode | null = null;
+    let bestScore = Infinity;
+    for (const n of this.resources) {
+      if (n.dead || n.res !== res || n.id === excludeId || n.blockedUntil > this.tick || (n.nodeType === 'fish') !== water) continue;
+      if (!this.isVisibleTo(u.owner, n)) continue;
+      const d = hypot(n.x - x, n.y - y);
+      if (d >= maxDist) continue;
+      const small = n.nodeType === 'tree' || n.nodeType === 'berries';
+      const score = small ? d + CROWD_TILES * (crowd.get(n.id) ?? 0) : d;
+      if (score < bestScore) {
+        bestScore = score;
+        best = n;
+      }
+    }
+    return best;
+  }
+
+  /**
    * A tree for each worker, in the workers' order: the clicked tree and the reachable trees around it
    * (nearest first), one worker each; with more workers than trees the round starts over. Each tree
    * goes to the nearest worker still free, so nobody walks past a tree to reach another.
@@ -1123,12 +1154,16 @@ export class World {
       case 'attack': {
         const target = this.get(cmd.targetId);
         if (!target || target.kind === 'resource' || !this.areEnemies(cmd.player, target.owner)) return;
-        for (const u of this.ownUnits(cmd.player, cmd.ids)) {
+        const units = this.ownUnits(cmd.player, cmd.ids);
+        const fighters = units.filter((u) => u.role !== 'priest' && u.role !== 'prophet' && canHit(u, target));
+        // In step up to the target: the group closes in together, at the slowest one's pace.
+        const pace = cmd.queue ? null : this.groupPace(fighters, fighters, fighters.map(() => target));
+        for (const u of units) {
           // Priests answer an attack order by converting; prophets do not fight at all.
           if (u.role === 'priest') {
             if (target.kind === 'unit' && isConvertible(target.role)) this.assign(u, { kind: 'convert', targetId: target.id }, cmd.queue ?? false);
-          } else if (u.role !== 'prophet' && canHit(u, target)) {
-            this.assign(u, { kind: 'attack', targetId: target.id }, cmd.queue ?? false);
+          } else if (fighters.includes(u)) {
+            this.assign(u, { kind: 'attack', targetId: target.id, pace: pace?.get(u.id) }, cmd.queue ?? false);
           }
         }
         break;
@@ -1423,20 +1458,25 @@ export class World {
     if (units.length === 0) return;
     const starts = units.map((u) => (queue ? this.plannedEnd(u) : { x: u.x, y: u.y }));
     const targets = this.formationTargets(player, units, starts, x, y, facing);
-    // Everybody marching in step arrives together: the fast ones slow down to the group's pace (aircraft fly ahead).
-    const inStep = units.flatMap((u, i) => (u.lockstep && !isAir(u.role) ? [i] : []));
-    const pace =
-      inStep.length > 1
-        ? arrivalPace(
-            inStep.map((i) => ({ id: units[i].id, x: starts[i].x, y: starts[i].y, speed: units[i].stats.speed })),
-            inStep.map((i) => targets[i]),
-          )
-        : null;
+    const pace = this.groupPace(units, starts, targets);
     // Queued moves set off later, from wherever the orders before them end.
     const routes = queue ? null : this.groupRoutes(units, targets, x, y);
     units.forEach((u, i) => {
       this.assign(u, { kind: 'move', x: targets[i].x, y: targets[i].y, attackMove, pace: pace?.get(u.id) }, queue, routes?.[i]);
     });
+  }
+
+  /**
+   * Everybody marching in step goes at the pace of the slowest of them and arrives together (aircraft
+   * fly ahead); null when fewer than two march in step.
+   */
+  private groupPace(units: Unit[], starts: Point[], targets: Point[]): Map<number, number> | null {
+    const inStep = units.flatMap((u, i) => (u.lockstep && !isAir(u.role) ? [i] : []));
+    if (inStep.length < 2) return null;
+    return arrivalPace(
+      inStep.map((i) => ({ id: units[i].id, x: starts[i].x, y: starts[i].y, speed: units[i].stats.speed })),
+      inStep.map((i) => targets[i]),
+    );
   }
 
   private commandPatrol(player: number, ids: number[], x: number, y: number, queue: boolean): void {

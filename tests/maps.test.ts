@@ -148,7 +148,8 @@ describe('map types', () => {
       add(r.tx);
       add(r.ty);
       add(r.size);
-      add(r.amount);
+      // Mines hold twice as much since 0.10.2; the layout is what this guards.
+      add(r.nodeType === 'gold' || r.nodeType === 'stone' || r.nodeType === 'iron' ? r.amount / 2 : r.amount);
       add(r.variant);
     }
     expect(h).toBe(3312152833);

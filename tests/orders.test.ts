@@ -69,7 +69,7 @@ describe('formation geometry', () => {
     for (let i = 1; i < 5; i++) expect(y(i + 1)).toBeGreaterThan(y(i));
   });
 
-  it('paces a group so all arrive together, nobody faster than they can', () => {
+  it('paces a group at its slowest member so all arrive together', () => {
     const from = [
       { id: 1, x: 0, y: 0, speed: 1.75 },
       { id: 2, x: 0, y: 1, speed: 2.8 },
@@ -83,10 +83,12 @@ describe('formation geometry', () => {
     const pace = arrivalPace(from, to);
     const time = (i: number) => Math.hypot(to[i].x - from[i].x, to[i].y - from[i].y) / pace.get(from[i].id)!;
     expect(time(1)).toBeCloseTo(time(0), 5);
-    expect(pace.get(2)!).toBeLessThan(2.8);
+    // The slowest (1.6) sets the pace: the riders do not run ahead of it.
+    expect(pace.get(1)!).toBeCloseTo(1.6);
+    expect(pace.get(2)!).toBeCloseTo(1.6);
     // A unit already close only slows down so far.
     expect(pace.get(3)).toBeCloseTo(1.6 * MIN_PACE);
-    for (const m of from) expect(pace.get(m.id)!).toBeLessThanOrEqual(m.speed);
+    for (const m of from) expect(pace.get(m.id)!).toBeLessThanOrEqual(1.6);
   });
 });
 
@@ -116,6 +118,72 @@ describe('marching', () => {
     solo.issue({ type: 'move', player: 0, ids: [rider.id], x: 24, y: 20 });
     const alone = arrivals(solo, [rider], 30).get(rider.id)!;
     expect(Math.min(...times)).toBeGreaterThan(alone * 1.3);
+  });
+
+  it('siege engines set the pace: in step nobody is faster than the catapult', () => {
+    const w = emptyWorld({ startEpoch: 3 });
+    // The catapult has the shorter way: by time alone the riders would hurry.
+    const siege = w.spawnUnit(0, 'siege', 16, 20);
+    const riders = [0, 1, 2].map((i) => w.spawnUnit(0, 'mounted', 4 + i, 18));
+    const foot = [0, 1, 2].map((i) => w.spawnUnit(0, 'assault', 4 + i, 22));
+    const group = [siege, ...riders, ...foot];
+    expect(riders[0].stats.speed).toBeGreaterThan(siege.stats.speed * 1.5);
+    w.issue({ type: 'move', player: 0, ids: group.map((u) => u.id), x: 34, y: 20 });
+    let fastest = 0;
+    for (let t = 0; t < 20 * 30; t++) {
+      const before = group.map((u) => [u.x, u.y]);
+      w.step();
+      group.forEach((u, i) => {
+        if (u.order.kind === 'move') fastest = Math.max(fastest, Math.hypot(u.x - before[i][0], u.y - before[i][1]) * 20);
+      });
+    }
+    // A little pushing in the crowd aside, nobody outruns the siege engine.
+    expect(fastest).toBeLessThan(siege.stats.speed * 1.15);
+  });
+
+  it('an attack-move keeps the group pace in the fight and after it', () => {
+    const w = emptyWorld({ startEpoch: 3 });
+    const siege = w.spawnUnit(0, 'siege', 6, 20);
+    const rider = w.spawnUnit(0, 'mounted', 6, 22);
+    const foe = w.spawnUnit(1, 'citizen', 18, 22);
+    w.issue({ type: 'move', player: 0, ids: [siege.id, rider.id], x: 36, y: 21, attackMove: true });
+    let attacked = false;
+    for (let t = 0; t < 20 * 30 && !foe.dead; t++) {
+      w.step();
+      if (rider.order.kind === 'attack') {
+        attacked = true;
+        const o = rider.order;
+        // Closing in at the group's pace until the last few tiles.
+        if (Math.hypot(foe.x - rider.x, foe.y - rider.y) > rider.stats.range + 4) expect(o.pace).toBeDefined();
+        expect(o.resume?.kind === 'move' && o.resume.pace).toBeTruthy();
+      }
+    }
+    expect(attacked).toBe(true);
+    // Back on the march: still in step.
+    for (let t = 0; t < 40 && rider.order.kind !== 'move'; t++) w.step();
+    expect(rider.order.kind === 'move' && rider.order.pace).toBeLessThanOrEqual(siege.stats.speed);
+  });
+
+  it('when the target falls first, the others go on to where it fell', () => {
+    const w = emptyWorld();
+    const foe = w.spawnUnit(1, 'citizen', 20, 20);
+    // One arrow is enough: it falls long before the swordsmen get there.
+    foe.hp = 1;
+    const near = w.spawnUnit(0, 'ranged', 15, 20);
+    const far = [0, 1, 2].map((i) => w.spawnUnit(0, 'assault', 4, 18 + i * 2));
+    w.issue({ type: 'attack', player: 0, ids: [near.id, ...far.map((u) => u.id)], targetId: foe.id });
+    for (let t = 0; t < 20 * 20 && !foe.dead; t++) w.step();
+    expect(foe.dead).toBe(true);
+    w.step();
+    for (const u of far) {
+      expect(u.order.kind).toBe('move');
+      if (u.order.kind === 'move') {
+        expect(u.order.attackMove).toBe(true);
+        expect(Math.hypot(u.order.x - foe.x, u.order.y - foe.y)).toBeLessThan(0.5);
+      }
+    }
+    run(w, 15);
+    for (const u of far) expect(Math.hypot(u.x - foe.x, u.y - foe.y)).toBeLessThan(3);
   });
 
   it('a right-drag facing turns the front, archers end up behind', () => {

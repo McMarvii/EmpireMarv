@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EPOCHS } from '../src/data/epochs';
 import { rectOf } from '../src/sim/entities';
 import { distToRect } from '../src/sim/pathfinding';
+import { World } from '../src/sim/world';
 import { emptyWorld, run } from './helpers';
 
 describe('economy', () => {
@@ -35,6 +36,30 @@ describe('economy', () => {
     const before = w.players[0].stock.wood;
     run(w, 60);
     expect(w.players[0].stock.wood).toBeGreaterThan(before + 60);
+  });
+
+  it('woodcutters of a felled tree spread over the next trees instead of crowding one', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    // An almost felled tree and a loose row of trees behind it.
+    const last = w.addResource('tree', tc.tx + 8, tc.ty + 1, 1, 6);
+    const row = [0, 1, 2, 3].map((i) => w.addResource('tree', tc.tx + 10 + i * 2, tc.ty + 1, 1, 200));
+    const citizens = w.unitsOf(0).filter((u) => u.role === 'citizen').slice(0, 4);
+    // One by one, so all four really work the same tree.
+    for (const u of citizens) w.issue({ type: 'gather', player: 0, ids: [u.id], targetId: last.id });
+    for (let i = 0; i < 20 * 40 && !last.dead; i++) w.step();
+    expect(last.dead).toBe(true);
+    w.step();
+    const next = citizens.map((u) => (u.order as { targetId: number }).targetId);
+    expect(next.every((id) => row.some((t) => t.id === id))).toBe(true);
+    expect(new Set(next).size).toBeGreaterThanOrEqual(3);
+  });
+
+  it('mines hold 5000 each', () => {
+    const w = new World({ seed: 5, mapSize: 64, players: [{ name: 'A', color: '#2f7de1', isAI: false, team: 0 }, { name: 'B', color: '#d9412b', isAI: false, team: 1 }] });
+    const mines = w.resources.filter((n) => n.nodeType === 'gold' || n.nodeType === 'stone' || n.nodeType === 'iron');
+    expect(mines.length).toBeGreaterThan(0);
+    for (const m of mines) expect(m.amount).toBe(5000);
   });
 
   it('miners sent together still work the deposit they were sent to', () => {

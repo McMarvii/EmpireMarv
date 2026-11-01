@@ -30,8 +30,12 @@ export type Order =
   | { kind: 'idle' }
   /** `pace` caps the speed so a group arrives together. */
   | { kind: 'move'; x: number; y: number; attackMove: boolean; pace?: number }
-  /** `resume`: the walk to pick up again after the fight (attack-move or patrol). */
-  | { kind: 'attack'; targetId: number; resume: Order | null; leash: Point | null }
+  /**
+   * `resume`: the walk to pick up again after the fight (attack-move or patrol). `pace`: the group's
+   * marching speed while closing in. `at`: where the target was last seen; a unit sent at it goes on
+   * there if it falls or slips away first.
+   */
+  | { kind: 'attack'; targetId: number; resume: Order | null; leash: Point | null; pace?: number; at?: Point }
   | GatherOrder
   | { kind: 'build'; targetId: number }
   /** Carry the load to a drop-off, then go back to `resume` (or idle). */
@@ -60,7 +64,7 @@ export type Order =
 /** A queued command (Shift), turned into an order once the unit gets to it. */
 export type Plan =
   | { kind: 'move'; x: number; y: number; attackMove: boolean; pace?: number }
-  | { kind: 'attack'; targetId: number }
+  | { kind: 'attack'; targetId: number; pace?: number }
   | { kind: 'gather'; targetId: number; res: Res; lx: number; ly: number }
   | { kind: 'build'; targetId: number }
   | { kind: 'deposit'; targetId: number; resume: GatherOrder | null }
