@@ -1,6 +1,7 @@
 import './styles.css';
 import { audio } from './audio/engine';
 import { Game, type GameOptions } from './game';
+import { applyUiScale } from './render/graphics';
 import type { GuestSession, HostSession } from './net/session';
 import { TUTORIAL_SETTINGS } from './tutorial';
 import { hostLobby, joinGame, type LobbyExit } from './ui/lobby';
@@ -8,6 +9,10 @@ import { showMenu } from './ui/menu';
 
 const root = document.querySelector<HTMLElement>('#app')!;
 document.querySelector('#boot-hint')?.remove();
+
+// Larger windows get a larger interface (1440p, 4K); it follows the window when it is resized.
+applyUiScale();
+window.addEventListener('resize', () => applyUiScale());
 
 // Browsers only start audio inside a user gesture; every click or key press
 // unlocks it (again, if the system suspended it in between).

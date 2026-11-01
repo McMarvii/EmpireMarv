@@ -79,9 +79,15 @@ function straightClear(w: World, u: Unit, tx: number, ty: number): boolean {
   const team = w.teamOf(u.owner);
   const naval = isNaval(u.role);
   const steps = Math.max(1, Math.ceil(hypot(tx - u.x, ty - u.y) / 0.25));
+  let px = Math.floor(u.x);
+  let py = Math.floor(u.y);
   for (let s = 1; s <= steps; s++) {
     const t = s / steps;
-    if (!w.map.passableFor(Math.floor(u.x + (tx - u.x) * t), Math.floor(u.y + (ty - u.y) * t), team, naval)) return false;
+    const x = Math.floor(u.x + (tx - u.x) * t);
+    const y = Math.floor(u.y + (ty - u.y) * t);
+    if (!w.map.stepClear(px, py, x, y, team, naval)) return false;
+    px = x;
+    py = y;
   }
   return true;
 }
@@ -1232,7 +1238,10 @@ export function separateUnits(w: World): void {
     if (pushX === 0 && pushY === 0) continue;
     const nx = u.x + pushX;
     const ny = u.y + pushY;
-    const free = domain === 'air' ? w.map.inBounds(Math.floor(nx), Math.floor(ny)) : w.map.passableFor(Math.floor(nx), Math.floor(ny), w.teamOf(u.owner), domain === 'water');
+    const free =
+      domain === 'air'
+        ? w.map.inBounds(Math.floor(nx), Math.floor(ny))
+        : w.map.stepClear(Math.floor(u.x), Math.floor(u.y), Math.floor(nx), Math.floor(ny), w.teamOf(u.owner), domain === 'water');
     if (free) {
       u.x = nx;
       u.y = ny;

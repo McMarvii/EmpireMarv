@@ -25,7 +25,7 @@ import {
   type Scene,
   type SceneSprite,
 } from './scene';
-import { buildingTopZ, drawBuilding, LINK_E, LINK_N, LINK_S, LINK_W, type BuildingLook, type UnitLook } from './sprites';
+import { buildingTopZ, drawBuilding, LINK_E, LINK_W, linkMask, type BuildingLook, type UnitLook } from './sprites';
 import { GlLayer } from './gl/layer';
 import type { GraphicsMode } from './graphics';
 import type { View } from './view';
@@ -58,16 +58,6 @@ function inConvex(pts: Array<[number, number]>, [px, py]: [number, number]): boo
     else if (Math.sign(cross) !== sign) return false;
   }
   return true;
-}
-
-/** Neighbour bitmask of a wall tile, from a tile → owner lookup. */
-function linkMask(at: (x: number, y: number) => boolean, tx: number, ty: number): number {
-  let m = 0;
-  if (at(tx, ty - 1)) m |= LINK_N;
-  if (at(tx + 1, ty)) m |= LINK_E;
-  if (at(tx, ty + 1)) m |= LINK_S;
-  if (at(tx - 1, ty)) m |= LINK_W;
-  return m;
 }
 
 /** Short-lived click feedback ring at a world position. */
@@ -1322,6 +1312,11 @@ export class Renderer {
   private drawPlacement(p: Placement, time: number): void {
     if (p.line && p.line.length) {
       const planned = new Set(p.line.map((s) => `${s.tx},${s.ty}`));
+      // Own walls, gates and towers already standing: the planned line joins them.
+      for (const b of this.world.buildings) {
+        if (b.dead || b.owner !== this.view.me || !(BUILDING_DEFS[b.type].line || b.type === 'tower')) continue;
+        for (let y = b.ty; y < b.ty + b.size; y++) for (let x = b.tx; x < b.tx + b.size; x++) planned.add(`${x},${y}`);
+      }
       for (const seg of p.line) {
         const links = linkMask((x, y) => planned.has(`${x},${y}`), seg.tx, seg.ty);
         this.drawGhost(p.type, seg.tx, seg.ty, seg.valid, time, links);

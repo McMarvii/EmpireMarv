@@ -12,6 +12,8 @@ export class Camera {
   x = 0;
   y = 0;
   zoom = 1;
+  /** Interface size (graphics.ts): large screens start closer and may zoom further in and out. */
+  scale = 1;
   viewW = 800;
   viewH = 600;
 
@@ -49,7 +51,7 @@ export class Camera {
 
   zoomAt(sx: number, sy: number, factor: number): void {
     const before = this.screenToWorld(sx, sy);
-    this.zoom = Math.max(0.45, Math.min(2.2, this.zoom * factor));
+    this.zoom = Math.max(0.45 * this.scale, Math.min(2.2 * this.scale, this.zoom * factor));
     const after = this.screenToWorld(sx, sy);
     const c = this.center();
     this.centerOn(c.x + before.x - after.x, c.y + before.y - after.y);

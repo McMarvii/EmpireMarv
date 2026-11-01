@@ -17,13 +17,36 @@ import { WONDERS, wonderOf } from '../data/wonders';
 import { audio } from '../audio/engine';
 import { isBusy, type Game } from '../game';
 import { downloadReplay } from '../replay';
-import { loadGraphics, loadPerf, saveGraphics, savePerf, type GraphicsMode } from '../render/graphics';
+import { applyUiScale, loadGraphics, loadPerf, loadUiScale, saveGraphics, savePerf, saveUiScale, UI_SCALES, uiScaleFor, type GraphicsMode } from '../render/graphics';
 import { abilityIcon, buildingIcon, commandIcon, epochIcon, formationIcon, techIcon, unitIcon } from '../render/icons';
 import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech } from '../data/techs';
 import { convertTime } from '../sim/behavior';
 import { AURA_INSPIRED, AURA_LED, type Building, type Entity, type Unit } from '../sim/entities';
 import { FORMATION_LABEL, FORMATIONS, type Formation } from '../sim/formation';
 import { MAX_TECH_QUEUE, TICK_RATE, type GameEvent } from '../sim/world';
+import { morph } from './morph';
+
+type LogFilter = 'all' | 'fight' | 'progress' | 'note';
+
+interface LogEntry {
+  time: number;
+  type: GameEvent['type'];
+  text: string;
+  icon?: string;
+  onClick?: () => void;
+  count: number;
+  cat: Exclude<LogFilter, 'all'>;
+}
+
+/** The log keeps this many messages; older ones drop off. */
+const LOG_MAX = 200;
+
+/** Fights and losses (warnings with a place), progress (research, epochs, buildings, wonders), the rest. */
+function logCategory(type: GameEvent['type'], placed: boolean): Exclude<LogFilter, 'all'> {
+  if (type === 'attack' || (type === 'warn' && placed)) return 'fight';
+  if (type === 'tech' || type === 'epoch' || type === 'built' || type === 'wonder') return 'progress';
+  return 'note';
+}
 
 export interface CommandButton {
   key: string;
@@ -107,6 +130,9 @@ export class Hud {
   private els: Record<string, HTMLElement>;
   private resEls: Record<string, HTMLElement> = {};
   private sig = '';
+  private epochHtml = '';
+  private wonderHtml = '';
+  private lineTip = '';
   private groupSig = '';
   private prodSig = '';
   /** Tab was pressed: the production bar shows which letter selects what. */
@@ -139,6 +165,8 @@ export class Hud {
       prodbar: q('prodbar'),
       wonders: q('wonders'),
       perf: q('perf'),
+      log: q('log'),
+      logBtn: q('log-btn'),
     };
     this.els.hud.hidden = false;
     this.els.resources.innerHTML = RESOURCES.map(
@@ -147,6 +175,11 @@ export class Hud {
     ).join('');
     for (const r of RESOURCES) this.resEls[r] = this.els.resources.querySelector(`[data-res="${r}"]`)!;
     this.els.messages.innerHTML = '';
+    this.els.messages.hidden = false;
+    this.els.log.hidden = true;
+    this.els.log.innerHTML = '';
+    this.els.logBtn.onclick = () => this.toggleLog();
+    this.updateLogBtn();
     this.els.pauseBtn.onclick = () => this.game.togglePause();
     this.els.menuBtn.onclick = () => this.showPauseMenu();
     this.els.idleBtn.onclick = () => this.game.selectNextIdle();
@@ -166,6 +199,8 @@ export class Hud {
     this.els.perf.hidden = true;
     this.els.overlay.hidden = true;
     this.els.overlay.innerHTML = '';
+    this.els.log.hidden = true;
+    this.els.log.innerHTML = '';
     this.hideTooltip();
   }
 
@@ -174,8 +209,26 @@ export class Hud {
   }
 
   message(type: GameEvent['type'], text: string, onClick?: () => void, icon?: string): void {
+    if (type === 'warn') this.game.audio.ui('error', 300);
+    this.addToLog(type, text, onClick, icon);
+    // The same message again while it still shows: count it up instead of stacking copies.
+    const top = this.els.messages.firstElementChild as HTMLElement | null;
+    if (top && top.dataset.text === text && !top.classList.contains('fade')) {
+      const n = Number(top.dataset.count ?? '1') + 1;
+      top.dataset.count = String(n);
+      let badge = top.querySelector<HTMLElement>('.msg-count');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'msg-count';
+        top.append(badge);
+      }
+      badge.textContent = `×${n}`;
+      this.fadeLater(top);
+      return;
+    }
     const el = document.createElement('div');
     el.className = `msg msg-${type}`;
+    el.dataset.text = text;
     if (icon) {
       const img = document.createElement('img');
       img.src = icon;
@@ -183,15 +236,105 @@ export class Hud {
       el.append(img);
     }
     el.append(text);
-    if (type === 'warn') this.game.audio.ui('error', 300);
     if (onClick) {
       el.classList.add('clickable');
       el.onclick = onClick;
     }
     this.els.messages.prepend(el);
     while (this.els.messages.children.length > 6) this.els.messages.lastElementChild!.remove();
-    setTimeout(() => el.classList.add('fade'), 6000);
-    setTimeout(() => el.remove(), 7000);
+    this.fadeLater(el);
+  }
+
+  /** Attacks stay a little longer than the rest; a repeat starts the clock again. */
+  private fadeLater(el: HTMLElement): void {
+    const hold = el.classList.contains('msg-attack') || el.classList.contains('msg-epoch') ? 9000 : 6000;
+    clearTimeout(Number(el.dataset.fade));
+    clearTimeout(Number(el.dataset.drop));
+    el.dataset.fade = String(setTimeout(() => el.classList.add('fade'), hold));
+    el.dataset.drop = String(setTimeout(() => el.remove(), hold + 1000));
+  }
+
+  // ---------------------------------------------------------------- log
+
+  private log: LogEntry[] = [];
+  private logFilter: LogFilter = 'all';
+  /** Fights and losses since the log was last looked at. */
+  private logUnseen = 0;
+
+  private addToLog(type: GameEvent['type'], text: string, onClick?: () => void, icon?: string): void {
+    const time = this.game.world.time;
+    const last = this.log[this.log.length - 1];
+    if (last && last.text === text && time - last.time < 15) {
+      last.count++;
+      last.time = time;
+      last.onClick = onClick ?? last.onClick;
+    } else {
+      this.log.push({ time, type, text, icon, onClick, count: 1, cat: logCategory(type, Boolean(onClick)) });
+      if (this.log.length > LOG_MAX) this.log.shift();
+    }
+    if (this.els.log.hidden) {
+      if (logCategory(type, Boolean(onClick)) === 'fight') this.logUnseen++;
+      this.updateLogBtn();
+    } else {
+      this.renderLog();
+    }
+  }
+
+  toggleLog(): void {
+    const open = this.els.log.hidden;
+    this.els.log.hidden = !open;
+    this.els.messages.hidden = open;
+    this.els.logBtn.classList.toggle('active', open);
+    if (open) {
+      this.logUnseen = 0;
+      this.renderLog();
+    }
+    this.updateLogBtn();
+  }
+
+  private updateLogBtn(): void {
+    const badge = this.els.logBtn.querySelector('b')!;
+    badge.hidden = this.logUnseen === 0;
+    badge.textContent = String(this.logUnseen);
+  }
+
+  private renderLog(): void {
+    const filters: Array<[LogFilter, string]> = [
+      ['all', 'Alle'],
+      ['fight', 'Kampf'],
+      ['progress', 'Fortschritt'],
+      ['note', 'Hinweise'],
+    ];
+    const shown = this.log
+      .map((e, i) => ({ e, i }))
+      .filter(({ e }) => this.logFilter === 'all' || e.cat === this.logFilter)
+      .reverse();
+    const html =
+      `<div class="log-head"><b>Verlauf</b>${filters
+        .map(([f, label]) => `<button class="log-filter${f === this.logFilter ? ' active' : ''}" data-filter="${f}">${label}</button>`)
+        .join('')}<button class="log-close" data-close title="Schließen (F4)">×</button></div>` +
+      `<div class="log-list">${
+        shown.length
+          ? shown
+              .map(
+                ({ e, i }) =>
+                  `<div class="log-entry msg-${e.type}${e.onClick ? ' clickable' : ''}" data-i="${i}"${e.onClick ? ' title="Klick: hinspringen"' : ''}>` +
+                  `<span class="log-time">${fmtTime(e.time)}</span>${e.icon ? `<img src="${e.icon}" alt="">` : ''}<span>${esc(e.text)}${e.count > 1 ? ` <span class="msg-count">×${e.count}</span>` : ''}</span></div>`,
+              )
+              .join('')
+          : '<p class="dim">Noch nichts.</p>'
+      }</div>`;
+    morph(this.els.log, html);
+    this.els.log.querySelectorAll<HTMLElement>('[data-filter]').forEach((b) => {
+      b.onclick = () => {
+        this.logFilter = b.dataset.filter as LogFilter;
+        this.renderLog();
+      };
+    });
+    this.els.log.querySelector<HTMLElement>('[data-close]')!.onclick = () => this.toggleLog();
+    this.els.log.querySelectorAll<HTMLElement>('.log-entry.clickable').forEach((row) => {
+      row.onclick = () => this.log[Number(row.dataset.i)]?.onClick?.();
+    });
   }
 
   setPaused(paused: boolean): void {
@@ -213,16 +356,19 @@ export class Hud {
     const epoch = EPOCHS[player.epoch];
     const research = world.buildings.find((b) => b.owner === me && b.research);
     const pending = research ? null : world.buildings.find((b) => b.owner === me && b.pendingAdvance);
-    let epochHtml = `<img class="ep-icon" src="${epochIcon(player.epoch, 32)}" alt=""><span class="ep-num">${epochNumeral(player.epoch)}</span> ${esc(epoch.name)}`;
+    let epochHtml = `<img class="ep-icon" src="${epochIcon(player.epoch, 32)}" alt=""><span class="ep-num">${epochNumeral(player.epoch)}</span> <span class="ep-name">${esc(epoch.name)}</span>`;
     if (research) {
       const target = research.research!.targetEpoch;
       const pct = Math.floor((research.research!.progress / research.research!.total) * 100);
-      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> ${esc(EPOCHS[target].name)} ${pct} %`;
+      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> <span class="ep-name">${esc(EPOCHS[target].name)}</span> ${pct} %`;
     } else if (pending) {
       const target = pending.pendingAdvance!.targetEpoch;
-      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> ${esc(EPOCHS[target].name)} wartet`;
+      epochHtml += ` <span class="ep-arrow">→</span> <img class="ep-icon" src="${epochIcon(target, 32)}" alt=""> <span class="ep-name">${esc(EPOCHS[target].name)}</span> wartet`;
     }
-    if (this.els.epoch.innerHTML !== epochHtml) this.els.epoch.innerHTML = epochHtml;
+    if (this.epochHtml !== epochHtml) {
+      this.epochHtml = epochHtml;
+      morph(this.els.epoch, epochHtml);
+    }
     const idle = String(this.game.idleCitizens().length);
     if (this.els.idleCount.textContent !== idle) {
       this.els.idleCount.textContent = idle;
@@ -232,6 +378,7 @@ export class Hud {
     if (this.els.clock.textContent !== clock) this.els.clock.textContent = clock;
     this.updatePerf();
     this.updateWonders();
+    this.updateLineTip();
 
     for (const ev of world.events) this.handleEvent(ev);
     world.events.length = 0;
@@ -245,6 +392,31 @@ export class Hud {
     }
   }
 
+  /** While a wall or gate line is dragged: how many segments it gets and what they cost together. */
+  private updateLineTip(): void {
+    const p = this.game.placement;
+    const line = p?.line;
+    if (!p || !line || line.length === 0) {
+      if (this.lineTip) {
+        this.lineTip = '';
+        this.hideTooltip();
+      }
+      return;
+    }
+    const ok = line.filter((seg) => seg.valid).length;
+    const each = BUILDING_DEFS[p.type].cost;
+    const total: Cost = {};
+    for (const r of RESOURCES) if (each[r]) total[r] = (each[r] ?? 0) * ok;
+    const name = buildingName(p.type, this.game.world.players[this.game.me].epoch);
+    const html =
+      `<b>${esc(name)}: ${ok} ${ok === 1 ? 'Teil' : 'Teile'}</b><div>${costHtml(total)}</div>` +
+      (ok < line.length ? `<p class="warn">${line.length - ok} rot markiert: blockiert oder zu teuer – wird übersprungen.</p>` : '') +
+      '<p class="dim">Loslassen: bauen · Rechtsklick oder Esc: abbrechen</p>';
+    if (html === this.lineTip) return;
+    this.lineTip = html;
+    this.showTooltip(html);
+  }
+
   /** Topbar: every wonder counting down to victory, the closest first. Click jumps there. */
   private updateWonders(): void {
     const { world } = this.game;
@@ -254,7 +426,10 @@ export class Hud {
       .map((b) => `<span style="color:${world.players[b.owner].color}">⌛ ${esc(buildingName(b.type, b.epoch))} ${fmtTime(b.countdown / TICK_RATE)}</span>`)
       .join(' ');
     el.hidden = !html;
-    if (el.innerHTML !== html) el.innerHTML = html;
+    if (this.wonderHtml !== html) {
+      this.wonderHtml = html;
+      morph(el, html);
+    }
     const first = counting[0];
     el.onclick = first ? () => this.game.centerOn(first.x, first.y) : null;
   }
@@ -292,7 +467,7 @@ export class Hud {
     el.hidden = entries.length === 0 && !this.prefix;
     el.classList.toggle('prefix', this.prefix);
     const hint = this.prefix ? '<div class="prod-hint">Tab: jetzt Gebäudetaste drücken</div>' : '';
-    el.innerHTML =
+    const html =
       hint +
       entries
         .map(({ b, bars, waiting, idle }) => {
@@ -307,6 +482,7 @@ export class Hud {
           );
         })
         .join('');
+    morph(el, html);
     el.querySelectorAll<HTMLElement>('[data-prod]').forEach((btn) => {
       const id = Number(btn.dataset.prod);
       btn.onclick = (ev) => {
@@ -361,13 +537,14 @@ export class Hud {
     this.groupSig = sig;
     const el = this.els.groups;
     el.hidden = entries.length === 0;
-    el.innerHTML = entries
+    const html = entries
       .map(
         (g) =>
           `<button class="grp${g.key === game.activeGroup ? ' active' : ''}" data-grp="${g.key}" title="Gruppe ${g.key}: ${g.count} Einheiten (Doppelklick: hinspringen)">` +
           `<img src="${unitIcon(g.top!.role, g.top!.stats.epoch, color, 32)}" alt=""><span class="grp-key">${g.key}</span><span class="grp-count">${g.count}</span></button>`,
       )
       .join('');
+    morph(el, html);
     el.querySelectorAll<HTMLElement>('[data-grp]').forEach((b) => {
       b.onclick = () => game.recallGroup(b.dataset.grp!);
       b.ondblclick = () => game.recallGroup(b.dataset.grp!, true);
@@ -384,14 +561,12 @@ export class Hud {
       return;
     }
     if (ev.type === 'gameover') return;
-    if (ev.type === 'wonder' && ev.x !== undefined && ev.y !== undefined) {
-      const { x, y } = ev;
-      this.message('wonder', ev.text, () => this.game.centerOn(x, y));
-      return;
-    }
     const tech = ev.tech ? TECH_BY_ID.get(ev.tech) : undefined;
     const icon = tech ? techIcon(tech, 32) : ev.epoch !== undefined ? epochIcon(ev.epoch, 32) : undefined;
-    this.message(ev.type, ev.text, undefined, icon);
+    // Whatever happened somewhere (a loss, a finished building, a wonder) jumps there on a click.
+    const { x, y } = ev;
+    const jump = x !== undefined && y !== undefined ? () => this.game.centerOn(x, y) : undefined;
+    this.message(ev.type, ev.text, jump, icon);
   }
 
   // ------------------------------------------------------------- panels
@@ -413,7 +588,7 @@ export class Hud {
     if (sig === this.sig) return;
     this.sig = sig;
     this.commands = commands;
-    this.els.selection.innerHTML = this.selectionHtml(ents);
+    morph(this.els.selection, this.selectionHtml(ents));
     this.bindSelection(ents);
     this.renderCommands();
   }
@@ -1039,7 +1214,7 @@ export class Hud {
 
   private renderCommands(): void {
     const el = this.els.commands;
-    el.innerHTML = this.commands
+    const html = this.commands
       .map(
         (c, i) =>
           `<button class="cmd${c.enabled ? '' : ' disabled'}${c.locked ? ' locked' : ''}${c.active ? ' active' : ''}${c.key === this.hintKey ? ' hint' : ''}" data-i="${i}" aria-label="${esc(c.title)}">` +
@@ -1049,6 +1224,7 @@ export class Hud {
           `</button>`,
       )
       .join('');
+    morph(el, html);
     el.querySelectorAll<HTMLButtonElement>('button.cmd').forEach((btn) => {
       const i = Number(btn.dataset.i);
       btn.onclick = (ev) => {
@@ -1241,6 +1417,7 @@ export class Hud {
          ${option('webgl', 'WebGL', 'Schnell auch bei großen Schlachten; Wasser mit Wellen und Brandung, weiche Geländeübergänge und weicher Nebel. Auch ohne Beschleunigung erzwingen (dann langsam).')}
          ${option('canvas', 'Canvas', 'Die einfache Darstellung, läuft überall. Bei vielen Einheiten langsamer.')}
          <label class="vol-mute"><input type="checkbox" data-perf${this.els.perf.hidden ? '' : ' checked'}> Bildrate anzeigen (F3)</label>
+         ${this.uiScaleHtml()}
        </div>
        <p class="dim">${now}</p>
        <div class="dialog-buttons"><button data-act="back">Zurück</button><button data-act="resume" class="primary">Weiterspielen</button></div>`,
@@ -1254,7 +1431,24 @@ export class Hud {
       };
     });
     this.els.overlay.querySelector<HTMLInputElement>('[data-perf]')!.onchange = () => this.togglePerf();
+    this.els.overlay.querySelector<HTMLSelectElement>('select[name="uiscale"]')!.onchange = (e) => {
+      saveUiScale(Number((e.target as HTMLSelectElement).value));
+      applyUiScale();
+      game.resize();
+      this.showGraphics();
+    };
     this.bindOverlay({ back: () => this.showPauseMenu(), resume: () => this.game.menuPause(false) });
+  }
+
+  /** Interface size: automatic or fixed; says what applies in this window. */
+  private uiScaleHtml(): string {
+    const chosen = loadUiScale();
+    const pct = (f: number) => `${Math.round(f * 100)} %`;
+    const auto = uiScaleFor(0, window.innerWidth, window.innerHeight);
+    const now = uiScaleFor(chosen, window.innerWidth, window.innerHeight);
+    const options = UI_SCALES.map((f) => `<option value="${f}"${f === chosen ? ' selected' : ''}>${f === 0 ? `Automatisch (${pct(auto)})` : pct(f)}</option>`).join('');
+    const capped = chosen > 0 && now < chosen ? `<span class="dim">In diesem Fenster höchstens ${pct(now)}, sonst passen die Leisten nicht.</span>` : '';
+    return `<label class="ui-scale"><b>Oberflächengröße</b><select name="uiscale">${options}</select>${capped}</label>`;
   }
 
   togglePerf(): void {
@@ -1313,7 +1507,8 @@ export class Hud {
         <tr><td>Punkt (.)</td><td>Nächster untätiger Bürger</td></tr>
         <tr><td>Entf</td><td>Auswahl abreißen / entlassen</td></tr>
         <tr><td>Pos1</td><td>Dorfzentrum</td></tr>
-        <tr><td>Leertaste</td><td>Zum letzten Angriff springen</td></tr>
+        <tr><td>Leertaste / roter Pfeil am Rand</td><td>Zu den Kämpfen springen (nochmal Leertaste: zum nächsten)</td></tr>
+        <tr><td>F4 / „Verlauf“</td><td>Alle Meldungen nachlesen, nach Kampf, Fortschritt und Hinweisen gefiltert; Klick springt hin</td></tr>
         <tr><td>Pfeiltasten / Bildschirmrand / Mausrad</td><td>Kamera bewegen / zoomen</td></tr>
         <tr><td>+ / −</td><td>Spielgeschwindigkeit</td></tr>
         <tr><td>F2</td><td>Technologiebaum</td></tr>

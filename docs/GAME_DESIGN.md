@@ -62,6 +62,7 @@ Aufstiegskosten wachsen linear (+35 % der Grundkosten pro Epoche). Stein wird ab
 | Eisen | Eisenminen | Sturminfanterie, Kavallerie, Belagerung, Epochen ab 7 |
 
 - Bürger tragen 10 Einheiten und liefern sie im Dorfzentrum oder Lager ab (Rechtsklick lagert sofort ein). Mit jeder Epoche sammeln sie 4 % schneller.
+- Schickt man mehrere Bürger auf einen Baum, verteilen sie sich: Jeder bekommt einen eigenen Baum bis 4 Felder um den angeklickten, nur solche am Waldrand, den nächsten zuerst. Gibt es weniger Bäume als Bürger, teilen sie sich die Bäume reihum. Stein, Gold und Eisen bearbeiten alle an der angeklickten Stelle.
 - Wer eine Abgabestelle gebaut hat, sammelt am nächstgelegenen Vorkommen weiter, egal welcher Art.
 - Jede Startposition bekommt dieselbe Grundausstattung: Beeren, Wald, je eine Gold-, Stein- und Eisenmine. Weitere Minen verteilt der Generator über die Karte – sie lohnen das Erkunden.
 
@@ -218,7 +219,7 @@ Flieger sind die dritte Ebene neben Land und Wasser. Sie fliegen geradeaus über
 | Wachturm / Bastion / Bunker | 2 | Verteidigung |
 | Werkplatz → Schmiede → Rüstungswerk → Waffenlabor | 1 | Forschung: Waffen und Rüstungen |
 | Ahnenstätte → Akademie → Universität → Forschungszentrum | 1 | Forschung: Bauwesen, Wissenschaft, Verwaltung |
-| Palisade → Steinmauer → Betonmauer → Energiebarriere | 2 | Mauer (1×1), als Linie gezogen; schließt an Türme an |
+| Palisade → Steinmauer → Betonmauer → Energiebarriere | 2 | Mauer (1×1), als Linie gezogen, auch schräg; schließt an Türme an |
 | Palisadentor → Torhaus → Schranke → Energietor | 2 | Lässt eigenes Team durch, Gegner nicht |
 | Belagerungswerkstatt / Gießerei / Waffenfabrik | 3 | Belagerung und Artillerie |
 | Stall / Fahrzeugwerk / Mech-Hangar | 4 | Kavallerie, Fahrzeuge, Mechs |
@@ -360,7 +361,7 @@ Gespeichert wird ein **Schnappschuss** der ganzen Simulation, nicht die Befehlsl
   - geladen wird im Hauptmenü unter „Spielstände“.
 - **Grenzen**:
   - Nur Partien gegen den Computer; im Mehrspieler gibt es den Wiedereinstieg per Link.
-  - Ein Spielstand gehört zu seiner Simulationsversion (`SIM_VERSION`), denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt. Die Simulationsversion steigt nur, wenn die Simulation anders rechnet, nicht bei Grafik oder Bedienung: Spielstände und Wiedergaben aus 0.8 liefen in 0.9 weiter. 0.10 findet andere Wege, deshalb enden Stände aus 0.8 und 0.9 dort.
+  - Ein Spielstand gehört zu seiner Simulationsversion (`SIM_VERSION`), denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt. Die Simulationsversion steigt nur, wenn die Simulation anders rechnet, nicht bei Grafik oder Bedienung: Spielstände und Wiedergaben aus 0.8 liefen in 0.9 weiter. 0.10 findet andere Wege, deshalb enden Stände aus 0.8 und 0.9 dort. 0.10.1 schließt die Ecke zwischen zwei schrägen Mauerteilen und verteilt Holzfäller, deshalb enden auch Stände aus 0.10.0.
 
 ## KI
 
@@ -418,6 +419,11 @@ Die KI spielt nach denselben Regeln über dieselbe Befehlsschnittstelle wie Mens
   - **Erreichbarkeit**: Zusammenhängende Flächen aus Gelände, Gebäuden und Bäumen werden je Team berechnet, weil eigene Tore offen sind, und bei jeder Kartenänderung neu bestimmt. Erst eine Suche, die über 1 024 Felder läuft, fragt sie ab. Liegt das Ziel auf einer anderen Fläche, geht es zur nächsten erreichbaren Stelle statt durch alles Erreichbare.
   - Nach einem Sieg im Angriffsmarsch plant eine Einheit erst weiter, wenn sie keinen neuen Gegner sieht. Vorher plante sie bei jedem Sieg den ganzen Weg neu und warf ihn einen Schritt später fort.
   - Zusammenhängende Land- und Wasserregionen sind nach der Kartenerzeugung per Flutfüllung bekannt; so prüfen KI und Transporte ohne Suche, ob etwas zu Land erreichbar ist.
+  - **Ecken**: Ein Schritt schräg über eine Feldecke ist nur erlaubt, wenn eines der beiden Felder daneben frei ist. Sonst schöben sich Einheiten im Gedränge durch die Ecke zwischen zwei schrägen Mauerteilen. Das gilt für das Auseinanderschieben und für kurze gerade Schritte. Die Suche selbst schneidet ohnehin keine Ecken.
+- **Oberfläche** (`src/ui`):
+  - Befehlsfeld, Auswahl, Produktions- und Gruppenleiste werden an Ort und Stelle aktualisiert (`morph.ts`) statt neu aufgebaut. Ein Knopf unter dem Mauszeiger bleibt so derselbe, während Fortschrittsbalken laufen, und ein Klick geht nicht verloren.
+  - **Kampfherde** (`alerts.ts`): Die Oberfläche liest, wann jede eigene Einheit und jedes Gebäude zuletzt getroffen wurde, und fasst Treffer der letzten 4 s im Umkreis von 10 Feldern zu einem Herd zusammen. Die Simulation bleibt dafür unberührt. Ihre Meldung „Wir werden angegriffen!“ kommt weiter höchstens alle 12 s.
+  - **Oberflächengröße**: CSS-`zoom` auf Leisten, Feldern und Dialogen, nicht auf der Karte. Automatisch gilt: bis Full HD 100 %, dann in Viertelschritten bis höchstens 200 %, nie mehr, als das Fenster fasst. Die Kamera beginnt im selben Maß näher.
 - **Audio** (`src/audio`): Synthese-Bausteine, Instrumente, Klangrezepte, reiner Musik-Komponist (testbar ohne Browser) und ein Mischpult mit Bussen für Effekte, Oberfläche und Musik.
 
 ## Roadmap
@@ -436,6 +442,7 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | 0.8 | ✔ **Luftkrieg** (Ballon ab XII; Flugplatz, Jäger und Bomber ab XIV; nur Flugabwehr trifft Flugzeuge; Treibstoff und Bombenlast mit Rückflug zum Flugplatz; vier neue Technikzweige), ✔ KI mit Ballon, Bombenangriffen und Luftabwehr, ✔ **geführtes Tutorial** (Übungspartie mit 14 geprüften Schritten und einem Gefecht gegen ein Räuberlager) |
 | 0.9 | ✔ **WebGL-Renderer** für große Schlachten (Sprite-Atlas mit Einzelbildern je Bewegungszyklus und Zoomstufen, ein Zeichenaufruf je Durchgang), ✔ **Gelände-Shader** mit weichen Übergängen, Wasser mit Tiefe, Wellen und Brandung, ✔ weicher, ein- und ausblendender **Nebel**, ✔ Grafik-Einstellung mit automatischem Rückfall auf Canvas, ✔ Bildrate (F3), ✔ Gelände im Canvas über 30-mal schneller beim Herauszoomen |
 | **0.10** (jetzt) | ✔ **Schnellere Simulation** für große Schlachten: Gruppen-Wegsuche für Marschbefehle, Direktlinien ohne Suche, Erreichbarkeit über zusammenhängende Flächen. Eine Schlacht mit 1 000 Einheiten braucht 1,9 statt 6 ms je Schritt (Spitzen 14 statt 144 ms), ein Marschbefehl für 400 Einheiten 20–50 statt bis zu 980 ms |
+| 0.10.1 | ✔ Klicks auf Ausbilden und Forschen gehen nicht mehr verloren (Knöpfe flackerten bei laufendem Fortschritt), ✔ schräge Mauern verbunden und dicht, ✔ Teile und Kosten beim Mauerziehen, ✔ Holzfäller verteilen sich auf die Bäume am Waldrand, ✔ **Übersicht**: alle Kämpfe auf der Minikarte, Randpfeile, Leertaste schaltet durch, **Verlauf** (`F4`) mit Filtern, gezählte Wiederholungen, ✔ **Oberflächengröße** für 1440p und 4K, ✔ Befehlsfeld mit 7 Spalten (alle Bürgerbefehle sichtbar), ✔ obere Leiste und Menü auf kleinen Bildschirmen |
 | 1.0 | Kampagne und Szenario-Editor, Balancing, Lokalisierung |
 
 ### Interview-Ergebnisse (Oktober 2026)

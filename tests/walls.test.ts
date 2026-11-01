@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { lineTiles } from '../src/game';
 import { GameMap } from '../src/sim/map';
+import { linkMask, LINK_E, LINK_N, LINK_NE, LINK_S, LINK_SW, LINK_W } from '../src/render/sprites';
 import { Pathfinder } from '../src/sim/pathfinding';
 import type { World } from '../src/sim/world';
 import { emptyWorld, run } from './helpers';
@@ -84,5 +85,48 @@ describe('walls and gates', () => {
     for (const u of w.unitsOf(1)) if (u.role === 'citizen') w.kill(u, 0);
     run(w, 2);
     expect(w.players[1].alive).toBe(false);
+  });
+
+  it('nobody squeezes through the corner between two diagonal wall segments', () => {
+    const m = new GameMap(4, 4);
+    m.block(0, 0, 1, 1, 1);
+    m.block(1, 1, 1, 1, 1);
+    // From (0,1) to (1,0) the only way past is the corner both walls touch.
+    expect(m.stepClear(0, 1, 1, 0, -1)).toBe(false);
+    expect(m.stepClear(1, 0, 0, 1, -1)).toBe(false);
+    // Past a single corner, and straight on, a step is fine.
+    expect(m.stepClear(2, 1, 1, 2, -1)).toBe(true);
+    expect(m.stepClear(0, 1, 0, 2, -1)).toBe(true);
+  });
+
+  it('a diagonal wall holds back a crowd that presses against it', () => {
+    const w = emptyWorld();
+    // Across the map along x + y = 60, the way a dragged line steps diagonally.
+    const k = 60;
+    for (let x = k - (w.map.height - 1); x < w.map.width; x++) w.addBuilding(0, 'wall', x, k - x, true);
+    const ids: number[] = [];
+    for (let i = 0; i < 40; i++) ids.push(w.spawnUnit(1, 'citizen', 20 + (i % 8) * 0.6, 20 + Math.floor(i / 8) * 0.6).id);
+    w.issue({ type: 'move', player: 1, ids, x: 40.5, y: 40.5 });
+    run(w, 150);
+    const through = ids.filter((id) => {
+      const u = w.get(id)!;
+      return Math.floor(u.x) + Math.floor(u.y) >= k;
+    });
+    expect(through).toEqual([]);
+  });
+
+  it('joins diagonal segments, but never cuts across a staircase', () => {
+    const tiles = (list: Array<[number, number]>) => {
+      const set = new Set(list.map(([x, y]) => `${x},${y}`));
+      return (x: number, y: number) => set.has(`${x},${y}`);
+    };
+    // A diagonal line: each segment joins its two diagonal neighbours.
+    const diagonal = tiles(lineTiles(0, 4, 4, 0));
+    expect(linkMask(diagonal, 2, 2)).toBe(LINK_NE | LINK_SW);
+    // A staircase is joined through the step, not across it.
+    const stairs = tiles([[0, 1], [1, 1], [1, 0]]);
+    expect(linkMask(stairs, 0, 1)).toBe(LINK_E);
+    expect(linkMask(stairs, 1, 0)).toBe(LINK_S);
+    expect(linkMask(stairs, 1, 1)).toBe(LINK_N | LINK_W);
   });
 });

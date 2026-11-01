@@ -4,7 +4,7 @@ Echtzeitstrategie über **18 Epochen** der Menschheitsgeschichte – von Keulenk
 
 ![Frühzeit-Siedlung](docs/screenshots/fruehzeit.jpg)
 
-> **Status: spielbarer Prototyp (v0.10).** Wirtschaft, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände, Luftkrieg, ein geführtes Tutorial, ein **WebGL-Renderer** und eine **schnelle Simulation** für große Schlachten funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
+> **Status: spielbarer Prototyp (v0.10.1).** Wirtschaft, Kampf, 18 Epochen, 221 Technologien, Mauern und Tore, Späher, KI-Gegner, Fog of War, Ton und Musik, Befehlsketten und Formationen, Mehrspieler per Link, Wiedergaben, Helden, Priester und Propheten, Wunder mit Wundersieg, sechs Kartentypen, Seekrieg mit Landungen, Spielstände, Luftkrieg, ein geführtes Tutorial, ein **WebGL-Renderer** und eine **schnelle Simulation** für große Schlachten funktionieren. Was als Nächstes kommt, steht in der [Roadmap](docs/GAME_DESIGN.md#roadmap).
 
 ## Schnellstart
 
@@ -31,11 +31,11 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 - **18 Epochen** mit eigenem Namen, Zeitraum, Baustil, eigenen Einheiten und einem Emblem mit römischer Ziffer (I–XVIII). Start- und Endepoche sind pro Partie wählbar – wie früher.
 - **Aufstieg braucht Gebäude und Forschung**: Jede Epoche verlangt Gebäude der bisherigen Epochen, z. B. für die Bronzezeit ein Kriegerlager, eine Werkstatt und zwei Hütten, und zwei erforschte Techniken der aktuellen Epoche. Der Tooltip zeigt die Checkliste.
 - **Technologiebaum mit 221 Techniken** in 34 Zweigen – Waffen, Rüstungen, Werkzeuge, Bergbau, Ackerbau, Medizin, Schrift, Mathematik, Antriebe, Glaubensschutz, Schiffbau, Reichweite, Flugabwehr … Jede Epoche schaltet neue Stufen frei, von Feuersteinklingen bis Nanoklingen. Geforscht wird in Schmiede, Akademie, Tempel, Hafen, Flugplatz und den Produktionsgebäuden.
-- **5 Rohstoffe**: Nahrung, Holz, Stein, Gold, Eisen. Bürger sammeln, bauen und reparieren; Felder liefern unbegrenzt Nahrung. Rechtsklick auf Dorfzentrum oder Lager lagert die Ladung sofort ein.
+- **5 Rohstoffe**: Nahrung, Holz, Stein, Gold, Eisen. Bürger sammeln, bauen und reparieren; mehrere Holzfäller verteilen sich auf die Bäume am Waldrand. Felder liefern unbegrenzt Nahrung. Rechtsklick auf Dorfzentrum oder Lager lagert die Ladung sofort ein.
 - **Kampfdreieck**, das über alle Epochen gleich bleibt: Sturminfanterie › Abwehrinfanterie › Kavallerie & Fahrzeuge › Fernkampf › Sturminfanterie. Belagerung und Artillerie zerstören Gebäude.
 - **16 Gebäudetypen**, deren Namen und Aussehen mit der Epoche wechseln (Hütte → Haus → Wohnblock → Wohnturm). Beim Aufstieg zieht die ganze Stadt in die neue Ära um.
 - **Zuflucht**: Auf Knopfdruck im Dorfzentrum (`Z`) suchen sich alle Bürger einen Platz im nächsten Dorfzentrum oder Turm, bis zu 5 je Gebäude. Jeder Bürger darin schießt einen zusätzlichen Pfeil. Erneut drücken gibt Entwarnung, alle gehen an ihre Arbeit zurück.
-- **Mauern und Tore**, als Linie gezogen: Palisade, Lehmziegel, Zinnenmauer, Bastion, Beton, Energiebarriere. Tore lassen nur das eigene Team durch.
+- **Mauern und Tore**, als Linie gezogen, auch schräg: Palisade, Lehmziegel, Zinnenmauer, Bastion, Beton, Energiebarriere. Beim Ziehen steht neben der Linie, wie viele Teile es werden und was sie zusammen kosten. Schräge Teile schließen an der Ecke dicht, Tore lassen nur das eigene Team durch.
 - **Späher** mit großer Sichtweite und **Erkundenmodus** für jede Einheit.
 - **Moral**: Häuser stärken Einheiten in ihrer Nähe – sichtbar als Punkte am Lebensbalken und als Kreis um das Haus.
 - **Helden** aus dem Dorfzentrum, je einer pro Art: Der **Stratege** führt (Aura: Moral und Heilung) und hat Sammelruf, Schildwall und Feldlazarett. Der **Krieger** feuert an (Aura: +15 % Angriff) und hat Kampfschrei, Wirbelschlag und Blutrausch. Beide tragen je Epoche einen neuen Titel, vom Häuptling bis zum Kommandanten, vom Recken bis zum Elitekämpfer.
@@ -53,6 +53,8 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 - **Geführtes Tutorial**: eine Übungspartie in 14 geprüften Schritten, von der Kamera über Sammeln, Bauen, Forschen und den Aufstieg bis zum Angriff auf ein Räuberlager. Was man schon kann, hakt es von selbst ab.
 - **Spielstände**: Partien gegen den Computer lassen sich speichern und später genau dort fortsetzen. Es gibt `Strg`+`S`, automatisches Speichern alle 5 Minuten und das Speichern als Datei; geladen wird im Hauptmenü unter „Spielstände“.
 - **Lesbarkeit**: Einheiten, Minen und Büsche hinter Gebäuden scheinen durch.
+- **Übersicht**: Jeder Ort, an dem gerade eigene Einheiten oder Gebäude getroffen werden, blinkt auf der Minikarte. Liegt er außerhalb des Bildes, zeigt ein roter Pfeil am Bildrand hin. Die Leertaste springt nacheinander zu allen Kämpfen. Der **Verlauf** (`F4`) hält alle Meldungen fest, gefiltert nach Kampf, Fortschritt und Hinweisen. Jede Meldung mit Ort springt auf Klick dorthin, auch „Kaserne wurde zerstört!“. Gleiche Meldungen hintereinander werden gezählt statt gestapelt.
+- **Große Bildschirme**: Leisten, Knöpfe und Karte wachsen automatisch mit (1440p 150 %, 4K 200 %); einstellbar unter Menü → Grafik.
 - **WebGL-Renderer** für große Schlachten: Mit Grafikbeschleunigung zeichnet WebGL 2 die Karte. In einer Schlacht mit 600 Einheiten braucht ein Bild nur noch ein Drittel bis ein Fünftel der Prozessorzeit des Canvas, ganz herausgezoomt 5 statt 26 ms.
   - Wasser hat Tiefe, Wellen, Glanz und Brandung an der Küste. Geländearten gehen weich ineinander über. Der Nebel hat weiche Ränder und blendet ein und aus.
   - Ohne Beschleunigung, also wenn WebGL nur in Software liefe, zeichnet automatisch der Canvas wie bisher. Umstellen geht unter Menü → Grafik. `F3` zeigt Bildrate und Zeichenzeit.
@@ -109,7 +111,8 @@ Mehrspieler lokal ausprobieren, ohne Internet: zwei Tabs mit <http://localhost:5
 | Doppelklick / Rahmen auf Gebäude | Alle gleichen Gebäude: Ausbilden und Forschen verteilen sich |
 | `.`                             | Nächster untätiger Bürger                           |
 | `Pos1`                          | Dorfzentrum                                         |
-| Leertaste                       | Zum letzten Angriff springen                        |
+| Leertaste                       | Zu den Kämpfen springen (nochmal: zum nächsten)     |
+| `F4` oder „Verlauf“             | Alle Meldungen nachlesen und filtern; Klick springt hin |
 | Pfeiltasten, Bildschirmrand, Mausrad | Kamera bewegen und zoomen                      |
 | `+` / `−`                       | Spielgeschwindigkeit                                |
 | `P` / `Esc` / `F1`              | Pause / Menü / Hilfe (im Mehrspieler pausiert `P` für alle) |

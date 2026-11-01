@@ -399,6 +399,11 @@ export class Input {
       game.hud.togglePerf();
       return;
     }
+    if (e.key === 'F4') {
+      e.preventDefault();
+      game.hud.toggleLog();
+      return;
+    }
     if (e.key === 'F2') {
       e.preventDefault();
       if (game.hud.overlayOpen()) game.menuPause(false);
@@ -435,7 +440,7 @@ export class Input {
     if (e.key === '-') return game.changeSpeed(-1);
     if (e.key === ' ') {
       e.preventDefault();
-      if (game.lastAlert) game.centerOn(game.lastAlert.x, game.lastAlert.y);
+      if (!game.alerts.jump(game.animTime) && game.lastAlert) game.centerOn(game.lastAlert.x, game.lastAlert.y);
       return;
     }
     if (e.key === 'Home') {

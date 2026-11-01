@@ -7,9 +7,10 @@ import { domainOf, isConvertible, isPlane, type Role } from './data/units';
 import type { NetSession } from './net/session';
 import { Camera } from './render/camera';
 import { Minimap } from './render/minimap';
+import { AlertView } from './ui/alertview';
 import { ABILITY_COLOR } from './render/colors';
 import { MARK_TIME, Renderer, type CastPreview, type Mark, type Marker, type OrderPreview, type Placement } from './render/renderer';
-import { loadGraphics } from './render/graphics';
+import { currentUiScale, loadGraphics } from './render/graphics';
 import { View } from './render/view';
 import { normalize, Recorder, storeLastReplay, type Replay } from './replay';
 import { LocalSession, ReplaySession, type Session } from './session';
@@ -92,6 +93,8 @@ export class Game {
   /** Right-drag with units: where they will stand and which way they will face. */
   preview: OrderPreview | null = null;
   lastAlert: { x: number; y: number; time: number } | null = null;
+  /** Every fight of the own side: minimap rings, arrows at the screen edge, Space. */
+  readonly alerts: AlertView;
   animTime = 0;
   /** Frame rate and milliseconds to draw a frame, smoothed (for the F3 readout). */
   readonly perf = { fps: 0, drawMs: 0 };
@@ -133,6 +136,7 @@ export class Game {
     this.hud = new Hud(this);
     this.renderer.onGraphicsLost = () => this.hud.message('warn', 'Die Grafikkarte hat WebGL beendet – das Spiel zeichnet jetzt mit Canvas weiter.');
     this.minimap = new Minimap(root.querySelector<HTMLCanvasElement>('#minimap')!, this.world, this.camera, this.view);
+    this.alerts = new AlertView(this);
     this.input = new Input(this, canvas);
     this.netUi = this.net ? new NetUi(this, this.net) : null;
     this.replayBar = this.replay ? new ReplayBar(this) : null;
@@ -195,11 +199,19 @@ export class Game {
     this.replayBar?.destroy();
     this.tutorial?.destroy();
     this.renderer.destroy();
+    this.alerts.destroy();
   }
 
   resize(): void {
     this.renderer.resize(window.innerWidth, window.innerHeight);
     this.minimap.resize();
+    this.alerts?.measure();
+    // The map keeps its share of the screen when the interface size changes.
+    const scale = currentUiScale();
+    if (scale !== this.camera.scale) {
+      this.camera.zoom *= scale / this.camera.scale;
+      this.camera.scale = scale;
+    }
   }
 
   private frame(now: number, draw = true): void {
@@ -238,7 +250,9 @@ export class Game {
     this.minimap.render();
     for (const m of this.marks) this.minimap.ping(m.x, m.y, m.age, m.color);
     if (this.catchUpTo === null) this.audio.update(dt);
-    if (this.lastAlert && this.animTime - this.lastAlert.time < 4) {
+    this.alerts.update(this.animTime);
+    // Calamities and the like that hit nothing yet still blink where they were called.
+    if (this.alerts.hotspots.length === 0 && this.lastAlert && this.animTime - this.lastAlert.time < 4) {
       this.minimap.ping(this.lastAlert.x, this.lastAlert.y, this.animTime);
     }
     this.tutorial?.update(dt);
