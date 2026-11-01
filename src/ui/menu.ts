@@ -355,7 +355,9 @@ export function showMenu(root: HTMLElement, actions: MenuActions, tab?: Tab): vo
     actions.join(invite.value.trim(), loadName());
   };
   el.querySelector<HTMLButtonElement>('[data-act="join"]')!.onclick = join;
-  invite.onkeydown = (ev) => ev.key === 'Enter' && join();
+  invite.onkeydown = (ev) => {
+    if (ev.key === 'Enter') join();
+  };
   el.querySelector<HTMLButtonElement>('[data-act="last"]')!.onclick = () => {
     if (!last) return;
     el.hidden = true;

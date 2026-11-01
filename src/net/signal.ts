@@ -25,6 +25,19 @@ const PEERJS_KEY = 'peerjs';
 const HEARTBEAT_MS = 5000;
 const OPEN_TIMEOUT_MS = 10_000;
 
+/**
+ * The PeerJS server checks every handshake message against the fields its own client sends and
+ * drops the connection of a sender whose message lacks one (OFFER: type, connectionId, label,
+ * serialization; ANSWER and CANDIDATE: type, connectionId). The game's own fields ride along
+ * unchanged; the other side only reads those.
+ */
+export function peerJsPayload(type: Exclude<SignalMessage['type'], 'EXPIRE'>, payload: unknown): unknown {
+  const own = (payload ?? {}) as Record<string, unknown>;
+  const connectionId = `dc_${typeof own.cid === 'string' ? own.cid : 'empiremarv'}`;
+  const extra = type === 'OFFER' ? { label: connectionId, reliable: true, serialization: 'binary' } : {};
+  return { ...own, type: 'data', connectionId, ...extra };
+}
+
 /** A short id that is easy to read out: no 0/o, 1/l. */
 export function roomId(): string {
   const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
@@ -68,7 +81,7 @@ export function openPeerJs(id: string): Promise<Signal> {
     const signal: Signal = {
       id,
       send(type, dst, payload) {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, dst, payload }));
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, payload: peerJsPayload(type, payload), dst }));
       },
       on: (fn) => listeners.on(fn),
       close() {

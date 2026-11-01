@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { GRACE_MS, PLAYER_COLORS, type MatchOptions } from '../src/net/protocol';
 import { GuestSession, HostSession, type NetClient } from '../src/net/session';
 import { memoryPair } from '../src/net/transport';
+import { peerJsPayload } from '../src/net/signal';
 import { normalize } from '../src/replay';
 import { Rng } from '../src/sim/rng';
 import { createWorld } from '../src/sim/setup';
@@ -336,5 +337,18 @@ describe('talking', () => {
     env.host.leave();
     env.net.run(500);
     expect(env.peers[0].client.lostReason).toMatch(/Gastgeber hat das Spiel verlassen/);
+  });
+});
+
+describe('PeerJS handshake format', () => {
+  // The public server drops a sender whose message lacks a field its own client always sends.
+  it('adds the fields the server checks and keeps the game’s own', () => {
+    const sdp = { type: 'offer' as const, sdp: 'v=0' };
+    const offer = peerJsPayload('OFFER', { cid: 'k1', sdp }) as Record<string, unknown>;
+    expect(offer).toMatchObject({ cid: 'k1', sdp, type: 'data', connectionId: 'dc_k1', label: 'dc_k1', serialization: 'binary' });
+    const answer = peerJsPayload('ANSWER', { cid: 'k1', sdp: { ...sdp, type: 'answer' } }) as Record<string, unknown>;
+    expect(answer).toMatchObject({ cid: 'k1', type: 'data', connectionId: 'dc_k1' });
+    const cand = peerJsPayload('CANDIDATE', { cid: 'k1', candidate: { candidate: 'c' } }) as Record<string, unknown>;
+    expect(cand).toMatchObject({ cid: 'k1', candidate: { candidate: 'c' }, type: 'data', connectionId: 'dc_k1' });
   });
 });
