@@ -6,7 +6,7 @@ import { rectOf, type Building, type Entity, type Hazard, type Order, type Plan,
 import { hasStatus } from '../sim/status';
 import { Terrain } from '../sim/map';
 import type { Point } from '../sim/pathfinding';
-import type { World } from '../sim/world';
+import { jobTime, type World } from '../sim/world';
 import { Camera, TILE_W } from './camera';
 import { ABILITY_COLOR, alpha as withAlpha, TERRAIN_COLORS } from './colors';
 import { ALTITUDE, airPose, type AirPose } from './planes';
@@ -1305,7 +1305,8 @@ export class Renderer {
       if (!b.built) bar(sx, sy - 7, w, b.progress, '#d7b46a');
       bar(sx, sy, w, b.hp / b.maxHp, hpColor(b.hp / b.maxHp));
       if (selected && b.research) bar(sx, sy + 6, w, b.research.progress / b.research.total, '#7fb6ff');
-      if (selected && b.tech) bar(sx, sy + 6, w, b.tech.progress / b.tech.total, '#b48cff');
+      const tech = selected ? b.queue.find((q) => q.tech !== undefined && q.progress > 0) : undefined;
+      if (tech) bar(sx, sy + 6, w, tech.progress / jobTime(tech), '#b48cff');
     }
   }
 

@@ -802,13 +802,9 @@ export class Game {
 
   /** Researches in the least busy of the given buildings. */
   research(buildings: Building[], tech: string): void {
-    const load = (b: Building) => (b.tech ? 1 : 0) + b.techQueue.length + (b.research ? 1 : 0);
+    const load = (b: Building) => b.queue.length + (b.research ? 1 : 0);
     const b = [...buildings].filter((x) => x.built).sort((a, c) => load(a) - load(c) || a.id - c.id)[0];
     if (b) this.issue({ type: 'research', player: this.me, buildingId: b.id, tech });
-  }
-
-  cancelTech(buildingId: number, index?: number): void {
-    this.issue({ type: 'cancelTech', player: this.me, buildingId, index });
   }
 
   cancelQueue(buildingId: number, index: number): void {
@@ -1037,5 +1033,5 @@ export function lineTiles(x0: number, y0: number, x1: number, y1: number): Array
 
 /** Whether a building is producing or researching anything. */
 export function isBusy(b: Building): boolean {
-  return b.queue.length > 0 || b.tech !== null || b.techQueue.length > 0 || b.research !== null || b.pendingAdvance !== null;
+  return b.queue.length > 0 || b.research !== null || b.pendingAdvance !== null;
 }

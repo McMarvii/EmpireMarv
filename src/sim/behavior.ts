@@ -1179,28 +1179,23 @@ export function updateBuilding(w: World, b: Building): void {
     return;
   }
 
-  if (b.tech) {
-    b.tech.progress += DT * player.mods.research * (w.wonderEffect(b.owner, 'research') ? WONDER_RESEARCH : 1);
-    if (b.tech.progress >= b.tech.total) {
-      const tech = TECH_BY_ID.get(b.tech.id)!;
-      b.tech = null;
-      w.completeTech(b.owner, tech.id);
-      w.emit({ type: 'tech', player: b.owner, text: `Erforscht: ${tech.name} – ${tech.branch.text}.`, tech: tech.id });
-    }
-  }
-  w.startQueuedTech(b);
-
-  const item = b.queue[0];
-  if (!item) {
-    b.popBlocked = false;
+  // One job at a time, in the order given; a unit without room in the population or a technology
+  // still waiting for its prerequisite lets the next job go first.
+  const popFull = b.queue.some((q) => q.tech === undefined) && w.popCount(b.owner) >= w.popLimit();
+  if (popFull && !b.popBlocked) w.emit({ type: 'warn', player: b.owner, text: 'Bevölkerungslimit erreicht.' });
+  b.popBlocked = popFull;
+  const at = w.activeJob(b);
+  if (at < 0) return;
+  const item = b.queue[at];
+  if (item.tech !== undefined) {
+    const tech = TECH_BY_ID.get(item.tech)!;
+    item.progress += DT * player.mods.research * (w.wonderEffect(b.owner, 'research') ? WONDER_RESEARCH : 1);
+    if (item.progress < tech.time) return;
+    w.dropJob(b, at);
+    w.completeTech(b.owner, tech.id);
+    w.emit({ type: 'tech', player: b.owner, text: `Erforscht: ${tech.name} – ${tech.branch.text}.`, tech: tech.id });
     return;
   }
-  if (w.popCount(b.owner) >= w.popLimit()) {
-    if (!b.popBlocked) w.emit({ type: 'warn', player: b.owner, text: 'Bevölkerungslimit erreicht.' });
-    b.popBlocked = true;
-    return;
-  }
-  b.popBlocked = false;
   item.progress += DT * player.mods.train * (w.wonderEffect(b.owner, 'train') ? WONDER_TRAIN : 1);
   if (item.progress < ROLE_DEFS[item.role].trainTime) return;
   const towards = b.rally[0] ?? { x: b.x + b.size, y: b.y + b.size };
@@ -1208,8 +1203,7 @@ export function updateBuilding(w: World, b: Building): void {
   // Aircraft take turns on the airfield's parking places.
   const spot = w.findSpawnPoint(b, towards, domain === 'air' ? player.stats.unitsTrained : 0, domain);
   if (!spot) return;
-  b.queue.shift();
-  if (b.pendingAdvance) b.pendingAdvance.ahead--;
+  w.dropJob(b, at);
   const u = w.spawnUnit(b.owner, item.role, spot.x, spot.y);
   player.stats.unitsTrained++;
   w.emit({ type: 'trained', player: b.owner, text: `${u.stats.name} bereit.` });

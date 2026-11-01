@@ -246,7 +246,7 @@ export class AIController implements Controller, AirHost {
   private economy(w: World, s: AISnapshot): void {
     const { player, tc, citizens } = s;
     const target = Math.min(Math.floor(w.popLimit() * 0.45), 16 + 3 * player.epoch, 48);
-    const queued = tc ? tc.queue.length : 0;
+    const queued = tc ? tc.queue.filter((q) => q.tech === undefined).length : 0;
     if (tc && !tc.research && !tc.pendingAdvance && citizens.length + queued < target && queued < 2) {
       if (canAfford(player.stock, { food: 50 })) w.issue({ type: 'train', player: this.playerId, buildingId: tc.id, role: 'citizen' });
       if (!tc.rally.length) tc.rally = [{ x: tc.x + 3, y: tc.y + 3 }];
@@ -414,7 +414,11 @@ export class AIController implements Controller, AirHost {
       const builder = this.pickWorker(s, where);
       if (!builder) return;
       const [minR, maxR] = type === 'storehouse' ? [2, 6] : type === 'tower' ? [7, 11] : type === 'wonder' ? [7, 18] : [5, 14];
-      this.placeNear(w, s, type, where, [builder], minR, maxR);
+      // A crowded base: further out, so one building that no longer fits does not hold up
+      // everything after it (the wonder last of all).
+      if (!this.placeNear(w, s, type, where, [builder], minR, maxR) && type !== 'storehouse' && type !== 'tower') {
+        this.placeNear(w, s, type, where, [builder], maxR + 1, maxR + 8);
+      }
       return;
     }
   }
@@ -640,7 +644,11 @@ export class AIController implements Controller, AirHost {
       return v;
     };
     for (const b of s.buildings) {
-      if (!b.built || b.tech || b.research || !RESEARCH_BUILDINGS.includes(b.type)) continue;
+      // Research waits in line with the units: one technology at a time, and only into a short queue.
+      if (!b.built || b.research || b.queue.length >= 2 || b.queue.some((q) => q.tech !== undefined) || !RESEARCH_BUILDINGS.includes(b.type)) continue;
+      // Where units are made, research would hold them up: only into an empty queue.
+      const producer = BUILDING_DEFS[b.type].trains.length > 0;
+      if (producer && b.queue.length > 0) continue;
       const military = (t: Tech) => t.branch.effects.some((e) => e.kind === 'unit' && !e.roles.includes('citizen'));
       const options = TECHS.filter((t) => t.building === b.type && w.techAvailable(id, t) && (isNeeded(t) || !military(t) || s.army.length >= 6)).sort(
         (a, c) => score(a) - score(c),
@@ -648,6 +656,8 @@ export class AIController implements Controller, AirHost {
       const pick = options[0];
       if (!pick) continue;
       const needed = isNeeded(pick);
+      // Barracks, docks and airfields keep training: they research what the advance needs, the rest once the army stands.
+      if (producer && b.type !== 'towncenter' && !needed && s.army.length < 6 + 2 * player.epoch) continue;
       // Optional research only from a surplus, so the army does not starve.
       const double: Cost = {};
       for (const r of RESOURCES) if (pick.cost[r]) double[r] = (pick.cost[r] ?? 0) * 2;

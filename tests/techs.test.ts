@@ -52,7 +52,7 @@ describe('research', () => {
     const old = w.spawnUnit(0, 'assault', 20, 20);
     const before = old.stats.dmg;
     w.issue({ type: 'research', player: 0, buildingId: smithy.id, tech: 'infwaffen-0' });
-    expect(smithy.tech?.id).toBe('infwaffen-0');
+    expect(smithy.queue[0]?.tech).toBe('infwaffen-0');
     run(w, TECH_BY_ID.get('infwaffen-0')!.time + 1);
     expect(w.players[0].techs.has('infwaffen-0')).toBe(true);
     expect(old.stats.dmg).toBeGreaterThan(before);
@@ -65,15 +65,15 @@ describe('research', () => {
     const { w, smithy } = withSmithy();
     const wood = w.players[0].stock.wood;
     w.issue({ type: 'research', player: 0, buildingId: smithy.id, tech: 'infwaffen-1' });
-    expect(smithy.tech).toBeNull();
+    expect(smithy.queue).toHaveLength(0);
     w.completeTech(0, 'infwaffen-0');
     w.issue({ type: 'research', player: 0, buildingId: smithy.id, tech: 'infwaffen-1' });
-    expect(smithy.tech).toBeNull(); // Kupferguss belongs to the copper age
+    expect(smithy.queue).toHaveLength(0); // Kupferguss belongs to the copper age
     w.issue({ type: 'research', player: 0, buildingId: smithy.id, tech: 'fernwaffen-0' });
-    expect(smithy.tech?.id).toBe('fernwaffen-0');
+    expect(smithy.queue[0]?.tech).toBe('fernwaffen-0');
     expect(w.players[0].stock.wood).toBeLessThan(wood);
     w.issue({ type: 'cancelTech', player: 0, buildingId: smithy.id });
-    expect(smithy.tech).toBeNull();
+    expect(smithy.queue).toHaveLength(0);
     expect(w.players[0].stock.wood).toBe(wood);
   });
 

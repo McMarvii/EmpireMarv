@@ -35,7 +35,7 @@ import { resolveMapType, type MapChoice } from '../data/maps';
 import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
 import { canGather, isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { canHit, updateProjectiles } from './combat';
-import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Order, type Plan, type Player, type ResourceNode, type Unit } from './entities';
+import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Order, type Plan, type Player, type QueueItem, type ResourceNode, type Unit } from './entities';
 import { hypot } from './fmath';
 import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
 import { GameMap } from './map';
@@ -224,7 +224,7 @@ export type Command =
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
   | { type: 'research'; player: number; buildingId: number; tech: string }
-  /** Cancels the running tech (no index) or a waiting one (index into the tech queue). */
+  /** Cancels the technology worked on (no index) or the index-th technology in the building's queue. */
   | { type: 'cancelTech'; player: number; buildingId: number; index?: number }
   | { type: 'rally'; player: number; buildingId: number; x: number; y: number; queue?: boolean }
   | { type: 'deposit'; player: number; ids: number[]; targetId: number; queue?: boolean }
@@ -257,8 +257,13 @@ export const CROWD_TILES = 3;
 export const MAX_QUEUE = 40;
 /** Rally waypoints per building. */
 export const MAX_RALLY = 8;
-/** Technologies that may wait in one building's research queue. */
-export const MAX_TECH_QUEUE = 5;
+/** Jobs (units and technologies) that may wait in one building's queue. */
+export const MAX_JOBS = 10;
+
+/** Seconds a queued job takes at normal speed. */
+export function jobTime(job: QueueItem): number {
+  return job.tech !== undefined ? TECH_BY_ID.get(job.tech)!.time : ROLE_DEFS[job.role].trainTime;
+}
 
 /**
  * The complete, deterministic game state. Rendering and input only read
@@ -577,8 +582,6 @@ export class World {
       epoch,
       queue: [],
       research: null,
-      tech: null,
-      techQueue: [],
       pendingAdvance: null,
       rally: [],
       cooldown: 0,
@@ -655,8 +658,7 @@ export class World {
     const out = new Set(this.players[owner].techs);
     for (const b of this.buildings) {
       if (b.dead || b.owner !== owner) continue;
-      if (b.tech) out.add(b.tech.id);
-      for (const q of b.techQueue) out.add(q.id);
+      for (const q of b.queue) if (q.tech) out.add(q.tech);
     }
     return out;
   }
@@ -667,14 +669,30 @@ export class World {
     return tech.epoch <= this.players[owner].epoch && !planned.has(tech.id) && tech.requires.every((r) => planned.has(r));
   }
 
-  /** Starts the first waiting tech of a building once the building is free and its prerequisites are done. */
-  startQueuedTech(b: Building): void {
-    if (b.tech || b.research || !b.built || b.techQueue.length === 0) return;
-    const head = b.techQueue[0];
-    const tech = TECH_BY_ID.get(head.id)!;
-    if (!tech.requires.every((r) => this.players[b.owner].techs.has(r))) return;
-    b.techQueue.shift();
-    b.tech = { id: tech.id, progress: 0, total: tech.time, cost: head.cost };
+  /**
+   * Index of the job a building works on now: the first in its queue that can go on. A unit needs
+   * room in the population, a technology its prerequisites researched; jobs that cannot go on yet
+   * let the next one go first. -1: nothing can go on.
+   */
+  activeJob(b: Building): number {
+    const techs = this.players[b.owner].techs;
+    let popFull: boolean | null = null;
+    for (let i = 0; i < b.queue.length; i++) {
+      const q = b.queue[i];
+      if (q.tech !== undefined) {
+        if (TECH_BY_ID.get(q.tech)!.requires.every((r) => techs.has(r))) return i;
+      } else {
+        popFull ??= this.popCount(b.owner) >= this.popLimit();
+        if (!popFull) return i;
+      }
+    }
+    return -1;
+  }
+
+  /** Takes a finished or cancelled job out of the queue; an advance waiting behind it moves up. */
+  dropJob(b: Building, index: number): void {
+    b.queue.splice(index, 1);
+    if (b.pendingAdvance && index < b.pendingAdvance.ahead) b.pendingAdvance.ahead--;
   }
 
   /**
@@ -688,10 +706,11 @@ export class World {
       const planned = this.plannedTechs(owner);
       for (const b of this.buildings) {
         if (b.dead || b.owner !== owner) continue;
-        for (let i = b.techQueue.length - 1; i >= 0; i--) {
-          if (TECH_BY_ID.get(b.techQueue[i].id)!.requires.every((r) => planned.has(r))) continue;
-          refund(p.stock, b.techQueue[i].cost);
-          b.techQueue.splice(i, 1);
+        for (let i = b.queue.length - 1; i >= 0; i--) {
+          const job = b.queue[i];
+          if (job.tech === undefined || TECH_BY_ID.get(job.tech)!.requires.every((r) => planned.has(r))) continue;
+          refund(p.stock, job.cost);
+          this.dropJob(b, i);
           changed = true;
         }
       }
@@ -1270,10 +1289,10 @@ export class World {
         }
         const item = b.queue[cmd.index];
         if (!item) return;
-        b.queue.splice(cmd.index, 1);
+        this.dropJob(b, cmd.index);
         refund(player.stock, item.cost);
-        // One unit fewer to wait for before the advance.
-        if (b.pendingAdvance && cmd.index < b.pendingAdvance.ahead) b.pendingAdvance.ahead--;
+        // Research that built on a cancelled technology cannot come either.
+        if (item.tech !== undefined) this.pruneTechQueues(cmd.player);
         break;
       }
       case 'advance':
@@ -1285,18 +1304,13 @@ export class World {
       case 'cancelTech': {
         const b = this.get(cmd.buildingId);
         if (!b || b.kind !== 'building' || b.owner !== cmd.player) return;
-        if (cmd.index === undefined || cmd.index < 0) {
-          if (!b.tech) return;
-          refund(player.stock, b.tech.cost);
-          b.tech = null;
-        } else {
-          const job = b.techQueue[cmd.index];
-          if (!job) return;
-          refund(player.stock, job.cost);
-          b.techQueue.splice(cmd.index, 1);
-        }
+        // No index: the technology worked on; else the index-th technology in the queue.
+        const techs = b.queue.flatMap((q, i) => (q.tech !== undefined ? [i] : []));
+        const at = cmd.index === undefined || cmd.index < 0 ? (techs.find((i) => b.queue[i].progress > 0) ?? techs[0]) : techs[cmd.index];
+        if (at === undefined) return;
+        refund(player.stock, b.queue[at].cost);
+        this.dropJob(b, at);
         this.pruneTechQueues(cmd.player);
-        this.startQueuedTech(b);
         break;
       }
       case 'rally': {
@@ -1765,7 +1779,7 @@ export class World {
       this.emit({ type: 'warn', player, text: `Es gibt schon einen ${ROLE_DEFS[role].label.replace('Held: ', '')}en – jeder Held nur einmal.` });
       return false;
     }
-    if (b.queue.length >= 10) {
+    if (b.queue.length >= MAX_JOBS) {
       this.emit({ type: 'warn', player, text: 'Die Warteschlange ist voll.' });
       return false;
     }
@@ -1936,8 +1950,8 @@ export class World {
     const tech = TECH_BY_ID.get(id);
     if (!tech || !b || b.kind !== 'building' || b.owner !== player || !b.built || b.type !== tech.building) return;
     if (!this.techPlannable(player, tech)) return;
-    if (b.techQueue.length >= MAX_TECH_QUEUE) {
-      this.emit({ type: 'warn', player, text: 'Die Forschungs-Warteschlange ist voll.' });
+    if (b.queue.length >= MAX_JOBS) {
+      this.emit({ type: 'warn', player, text: 'Die Warteschlange ist voll.' });
       return;
     }
     if (!canAfford(p.stock, tech.cost)) {
@@ -1945,9 +1959,8 @@ export class World {
       return;
     }
     pay(p.stock, tech.cost);
-    // Queued behind what runs here; starts right away when the building is free.
-    b.techQueue.push({ id, cost: tech.cost });
-    this.startQueuedTech(b);
+    // In line with the units: it starts when its turn comes.
+    b.queue.push({ tech: id, progress: 0, cost: tech.cost });
   }
 
   private commandAdvance(player: number, buildingId: number): void {
@@ -2057,7 +2070,7 @@ export class World {
       if (e.garrison.length) this.ejectGarrison(e);
       this.cue({ kind: 'collapse', x: e.x, y: e.y, owner: e.owner, epoch: e.epoch, size: e.size });
       // Research that depended on what ran here can no longer come.
-      if (e.tech || e.techQueue.length) this.pruneTechQueues(e.owner);
+      if (e.queue.some((q) => q.tech !== undefined)) this.pruneTechQueues(e.owner);
       this.effects.push({ kind: 'collapse', x: e.x, y: e.y, t: 0, dur: 1.6, size: e.size });
       if (e.type === 'towncenter') {
         this.emit({ type: 'warn', player: e.owner, text: `${buildingName(e.type, e.epoch)} wurde zerstört!`, x: e.x, y: e.y });

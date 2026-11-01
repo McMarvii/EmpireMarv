@@ -137,12 +137,21 @@ export const AURA_LED = 1;
 /** Near the own warrior: stronger attacks. */
 export const AURA_INSPIRED = 2;
 
-export interface QueueItem {
-  role: Role;
-  progress: number;
-  /** What was paid, refunded on cancel. */
-  cost: Cost;
-}
+/**
+ * One job in a building's queue: a unit to train or a technology to research. Both wait their turn
+ * in the order they were given; a job that cannot go on yet (no room in the population, a technology
+ * still waiting for its prerequisite) lets the next one go first.
+ */
+export type QueueItem =
+  | {
+      role: Role;
+      tech?: undefined;
+      /** Seconds worked on it so far. */
+      progress: number;
+      /** What was paid, refunded on cancel. */
+      cost: Cost;
+    }
+  | { tech: string; role?: undefined; progress: number; cost: Cost };
 
 export interface Building extends BaseEntity {
   kind: 'building';
@@ -154,13 +163,10 @@ export interface Building extends BaseEntity {
   progress: number;
   /** Owner's epoch (updated on every advance); drives looks and hit points. */
   epoch: number;
+  /** Units and technologies, already paid, in the order they were given. */
   queue: QueueItem[];
   research: { targetEpoch: number; progress: number; total: number } | null;
-  /** Technology being researched here; runs alongside unit training. */
-  tech: { id: string; progress: number; total: number; cost: Cost } | null;
-  /** Technologies waiting here, already paid; the first starts once its prerequisites are researched. */
-  techQueue: Array<{ id: string; cost: Cost }>;
-  /** Epoch advance (already paid) waiting for the first `ahead` units of the queue. */
+  /** Epoch advance (already paid) waiting for the first `ahead` jobs of the queue. */
   pendingAdvance: { targetEpoch: number; ahead: number } | null;
   /** Waypoints for new units; the last one is the gathering point. */
   rally: Point[];
