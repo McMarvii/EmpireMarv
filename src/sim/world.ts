@@ -1107,9 +1107,11 @@ export class World {
     const vis = this.players[owner].vis;
     // Harbours stand in the water at the shore, everything else on dry land.
     if (BUILDING_DEFS[type].shore && !this.map.shoreSite(tx, ty, size)) return false;
+    // Gates and towers may go into an own wall: the segments under them make way.
+    const walls = this.wallsUnder(owner, type, tx, ty);
     for (let y = ty; y < ty + size; y++) {
       for (let x = tx; x < tx + size; x++) {
-        if (!BUILDING_DEFS[type].shore && !this.map.buildable(x, y)) return false;
+        if (!BUILDING_DEFS[type].shore && !this.map.buildable(x, y) && !walls.some((b) => b.tx === x && b.ty === y)) return false;
         if (!this.settings.revealMap && vis[this.map.idx(x, y)] === 0) return false;
       }
     }
@@ -1123,6 +1125,21 @@ export class World {
       if (tx < b.tx + b.size + 1 && tx + size + 1 > b.tx && ty < b.ty + b.size + 1 && ty + size + 1 > b.ty) return false;
     }
     return true;
+  }
+
+  /**
+   * The owner's wall segments a gate or tower placed here would replace: a gate on a wall tile,
+   * a tower over the walls under its footprint. Empty for everything else.
+   */
+  wallsUnder(owner: number, type: BuildingType, tx: number, ty: number): Building[] {
+    if (type !== 'gate' && type !== 'tower') return [];
+    const size = BUILDING_DEFS[type].size;
+    const out: Building[] = [];
+    for (const b of this.buildings) {
+      if (b.dead || b.type !== 'wall' || b.owner !== owner) continue;
+      if (b.tx >= tx && b.tx < tx + size && b.ty >= ty && b.ty < ty + size) out.push(b);
+    }
+    return out;
   }
 
   /** Whether a player may currently build a type (epoch requirement). */
@@ -1733,8 +1750,17 @@ export class World {
       return;
     }
     pay(p.stock, cost);
+    this.makeWay(player, type, tx, ty);
     const b = this.addBuilding(player, type, tx, ty, false);
     this.issue({ type: 'construct', player, ids, targetId: b.id, queue });
+  }
+
+  /** A gate or tower set into a wall: the segments under it make way (a site among them gives back its unbuilt share). */
+  private makeWay(player: number, type: BuildingType, tx: number, ty: number): void {
+    for (const wall of this.wallsUnder(player, type, tx, ty)) {
+      if (!wall.built) refund(this.players[player].stock, multiplyCost(buildingCost(wall.type, wall.epoch), 1 - wall.progress));
+      this.remove(wall);
+    }
   }
 
   private commandPlaceLine(player: number, ids: number[], type: BuildingType, tiles: Point[], queue: boolean): void {
@@ -1750,6 +1776,7 @@ export class World {
         break;
       }
       pay(p.stock, def.cost);
+      this.makeWay(player, type, t.x, t.y);
       placed.push(this.addBuilding(player, type, t.x, t.y, false));
     }
     if (short) this.emit({ type: 'warn', player, text: `Nicht genug Rohstoffe: ${missingText(p.stock, def.cost)}` });

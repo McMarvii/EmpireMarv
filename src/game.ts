@@ -714,10 +714,10 @@ export class Game {
     this.refreshPlacement();
   }
 
-  /** Walls and gates: the mouse button went down, start a line there. */
+  /** Walls: the mouse button went down, start a line there. */
   startLine(): void {
     const p = this.placement;
-    if (!p || !BUILDING_DEFS[p.type].line) return;
+    if (!p || !BUILDING_DEFS[p.type].drag) return;
     p.anchor = { tx: p.tx, ty: p.ty };
     this.refreshPlacement();
   }
@@ -749,7 +749,7 @@ export class Game {
       this.cancelMode();
       return;
     }
-    if (BUILDING_DEFS[p.type].line) {
+    if (BUILDING_DEFS[p.type].drag) {
       const tiles = (p.line ?? [{ tx: p.tx, ty: p.ty }]).map((t) => ({ x: t.tx, y: t.ty }));
       p.anchor = null;
       p.line = null;

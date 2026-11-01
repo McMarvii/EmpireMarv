@@ -1494,7 +1494,8 @@ export class Hud {
         <tr><td>L</td><td>Gleichschritt an/aus (Armee ausgewählt)</td></tr>
         <tr><td>Z (Dorfzentrum oder Turm gewählt)</td><td>Zuflucht: Bürger gehen in Dorfzentrum und Türme (je 5, +1 Pfeil pro Bürger); nochmal = Entwarnung</td></tr>
         <tr><td>E</td><td>Erkunden (Einheiten ausgewählt)</td></tr>
-        <tr><td>M / G, dann ziehen</td><td>Mauer / Tor als Linie bauen</td></tr>
+        <tr><td>M, dann ziehen</td><td>Mauer als Linie bauen</td></tr>
+        <tr><td>G / T auf eine Mauer</td><td>Tor oder Turm in die Mauer setzen (ersetzt die Stücke darunter)</td></tr>
         <tr><td>Buchstaben</td><td>Befehle im Befehlsfeld (siehe Tasten auf den Knöpfen)</td></tr>
         <tr><td>Umschalt + Bauen/Ausbilden</td><td>Mehrfach platzieren, Bauaufträge nacheinander / 5 Einheiten</td></tr>
         <tr><td>Rechtsklick mit Flugzeugen auf eigenen Flugplatz</td><td>Tanken, Bomben laden, reparieren – mit leerem Tank oder leeren Bomben fliegen sie von selbst zurück</td></tr>
