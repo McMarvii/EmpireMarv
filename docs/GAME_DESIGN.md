@@ -55,16 +55,18 @@ Aufstiegskosten wachsen linear (+35 % der Grundkosten pro Epoche). Stein wird ab
 
 | Rohstoff | Quelle | Wofür |
 | --- | --- | --- |
-| Nahrung | Beerensträucher, Felder (unerschöpflich, 2 Bauern) | Bürger, Infanterie, Kavallerie, Epochen |
+| Nahrung | Beerensträucher, Wild (Jagd 1,5-mal so schnell), Felder (unerschöpflich, 2 Bauern) | Bürger, Infanterie, Kavallerie, Epochen |
 | Holz | Bäume | Gebäude, Fernkampf, Belagerung |
-| Stein | Steinbrüche | Türme, Dorfzentren, Epochen |
-| Gold | Goldminen | Fernkampf, Kavallerie, Epochen ab 5 |
-| Eisen | Eisenminen | Sturminfanterie, Kavallerie, Belagerung, Epochen ab 7 |
+| Stein | Steinbrüche (5000 je Vorkommen) | Türme, Dorfzentren, Epochen |
+| Gold | Goldminen (5000) | Fernkampf, Kavallerie, Epochen ab 5, Aufrüsten |
+| Eisen | Eisenminen (5000) | Sturminfanterie, Kavallerie, Belagerung, Epochen ab 7 |
 
 - Bürger tragen 10 Einheiten und liefern sie im Dorfzentrum oder Lager ab (Rechtsklick lagert sofort ein). Mit jeder Epoche sammeln sie 4 % schneller.
 - Schickt man mehrere Bürger auf einen Baum, verteilen sie sich: Jeder bekommt einen eigenen Baum bis 4 Felder um den angeklickten, nur solche am Waldrand, den nächsten zuerst. Gibt es weniger Bäume als Bürger, teilen sie sich die Bäume reihum. Stein, Gold und Eisen bearbeiten alle an der angeklickten Stelle.
+- Ist ein Baum oder Busch leer, sucht jeder seiner Arbeiter den nächsten. Wer schon an einem Baum steht, zählt dabei wie drei Felder Umweg, so verteilen sich die Arbeiter, statt alle zum selben Baum zu laufen. Minen nehmen viele Arbeiter und gehen nur nach Entfernung.
 - Wer eine Abgabestelle gebaut hat, sammelt am nächstgelegenen Vorkommen weiter, egal welcher Art.
-- Jede Startposition bekommt dieselbe Grundausstattung: Beeren, Wald, je eine Gold-, Stein- und Eisenmine. Weitere Minen verteilt der Generator über die Karte – sie lohnen das Erkunden.
+- Jede Startposition bekommt dieselbe Grundausstattung: Beeren, Wald, je eine Gold-, Stein- und Eisenmine und eine Herde aus fünf Hirschen. Weitere Minen und Herden verteilt der Generator über die Karte – sie lohnen das Erkunden.
+- **Wild**: 150 Nahrung je Tier. Einheiten laufen durch die Herde, bebaut werden kann ihr Feld erst, wenn sie erlegt ist. Die Herden würfeln mit eigenem Zufall: Gelände, Wälder und Minen jeder Karte sind dieselben wie vor dem Wild.
 
 ## Kampfsystem
 
@@ -80,6 +82,7 @@ Fünf Rollen, jede Epoche liefert eine neue Stufe pro Rolle:
 
 - Schaden = Grundschaden × Rollenmultiplikator − Rüstung (mindestens 15 %).
 - Werte steigen pro Epoche um 22 % des Grundwerts, Kosten nur um 12 %. Neuere Armeen sind also überlegen, alte Einheiten aber nicht wertlos. Ab der Industrialisierung kommen Fahrzeuge mit zusätzlicher Panzerung hinzu.
+- **Aufrüsten**: Jedes Gebäude, das Einheiten ausbildet, hat den Knopf Aufrüsten (`U`). Er bringt alle eigenen Einheiten seiner Rollen bis 8 Felder um das Gebäude, die aus einer früheren Epoche stammen, auf die aktuelle Stufe. Preis je Einheit: halb so viel Gold, wie die neue Stufe in der Ausbildung kostet (mindestens 10). Die Lebenspunkte bleiben anteilig. Helden wachsen ohnehin mit.
 - **Moral**: Jedes eigene Haus im Umkreis von 8 Feldern gibt +4 % Schaden und −4 % erlittenen Schaden (höchstens 5 Häuser).
 - Türme und Dorfzentren schießen und werden mit jeder Epoche stärker.
 - **Helden, Priester und Propheten** stehen ebenfalls außerhalb des Dreiecks, siehe [Helden, Glaube und Wunder](#helden-glaube-und-wunder).
@@ -195,7 +198,8 @@ Flieger sind die dritte Ebene neben Land und Wasser. Sie fliegen geradeaus über
 ## Befehle und Formationen
 
 - **Formationen**: Linie (breite Front, wenige Reihen), Block (kompaktes Quadrat, Standard) und Keil (Spitze voran). Unabhängig von der Formation steht die Infanterie vorn, dahinter Reiter, dann Bürger und Späher, dann Fernkampf, ganz hinten Belagerung. Jede Rang-Gruppe füllt eigene Reihen. Einheiten behalten ihre Seite, damit sich ihre Wege nicht kreuzen. Ein Klick auf eine Formation (`N`, `O`, `V`) ordnet eine stehende Gruppe sofort neu.
-- **Gleichschritt**: Bei jedem Gruppenbefehl bekommt jede Einheit ein Marschtempo, mit dem alle zur selben Zeit am Ziel sind. Die Einheit mit dem (gemessen an ihrem Tempo) weitesten Weg gibt die Zeit vor, alle anderen werden langsamer, aber höchstens auf 35 % ihres Tempos. Reiter laufen so nicht mehr voraus. Bei Gefechten in einer Angriffsbewegung endet der Gleichschritt.
+- **Gleichschritt**: Die Gruppe geht im Tempo ihrer langsamsten Einheit; Belagerungswaffen geben es vor, niemand läuft voraus. Die Einheit mit dem weitesten Weg geht genau dieses Tempo, die anderen etwas langsamer (höchstens bis auf 35 % davon), damit alle zugleich ankommen. Das Tempo gilt auch für einen Angriffsbefehl und bleibt in einer Angriffsbewegung über das Gefecht hinaus erhalten. Erst die letzten drei Felder vor der eigenen Reichweite geht jeder im Sturm.
+- **Gefallenes Ziel**: Fällt das Ziel eines Angriffsbefehls (oder verschwindet es aus der Sicht), bevor alle da sind, ziehen die übrigen per Angriffsbewegung an die Stelle, wo es zuletzt war, statt auf halbem Weg stehen zu bleiben.
 - **Blickrichtung**: Normalerweise zeigt die Front in Laufrichtung. Mit eigenen Einheiten in der Auswahl legt Rechts-Ziehen sie fest: Startpunkt = Ziel, Zugrichtung = Front, mit Pfeil und Vorschau der Plätze. Ohne Einheiten in der Auswahl schwenkt Rechts-Ziehen die Karte.
 - **Befehlsketten**: Mit gedrückter Umschalttaste werden Befehle angehängt statt ersetzt: Wegpunkte, Angriffsbewegungen, Angriffsziele, Sammeln, Einlagern, Bauaufträge (auch Mauerlinien) und Erkunden, bis zu 40 je Einheit. Befehle, die nie von selbst enden (Sammeln, Erkunden, Patrouille, Nichtstun), weichen einem angehängten Befehl sofort. So baut ein Holzfäller bei Umschalt+Bauen erst, statt ewig weiter Holz zu hacken. Halt (`X`) und jeder Befehl ohne Umschalt leeren die Kette.
 - **Patrouille** (`R`): Die Einheiten pendeln zwischen ihrem Standort und dem Ziel. Umschalt+Klick fügt der Runde weitere Punkte hinzu (bis 8). Soldaten greifen unterwegs an und setzen danach die Runde fort; Späher und Bürger laufen nur.
@@ -203,8 +207,8 @@ Flieger sind die dritte Ebene neben Land und Wasser. Sie fliegen geradeaus über
 - **Gebäude-Hotkeys**: `Tab`, dann die Bau-Taste eines Gebäudes (z. B. `Tab`, `K`) wählt ein Gebäude dieses Typs, untätige zuerst. Erneut gedrückt geht es zum nächsten, zweimal schnell (unter 0,8 s) springt die Kamera hin. `Tab` als Präfix vermeidet Strg-Kürzel, die der Browser nicht abgibt (Strg+W schließt den Tab, Strg+T öffnet einen).
 - **Produktionsleiste** (links über der Minikarte): jedes Gebäude, das ausbildet oder forscht, mit Bau-Taste, Fortschrittsbalken (Einheit grün, Forschung violett, Aufstieg blau) und der Zahl wartender Aufträge. Untätige Gebäude sind rot umrandet. Klick wählt, Umschalt+Klick fügt gleiche Gebäude hinzu, Doppelklick springt hin. Türme und Lager erscheinen nur, solange sie forschen.
 - **Mehrere Gebäude**: Doppelklick auf ein Gebäude wählt alle gleichen auf dem Bildschirm, ein Rahmen ohne Einheiten wählt die häufigste Gebäudeart darin. Ausbilden verteilt jede Einheit auf die kürzeste Warteschlange, Forschung geht an das am wenigsten beschäftigte Gebäude, Sammelpunkte gelten für alle.
-- **Forschungs-Warteschlangen**: Jedes Gebäude reiht bis zu 5 Techniken ein (bezahlt beim Einreihen). Eine Stufe darf eingereiht werden, sobald ihre Voraussetzung erforscht, in Arbeit oder eingereiht ist; sie startet, wenn die Voraussetzung fertig ist. Bricht man eine Technik ab oder fällt das Gebäude, verschwinden (mit Erstattung) auch die eingereihten Techniken, die sie gebraucht hätten.
-- **Aufstieg in der Warteschlange**: Der Aufstieg wartet hinter den Einheiten, die schon im Dorfzentrum eingereiht waren. Später eingereihte Einheiten warten auf die neue Epoche.
+- **Eine Warteschlange je Gebäude**: Einheiten und Techniken reihen sich gemeinsam ein, bis zu 10 Aufträge, bezahlt beim Einreihen, und kommen in der gegebenen Reihenfolge dran; Forschung läuft nicht nebenher. Ein Auftrag, der noch nicht weiter kann, lässt den nächsten vor: eine Einheit bei voller Bevölkerung, eine Technik, deren Voraussetzung noch woanders erforscht wird. Eine Stufe darf eingereiht werden, sobald ihre Voraussetzung erforscht, in Arbeit oder eingereiht ist. Bricht man eine Technik ab oder fällt das Gebäude, verschwinden (mit Erstattung) auch die eingereihten Techniken, die sie gebraucht hätten.
+- **Aufstieg in der Warteschlange**: Der Aufstieg wartet hinter allem, was schon im Dorfzentrum eingereiht war. Später eingereihte Aufträge warten auf die neue Epoche.
 - **Anzeige**: Ausgewählte Einheiten mit Kette oder Patrouille zeigen ihre Wegpunkte als gestrichelte Linien in der Farbe der Befehlsart (Bewegen grün, Kampf rot, Sammeln gelb, Bauen blau). Bei gedrückter Umschalttaste werden alle Pläne gezeigt. Größere Gruppen bekommen eine gemeinsame Linie durch die Mitte und einen Punkt je Einheit.
 
 ## Gebäude
@@ -220,7 +224,7 @@ Flieger sind die dritte Ebene neben Land und Wasser. Sie fliegen geradeaus über
 | Werkplatz → Schmiede → Rüstungswerk → Waffenlabor | 1 | Forschung: Waffen und Rüstungen |
 | Ahnenstätte → Akademie → Universität → Forschungszentrum | 1 | Forschung: Bauwesen, Wissenschaft, Verwaltung |
 | Palisade → Steinmauer → Betonmauer → Energiebarriere | 2 | Mauer (1×1), als Linie gezogen, auch schräg; schließt an Türme an |
-| Palisadentor → Torhaus → Schranke → Energietor | 2 | Lässt eigenes Team durch, Gegner nicht |
+| Palisadentor → Torhaus → Schranke → Energietor | 2 | Lässt eigenes Team durch, Gegner nicht. Einzeln gesetzt; auf einer eigenen Mauer ersetzt es das Stück darunter (ebenso ein Turm die Stücke unter seiner Grundfläche) |
 | Belagerungswerkstatt / Gießerei / Waffenfabrik | 3 | Belagerung und Artillerie |
 | Stall / Fahrzeugwerk / Mech-Hangar | 4 | Kavallerie, Fahrzeuge, Mechs |
 | Schrein → Tempel → Kloster → Kirche → Andachtshaus → Meditationszentrum | 2 | Priester, Propheten, Glaubensforschung |
@@ -232,7 +236,7 @@ Flieger sind die dritte Ebene neben Land und Wasser. Sie fliegen geradeaus über
 
 Der Technologiebaum umfasst **221 Techniken in 34 Zweigen**. Jeder Zweig hat eine Wirkung, die jede seiner Stufen erneut hinzufügt, und Stufen, die Epoche für Epoche freigeschaltet werden. Jede Stufe verlangt die vorige, einige zusätzlich eine Stufe eines anderen Zweigs (z. B. Luntenschloss → Schwarzpulver, Verbrennungsmotor → Dampfpumpe). So entwickelt sich die Zivilisation mit jeder Epoche weiter, statt einmal fertig erforscht zu sein.
 
-- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung), Tempel (Glaube), Hafen (Schiffe), Flugplatz (Flugzeuge) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, parallel zur Ausbildung.
+- **Wo**: Schmiede (Waffen, Rüstungen), Akademie (Wissenschaft, Bauwesen, Verwaltung), Tempel (Glaube), Hafen (Schiffe), Flugplatz (Flugzeuge) und Linien-Upgrades in Dorfzentrum, Kaserne, Stall, Werkstatt, Turm und Lager. Jedes Gebäude forscht eine Technik zur Zeit, in derselben Warteschlange wie die Ausbildung.
 - **Kosten**: Grundpreis des Zweigs × (1 + 0,3 × Epoche). Vor der Kupferzeit wird statt Gold Holz bezahlt, vor der Eisenzeit statt Eisen Stein. Dauer 18 s + 2 s je Epoche.
 - **Aufstieg**: Pro Epoche müssen zwei ihrer Techniken erforscht sein. Jede Epoche bietet 5–14 Techniken aus mindestens zwei Gebäuden.
 - **Bedienung**: Im Gebäude zeigt je Zweig ein Knopf die nächste Stufe (Tasten A, S, D …). Der Technologiebaum (Knopf „Forschung“ oder F2) zeigt alle Zweige mit Zustand und startet Forschung per Klick im nächsten freien Gebäude.
@@ -302,7 +306,7 @@ Lautstärke für Gesamt, Effekte und Musik sowie Stumm (`Strg`+`M`) stehen im Me
 ### Lobby und Verbindung
 
 - **Spiel erstellen**: Der Gastgeber bekommt einen Link (`#join=em-…`) und stellt die Partie ein. Vier Plätze, jeder ist *Offen (Mensch)*, *Computer* oder *Geschlossen*, dazu Team 1–4. Wer den Link öffnet, landet auf dem ersten offenen Platz. Gestartet wird ab zwei Spielern in zwei Teams. Offene Plätze ohne Spieler fallen weg.
-- **Vermittlung**: WebRTC braucht einen Handschlag. Ihn übernimmt der öffentliche PeerJS-Server. Das Spiel spricht dessen Protokoll direkt (WebSocket mit JSON) und braucht keine Bibliothek. Danach laufen die Daten direkt über einen Datenkanal (zuverlässig, geordnet, große Nachrichten in Stücken). STUN-Server von Google und Cloudflare ermitteln die öffentliche Adresse; ein TURN-Relay gibt es nicht.
+- **Vermittlung**: WebRTC braucht einen Handschlag. Ihn übernimmt der öffentliche PeerJS-Server. Das Spiel spricht dessen Protokoll direkt (WebSocket mit JSON) und braucht keine Bibliothek. Der Server prüft jede Nachricht gegen die Felder seines eigenen Clients (Angebot: `type`, `connectionId`, `label`, `serialization`; Antwort und Kandidat: `type`, `connectionId`) und trennt den Absender wortlos, wenn eins fehlt – deshalb trägt der Handschlag diese Felder mit. Danach laufen die Daten direkt über einen Datenkanal (zuverlässig, geordnet, große Nachrichten in Stücken). STUN-Server von Google und Cloudflare ermitteln die öffentliche Adresse; ein TURN-Relay gibt es nicht.
 - **Code-Notlösung**: Ohne Server tauschen Gastgeber und Mitspieler je einen Code aus. Das ist die komplette, komprimierte Sitzungsbeschreibung, etwa 600 Zeichen.
 - **Lokal**: `?signal=local` vermittelt zwischen Tabs desselben Browsers (BroadcastChannel), für Tests ohne Internet.
 
@@ -361,7 +365,7 @@ Gespeichert wird ein **Schnappschuss** der ganzen Simulation, nicht die Befehlsl
   - geladen wird im Hauptmenü unter „Spielstände“.
 - **Grenzen**:
   - Nur Partien gegen den Computer; im Mehrspieler gibt es den Wiedereinstieg per Link.
-  - Ein Spielstand gehört zu seiner Simulationsversion (`SIM_VERSION`), denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt. Die Simulationsversion steigt nur, wenn die Simulation anders rechnet, nicht bei Grafik oder Bedienung: Spielstände und Wiedergaben aus 0.8 liefen in 0.9 weiter. 0.10 findet andere Wege, deshalb enden Stände aus 0.8 und 0.9 dort. 0.10.1 schließt die Ecke zwischen zwei schrägen Mauerteilen und verteilt Holzfäller, deshalb enden auch Stände aus 0.10.0.
+  - Ein Spielstand gehört zu seiner Simulationsversion (`SIM_VERSION`), denn jede Änderung an der Simulation würde ihn anders weiterrechnen lassen. Stände anderer Versionen werden mit Begründung abgelehnt. Die Simulationsversion steigt nur, wenn die Simulation anders rechnet, nicht bei Grafik oder Bedienung: Spielstände und Wiedergaben aus 0.8 liefen in 0.9 weiter. 0.10 findet andere Wege, deshalb enden Stände aus 0.8 und 0.9 dort. 0.10.1 schließt die Ecke zwischen zwei schrägen Mauerteilen und verteilt Holzfäller, deshalb enden auch Stände aus 0.10.0. 0.11 bringt Wild, die gemeinsame Warteschlange, Aufrüsten, Minen mit 5000 und einen neuen Gleichschritt; Stände aus 0.10 enden dort.
 
 ## KI
 
@@ -441,8 +445,9 @@ Die Reihenfolge ab 0.3 folgt dem Spieler-Interview vom Oktober 2026 (siehe unten
 | 0.7 | ✔ **Kartentypen** (Kontinent, Küste, Binnenmeer, Inseln, Flüsse, Steppe, Zufall; Fischgründe), ✔ **Seekrieg** (Hafen, Fischerboot, Transport-, Kriegs- und Belagerungsschiff je Ära; Einsteigen und Entladen; Land gegen See nur auf Distanz), ✔ KI fischt, kämpft zur See und **landet auf fremden Inseln**, ✔ **Speichern & Laden** (Schnappschuss, Strg+S, automatisch, als Datei) |
 | 0.8 | ✔ **Luftkrieg** (Ballon ab XII; Flugplatz, Jäger und Bomber ab XIV; nur Flugabwehr trifft Flugzeuge; Treibstoff und Bombenlast mit Rückflug zum Flugplatz; vier neue Technikzweige), ✔ KI mit Ballon, Bombenangriffen und Luftabwehr, ✔ **geführtes Tutorial** (Übungspartie mit 14 geprüften Schritten und einem Gefecht gegen ein Räuberlager) |
 | 0.9 | ✔ **WebGL-Renderer** für große Schlachten (Sprite-Atlas mit Einzelbildern je Bewegungszyklus und Zoomstufen, ein Zeichenaufruf je Durchgang), ✔ **Gelände-Shader** mit weichen Übergängen, Wasser mit Tiefe, Wellen und Brandung, ✔ weicher, ein- und ausblendender **Nebel**, ✔ Grafik-Einstellung mit automatischem Rückfall auf Canvas, ✔ Bildrate (F3), ✔ Gelände im Canvas über 30-mal schneller beim Herauszoomen |
-| **0.10** (jetzt) | ✔ **Schnellere Simulation** für große Schlachten: Gruppen-Wegsuche für Marschbefehle, Direktlinien ohne Suche, Erreichbarkeit über zusammenhängende Flächen. Eine Schlacht mit 1 000 Einheiten braucht 1,9 statt 6 ms je Schritt (Spitzen 14 statt 144 ms), ein Marschbefehl für 400 Einheiten 20–50 statt bis zu 980 ms |
+| 0.10 | ✔ **Schnellere Simulation** für große Schlachten: Gruppen-Wegsuche für Marschbefehle, Direktlinien ohne Suche, Erreichbarkeit über zusammenhängende Flächen. Eine Schlacht mit 1 000 Einheiten braucht 1,9 statt 6 ms je Schritt (Spitzen 14 statt 144 ms), ein Marschbefehl für 400 Einheiten 20–50 statt bis zu 980 ms |
 | 0.10.1 | ✔ Klicks auf Ausbilden und Forschen gehen nicht mehr verloren (Knöpfe flackerten bei laufendem Fortschritt), ✔ schräge Mauern verbunden und dicht, ✔ Teile und Kosten beim Mauerziehen, ✔ Holzfäller verteilen sich auf die Bäume am Waldrand, ✔ **Übersicht**: alle Kämpfe auf der Minikarte, Randpfeile, Leertaste schaltet durch, **Verlauf** (`F4`) mit Filtern, gezählte Wiederholungen, ✔ **Oberflächengröße** für 1440p und 4K, ✔ Befehlsfeld mit 7 Spalten (alle Bürgerbefehle sichtbar), ✔ obere Leiste und Menü auf kleinen Bildschirmen |
+| **0.11** (jetzt) | ✔ **Wild** als Nahrungsquelle (Herde an jeder Basis, Jagd schneller als Beeren), ✔ **eine Warteschlange** für Einheiten und Forschung, ✔ **Aufrüsten** alter Einheiten gegen Gold, ✔ **Gleichschritt** im Tempo der langsamsten Einheit, auch im Angriff; gefallenes Ziel wird als Wegpunkt angelaufen, ✔ Tore und Türme in fertige Mauern setzen, Tore einzeln platzieren, ✔ Minen fassen 5000, Holzfäller verteilen sich nach einem gefällten Baum, Nahrung grün, ✔ Mehrspieler: Beitritt über den Vermittler und Namensfeld repariert, ✔ kein Verschwinden von Gebäuden auf großen Bildschirmen (Atlas-Überlauf), Klicks auf Gebäude hinter Gebäuden, Baumenü ohne Bildlaufleiste |
 | 1.0 | Kampagne und Szenario-Editor, Balancing, Lokalisierung |
 
 ### Interview-Ergebnisse (Oktober 2026)
