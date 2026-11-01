@@ -224,6 +224,8 @@ export type Command =
   | { type: 'cancel'; player: number; buildingId: number; index: number }
   | { type: 'advance'; player: number; buildingId: number }
   | { type: 'research'; player: number; buildingId: number; tech: string }
+  /** Re-equips the own outdated units near a building that trains them, for gold. */
+  | { type: 'upgrade'; player: number; buildingId: number }
   /** Cancels the technology worked on (no index) or the index-th technology in the building's queue. */
   | { type: 'cancelTech'; player: number; buildingId: number; index?: number }
   | { type: 'rally'; player: number; buildingId: number; x: number; y: number; queue?: boolean }
@@ -257,6 +259,15 @@ export const CROWD_TILES = 3;
 export const MAX_QUEUE = 40;
 /** Rally waypoints per building. */
 export const MAX_RALLY = 8;
+/** Outdated units within this many tiles of a building that trains them can be re-equipped there. */
+export const UPGRADE_REACH = 8;
+
+/** Gold to re-equip one unit to a tier: half of what that tier costs to train, at least 10. */
+export function upgradeGold(role: Role, tier: number): number {
+  const cost = unitStats(role, tier).cost;
+  return Math.max(10, Math.round(RESOURCES.reduce((n, r) => n + (cost[r] ?? 0), 0) / 2));
+}
+
 /** Jobs (units and technologies) that may wait in one building's queue. */
 export const MAX_JOBS = 10;
 
@@ -1318,6 +1329,9 @@ export class World {
       case 'research':
         this.commandResearch(cmd.player, cmd.buildingId, cmd.tech);
         break;
+      case 'upgrade':
+        this.commandUpgrade(cmd.player, cmd.buildingId);
+        break;
       case 'cancelTech': {
         const b = this.get(cmd.buildingId);
         if (!b || b.kind !== 'building' || b.owner !== cmd.player) return;
@@ -1988,6 +2002,56 @@ export class World {
     pay(p.stock, tech.cost);
     // In line with the units: it starts when its turn comes.
     b.queue.push({ tech: id, progress: 0, cost: tech.cost });
+  }
+
+  /**
+   * Units of the roles a building trains that stand within reach of it and are of an older epoch than
+   * their owner, with the tier they would get. Heroes grow with the epoch on their own.
+   */
+  upgradable(b: Building): Array<{ unit: Unit; tier: number }> {
+    const epoch = this.players[b.owner].epoch;
+    const trains = BUILDING_DEFS[b.type].trains;
+    const rect = rectOf(b);
+    const out: Array<{ unit: Unit; tier: number }> = [];
+    if (!b.built || trains.length === 0) return out;
+    for (const u of this.units) {
+      if (u.dead || u.inside || u.owner !== b.owner || isHero(u.role) || !trains.includes(u.role)) continue;
+      const tier = bestTier(u.role, epoch);
+      if (tier <= u.tier || distToRect(u.x, u.y, rect) > UPGRADE_REACH) continue;
+      out.push({ unit: u, tier });
+    }
+    return out;
+  }
+
+  private commandUpgrade(player: number, buildingId: number): void {
+    const b = this.get(buildingId);
+    if (!b || b.kind !== 'building' || b.owner !== player) return;
+    const p = this.players[player];
+    const list = this.upgradable(b);
+    if (!list.length) {
+      this.emit({ type: 'warn', player, text: `Keine veralteten Einheiten in der Nähe (bis ${UPGRADE_REACH} Felder).` });
+      return;
+    }
+    let done = 0;
+    let paid = 0;
+    for (const { unit: u, tier } of list) {
+      const gold = upgradeGold(u.role, tier);
+      if (p.stock.gold < gold) break;
+      p.stock.gold -= gold;
+      paid += gold;
+      done++;
+      const ratio = u.hp / u.maxHp;
+      u.tier = tier;
+      u.stats = this.unitStatsFor(player, u.role, tier);
+      u.maxHp = u.stats.hp;
+      u.hp = Math.max(1, ratio * u.maxHp);
+      this.effects.push({ kind: 'heal', x: u.x, y: u.y, t: 0, dur: 0.8, size: 1 });
+    }
+    if (done) {
+      this.cue({ kind: 'heal', x: b.x, y: b.y, owner: player });
+      this.emit({ type: 'info', player, text: `${done} ${done === 1 ? 'Einheit' : 'Einheiten'} aufgerüstet (${paid} Gold).` });
+    }
+    if (done < list.length) this.emit({ type: 'warn', player, text: `Nicht genug Gold für ${list.length - done} weitere ${list.length - done === 1 ? 'Einheit' : 'Einheiten'}.` });
   }
 
   private commandAdvance(player: number, buildingId: number): void {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { EPOCHS } from '../src/data/epochs';
 import { TECH_BY_ID, TECHS } from '../src/data/techs';
-import { ROLE_DEFS } from '../src/data/units';
+import { bestTier, ROLE_DEFS } from '../src/data/units';
 import type { Building } from '../src/sim/entities';
 import type { World } from '../src/sim/world';
-import { MAX_JOBS } from '../src/sim/world';
+import { MAX_JOBS, upgradeGold } from '../src/sim/world';
 import { emptyWorld, run } from './helpers';
 
 function rich(w: World): void {
@@ -205,5 +205,43 @@ describe('epoch advance in the queue', () => {
     w.issue({ type: 'advance', player: 0, buildingId: tc.id });
     expect(tc.research).not.toBeNull();
     expect(tc.pendingAdvance).toBeNull();
+  });
+});
+
+describe('re-equipping outdated units', () => {
+  it('brings old units near a barracks up to the current epoch for gold, not the ones far away', () => {
+    const w = emptyWorld({ startEpoch: 1 });
+    const barracks = w.addBuilding(0, 'barracks', 14, 14, true);
+    const near = [0, 1].map((i) => w.spawnUnit(0, 'assault', 18 + i, 18));
+    const far = w.spawnUnit(0, 'assault', 40, 40);
+    const old = near[0].tier;
+    near[0].hp = near[0].maxHp / 2;
+    w.players[0].epoch = 7;
+    w.players[0].stock.gold = 1000;
+    const tier = bestTier('assault', 7);
+    expect(tier).toBeGreaterThan(old);
+    expect(w.upgradable(barracks).map((o) => o.unit.id)).toEqual(near.map((u) => u.id));
+    w.issue({ type: 'upgrade', player: 0, buildingId: barracks.id });
+    for (const u of near) {
+      expect(u.tier).toBe(tier);
+      expect(u.stats.dmg).toBe(w.unitStatsFor(0, 'assault', tier).dmg);
+    }
+    // Wounds stay in proportion.
+    expect(near[0].hp / near[0].maxHp).toBeCloseTo(0.5);
+    expect(far.tier).toBe(old);
+    expect(w.players[0].stock.gold).toBe(1000 - 2 * upgradeGold('assault', tier));
+  });
+
+  it('stops where the gold runs out', () => {
+    const w = emptyWorld({ startEpoch: 1 });
+    const barracks = w.addBuilding(0, 'barracks', 14, 14, true);
+    const units = [0, 1, 2].map((i) => w.spawnUnit(0, 'assault', 18 + i, 18));
+    w.players[0].epoch = 7;
+    const price = upgradeGold('assault', bestTier('assault', 7));
+    w.players[0].stock.gold = price + 5;
+    w.issue({ type: 'upgrade', player: 0, buildingId: barracks.id });
+    expect(units.filter((u) => u.tier === bestTier('assault', 7))).toHaveLength(1);
+    expect(w.players[0].stock.gold).toBe(5);
+    expect(w.events.some((e) => e.type === 'warn' && e.text.includes('Nicht genug Gold'))).toBe(true);
   });
 });

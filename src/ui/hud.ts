@@ -23,7 +23,7 @@ import { BRANCHES, branchesAt, RESEARCH_BUILDINGS, TECH_BY_ID, TECHS, type Tech 
 import { convertTime } from '../sim/behavior';
 import { AURA_INSPIRED, AURA_LED, type Building, type Entity, type QueueItem, type Unit } from '../sim/entities';
 import { FORMATION_LABEL, FORMATIONS, type Formation } from '../sim/formation';
-import { jobTime, MAX_JOBS, TICK_RATE, type GameEvent } from '../sim/world';
+import { jobTime, MAX_JOBS, TICK_RATE, UPGRADE_REACH, upgradeGold, type GameEvent } from '../sim/world';
 import { morph } from './morph';
 
 type LogFilter = 'all' | 'fight' | 'progress' | 'note';
@@ -709,6 +709,13 @@ export class Hud {
         ...(e.aura & AURA_INSPIRED ? ['vom Krieger angefeuert'] : []),
       ];
       const statusLine = states.length ? `<div class="status-line">${states.map((t) => esc(t)).join(' · ')}</div>` : '';
+      // Of an older epoch: where to re-equip it, and for how much.
+      const newer = e.owner === me && !isHero(e.role) ? bestTier(e.role, world.players[me].epoch) : -1;
+      const trainer = (Object.keys(BUILDING_DEFS) as BuildingType[]).find((t) => BUILDING_DEFS[t].trains.includes(e.role));
+      const outdatedLine =
+        newer > e.tier && trainer
+          ? `<div class="status-line">Veraltet: ${esc(ROLE_DEFS[e.role].tiers[newer].name)} gibt es schon – bei ${esc(buildingName(trainer, world.players[me].epoch))} aufrüsten (U), ${upgradeGold(e.role, newer)} Gold</div>`
+          : '';
       const fuelBar =
         isPlane(e.role) && e.owner === me
           ? `<div class="fuelbar${e.fuel < s.fuel * 0.25 ? ' low' : ''}"><div style="width:${(e.fuel / s.fuel) * 100}%"></div><span>Treibstoff ${Math.ceil(e.fuel)} s${s.bombs ? ` · Bomben ${e.ammo} / ${s.bombs}` : ''}</span></div>`
@@ -730,6 +737,7 @@ export class Hud {
           ${fuelBar}
           ${moraleLine}
           ${statusLine}
+          ${outdatedLine}
           ${cargoLine}
           <div class="stats">${isFaithful(e.role) ? '' : `<span>Angriff ${s.dmg}</span>`}<span>Rüstung ${s.armor}</span>${isFaithful(e.role) ? '' : `<span>Reichweite ${s.range.toFixed(1)}</span>`}<span>Tempo ${s.speed.toFixed(1)}</span></div>
           ${
@@ -976,6 +984,8 @@ export class Hud {
       const def = BUILDING_DEFS[b.type];
       const keys = TRAIN_KEYS[b.type] ?? SLOT_KEYS;
       def.trains.forEach((role, i) => cmds.push(this.trainButton(sites, role, keys[i])));
+      const upgrade = this.upgradeButton(sites);
+      if (upgrade) cmds.push(upgrade);
       if (b.type === 'towncenter') {
         if (b.research || b.pendingAdvance) {
           cmds.push({
@@ -1095,6 +1105,41 @@ export class Hud {
           return;
         }
         game.research(sites, tech.id);
+      },
+    };
+  }
+
+  /**
+   * Re-equipping: units of the roles a building trains, of an older epoch, standing near it, are
+   * brought up to the current epoch for gold. Null where nothing but heroes is trained.
+   */
+  private upgradeButton(sites: Building[]): CommandButton | null {
+    const game = this.game;
+    const { world, me } = game;
+    if (!sites.length || !BUILDING_DEFS[sites[0].type].trains.some((r) => !isHero(r))) return null;
+    const seen = new Set<number>();
+    const list = sites.flatMap((s) => world.upgradable(s)).filter((o) => !seen.has(o.unit.id) && seen.add(o.unit.id));
+    const gold = list.reduce((n, o) => n + upgradeGold(o.unit.role, o.tier), 0);
+    const stock = world.players[me].stock.gold;
+    const cheapest = list.reduce((n, o) => Math.min(n, upgradeGold(o.unit.role, o.tier)), Infinity);
+    return {
+      key: 'U',
+      icon: commandIcon('upgrade'),
+      enabled: list.length > 0 && stock >= cheapest,
+      badge: list.length ? String(list.length) : undefined,
+      title: 'Aufrüsten',
+      tooltip:
+        `<b>Aufrüsten</b> <kbd>U</kbd><p>Bringt Einheiten einer früheren Epoche auf den Stand von heute: neue Waffen, neue Rüstung, die Lebenspunkte bleiben anteilig. ` +
+        `Kostet Gold, halb so viel wie eine neue Einheit, und wirkt auf alle veralteten Einheiten bis ${UPGRADE_REACH} Felder um das Gebäude.</p>` +
+        (list.length
+          ? `<p>${list.length} ${list.length === 1 ? 'Einheit' : 'Einheiten'} in der Nähe: <b>${gold} Gold</b>${stock < gold ? ` <span class="warn">(du hast ${Math.floor(stock)})</span>` : ''}</p>`
+          : '<p class="dim">Keine veralteten Einheiten in der Nähe – schick sie her.</p>'),
+      action: () => {
+        if (!list.length) {
+          this.message('warn', `Keine veralteten Einheiten in der Nähe (bis ${UPGRADE_REACH} Felder).`);
+          return;
+        }
+        game.upgrade(sites);
       },
     };
   }

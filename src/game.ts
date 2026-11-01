@@ -807,6 +807,11 @@ export class Game {
     if (b) this.issue({ type: 'research', player: this.me, buildingId: b.id, tech });
   }
 
+  /** Re-equips the outdated units around each of the buildings. */
+  upgrade(buildings: Building[]): void {
+    for (const b of buildings) this.issue({ type: 'upgrade', player: this.me, buildingId: b.id });
+  }
+
   cancelQueue(buildingId: number, index: number): void {
     this.issue({ type: 'cancel', player: this.me, buildingId, index });
   }
