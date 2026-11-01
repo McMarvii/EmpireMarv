@@ -29,6 +29,8 @@ import { DT, LANDING_REACH, TICK_RATE, type World } from './world';
 
 const WORK_REACH = 1.0;
 const APPROACH_REACH = 0.85;
+/** Hunting yields food faster than picking berries or farming. */
+const HUNT_RATE = 1.5;
 /** How close gatherers stand to a node's edge while working. */
 const SNUG_REACH = 0.2;
 const SCAN_INTERVAL = 8;
@@ -777,7 +779,8 @@ function updateGather(w: World, u: Unit): void {
     u.carry = o.res;
     u.carryAmount = 0;
   }
-  const bonus = fishing ? player.mods.fishing : player.mods.gather[o.res] * (isFarm ? player.mods.farm : 1);
+  const hunting = target.kind === 'resource' && target.nodeType === 'deer';
+  const bonus = fishing ? player.mods.fishing : player.mods.gather[o.res] * (isFarm ? player.mods.farm : 1) * (hunting ? HUNT_RATE : 1);
   const wonder = w.wonderEffect(u.owner, 'gather') ? WONDER_GATHER : 1;
   let amount = gatherRate(player.epoch) * player.gatherBonus * bonus * wonder * DT;
   if (target.kind === 'resource') {

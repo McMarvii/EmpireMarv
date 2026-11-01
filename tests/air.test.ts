@@ -184,7 +184,9 @@ describe('aircraft', () => {
     expect(fighters.every((u) => !u.dead)).toBe(true);
 
     const v = strait();
-    const flak = [0, 1, 2, 3].map((i) => spawn(v, 0, 'pike', 10.5 + (i % 2), 30.5 + Math.floor(i / 2)));
+    // Two tiles apart: packed onto four tiles, one bomb's splash decided the duel either way,
+    // depending only on which tick each squad happened to scan on.
+    const flak = [0, 1, 2, 3].map((i) => spawn(v, 0, 'pike', 10.5 + (i % 2) * 2, 30.5 + Math.floor(i / 2) * 2));
     const raid = [0, 1].map((i) => spawn(v, 1, 'bomber', 10.5 + i, 40.5));
     v.issue({ type: 'attack', player: 1, ids: raid.map((u) => u.id), targetId: flak[0].id });
     run(v, 40);

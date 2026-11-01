@@ -18,6 +18,7 @@ const NODE_RGB: Record<string, string> = {
   iron: '#c0714a',
   berries: '#d2404f',
   fish: '#9fe0ff',
+  deer: '#c08a52',
 };
 
 const HAZARD_RGBA: Record<string, string> = {

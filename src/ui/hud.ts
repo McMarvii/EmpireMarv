@@ -809,7 +809,7 @@ export class Hud {
         </div></div>`;
     }
 
-    const names: Record<string, string> = { tree: 'Baum', berries: 'Beerenstrauch', stone: 'Steinbruch', gold: 'Goldmine', iron: 'Eisenmine', fish: 'Fischgrund' };
+    const names: Record<string, string> = { tree: 'Baum', berries: 'Beerenstrauch', stone: 'Steinbruch', gold: 'Goldmine', iron: 'Eisenmine', fish: 'Fischgrund', deer: 'Wild' };
     return `<div class="sel-single"><div class="sel-info">
       <div class="sel-name">${names[e.nodeType]}</div>
       <div class="sel-sub">${RES_LABEL[e.res]}: ${Math.floor(e.amount)} übrig</div>

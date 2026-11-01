@@ -6,7 +6,7 @@ import { RESEARCH_BUILDINGS, TECHS, type Tech } from '../data/techs';
 import { bestTier, COMBAT_ROLES, HERO_ROLES, isAir, isConvertible, isHero, isNaval, MAX_FAITH, unitStats, type CombatRole, type Role } from '../data/units';
 import { AirPlanner, type AirHost } from './aiair';
 import { NavalPlanner } from './ainaval';
-import type { Building, Player, ResourceNode, Unit } from './entities';
+import { walkableNode, type Building, type Player, type ResourceNode, type Unit } from './entities';
 import { cos, hypot, sin } from './fmath';
 import type { Point } from './pathfinding';
 import { abilityReady } from './powers';
@@ -604,7 +604,8 @@ export class AIController implements Controller, AirHost {
 
   private blocksResources(w: World, tx: number, ty: number, size: number): boolean {
     for (const n of w.resources) {
-      if (n.dead) continue;
+      // Grazing game needs no way kept clear to it.
+      if (n.dead || walkableNode(n.nodeType)) continue;
       if (n.x > tx - 2 && n.x < tx + size + 2 && n.y > ty - 2 && n.y < ty + size + 2) return true;
     }
     return false;

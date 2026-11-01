@@ -195,7 +195,12 @@ export interface Hazard {
 }
 
 /** Fish lie on water and only boats can catch them. */
-export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron' | 'fish';
+export type NodeType = 'tree' | 'berries' | 'stone' | 'gold' | 'iron' | 'fish' | 'deer';
+
+/** Wild game grazes in the open: units walk past it, but nothing is built on top. */
+export function walkableNode(type: NodeType): boolean {
+  return type === 'deer';
+}
 
 export interface ResourceNode extends BaseEntity {
   kind: 'resource';

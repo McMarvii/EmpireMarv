@@ -144,7 +144,8 @@ describe('map types', () => {
       h = Math.imul(h ^ (v | 0), 16777619) >>> 0;
     };
     for (let i = 0; i < w.map.terrain.length; i++) add(w.map.terrain[i]);
-    for (const r of w.resources) {
+    // Wild game came later and rolls its own dice; the rest must not move.
+    for (const r of w.resources.filter((n) => n.nodeType !== 'deer')) {
       add(r.tx);
       add(r.ty);
       add(r.size);

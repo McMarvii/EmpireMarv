@@ -35,7 +35,7 @@ import { resolveMapType, type MapChoice } from '../data/maps';
 import { WONDER_MORALE, WONDERS, type WonderEffect } from '../data/wonders';
 import { canGather, isEndless, orderTarget, startPlan, updateBuilding, updateUnit, separateUnits } from './behavior';
 import { canHit, updateProjectiles } from './combat';
-import { rectOf, type Building, type Entity, type Hazard, type NodeType, type Order, type Plan, type Player, type QueueItem, type ResourceNode, type Unit } from './entities';
+import { rectOf, walkableNode, type Building, type Entity, type Hazard, type NodeType, type Order, type Plan, type Player, type QueueItem, type ResourceNode, type Unit } from './entities';
 import { hypot } from './fmath';
 import { arrivalPace, DEFAULT_FORMATION, formationSlots, headingTo, type Formation } from './formation';
 import { GameMap } from './map';
@@ -759,8 +759,8 @@ export class World {
     return owner >= 0 ? this.players[owner].team : -1;
   }
 
-  addResource(nodeType: NodeType, tx: number, ty: number, size: number, amount: number): ResourceNode {
-    const res: Res = nodeType === 'tree' ? 'wood' : nodeType === 'berries' || nodeType === 'fish' ? 'food' : nodeType;
+  addResource(nodeType: NodeType, tx: number, ty: number, size: number, amount: number, variant?: number): ResourceNode {
+    const res: Res = nodeType === 'tree' ? 'wood' : nodeType === 'berries' || nodeType === 'fish' || nodeType === 'deer' ? 'food' : nodeType;
     const n: ResourceNode = {
       kind: 'resource',
       id: this.nextId++,
@@ -777,12 +777,12 @@ export class World {
       maxHp: amount,
       dead: false,
       lastHitTick: -1000,
-      variant: this.rng.int(0, 4),
+      variant: variant ?? this.rng.int(0, 4),
       blockedUntil: 0,
     };
     this.entities.set(n.id, n);
     this.resources.push(n);
-    this.map.block(tx, ty, size, size, 1);
+    this.map.block(tx, ty, size, size, 1, walkableNode(nodeType));
     return n;
   }
 
@@ -794,7 +794,7 @@ export class World {
       this.map.block(e.tx, e.ty, e.size, e.size, -1, BUILDING_DEFS[e.type].walkable);
       if (BUILDING_DEFS[e.type].gate) this.map.setGate(e.tx, e.ty, -1);
     } else if (e.kind === 'resource') {
-      this.map.block(e.tx, e.ty, e.size, e.size, -1);
+      this.map.block(e.tx, e.ty, e.size, e.size, -1, walkableNode(e.nodeType));
     }
   }
 
@@ -949,7 +949,7 @@ export class World {
       if (!this.isVisibleTo(u.owner, n)) continue;
       const d = hypot(n.x - x, n.y - y);
       if (d >= maxDist) continue;
-      const small = n.nodeType === 'tree' || n.nodeType === 'berries';
+      const small = n.nodeType === 'tree' || n.nodeType === 'berries' || n.nodeType === 'deer';
       const score = small ? d + CROWD_TILES * (crowd.get(n.id) ?? 0) : d;
       if (score < bestScore) {
         bestScore = score;

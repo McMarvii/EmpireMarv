@@ -55,6 +55,38 @@ describe('economy', () => {
     expect(new Set(next).size).toBeGreaterThanOrEqual(3);
   });
 
+  it('every base has a herd of deer close by, more roam the land', () => {
+    for (const mapType of ['continent', 'islands'] as const) {
+      const w = new World({ seed: 11, mapSize: 96, mapType, players: [{ name: 'A', color: '#2f7de1', isAI: false, team: 0 }, { name: 'B', color: '#d9412b', isAI: false, team: 1 }] });
+      const deer = w.resources.filter((n) => n.nodeType === 'deer');
+      for (const s of w.startPositions) {
+        const near = deer.filter((n) => Math.hypot(n.x - s.x, n.y - s.y) < 17);
+        expect(near.length).toBeGreaterThanOrEqual(5);
+        // On the same land as the base.
+        for (const n of near.slice(0, 5)) expect(w.map.sameLand(n.x, n.y, s.x, s.y)).toBe(true);
+      }
+      expect(deer.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('hunting is faster than picking berries, and units walk through the herd', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    const deer = w.addResource('deer', tc.tx + 6, tc.ty + 1, 1, 150);
+    const bush = w.addResource('berries', tc.tx + 6, tc.ty + 3, 1, 150);
+    expect(deer.res).toBe('food');
+    expect(w.map.passable(deer.tx, deer.ty)).toBe(true);
+    expect(w.map.buildable(deer.tx, deer.ty)).toBe(false);
+    const [a, b] = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    w.issue({ type: 'gather', player: 0, ids: [a.id], targetId: deer.id });
+    w.issue({ type: 'gather', player: 0, ids: [b.id], targetId: bush.id });
+    run(w, 40);
+    expect(150 - deer.amount).toBeGreaterThan((150 - bush.amount) * 1.3);
+    // Hunted out: the tiles are free again.
+    w.remove(deer);
+    expect(w.map.buildable(deer.tx, deer.ty)).toBe(true);
+  });
+
   it('mines hold 5000 each', () => {
     const w = new World({ seed: 5, mapSize: 64, players: [{ name: 'A', color: '#2f7de1', isAI: false, team: 0 }, { name: 'B', color: '#d9412b', isAI: false, team: 1 }] });
     const mines = w.resources.filter((n) => n.nodeType === 'gold' || n.nodeType === 'stone' || n.nodeType === 'iron');

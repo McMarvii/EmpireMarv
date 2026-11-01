@@ -199,6 +199,8 @@ export function nodeSprite(look: NodeLook, x: number, y: number, id: number, key
   // Trees sway, each with its own phase; a shoal never rests.
   if (n.nodeType === 'tree') anim = { kind: 'cycle', omega: 1.3, frames: 12, phase: n.tx * 0.7 + n.ty };
   else if (n.nodeType === 'fish') anim = LIVE;
+  // Deer graze: the head goes down to the grass and up again.
+  else if (n.nodeType === 'deer' && n.ratio >= 1) anim = { kind: 'cycle', omega: 0.9, frames: 12, phase: n.variant * 1.9 + n.tx * 0.37 };
   return {
     key: keyed ? `N${n.nodeType}|${n.size}|${n.variant}|${n.nodeType === 'tree' ? 1 : n.ratio}` : '',
     outline: keyed ? `N${n.nodeType}|${n.size}|${n.variant}` : '',
