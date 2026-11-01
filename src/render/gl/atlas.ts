@@ -17,6 +17,8 @@ const ZOOM_STEPS = 4;
 /** How often a live sprite (smoke, flags) is repainted at most. */
 const LIVE_FPS = 12;
 const TAU = Math.PI * 2;
+/** Frames without trouble before the raster cap goes back up a step. */
+const CALM_FRAMES = 90;
 
 /** One picture in the atlas. */
 export interface Cell {
@@ -87,6 +89,19 @@ export class SpriteAtlas {
   private hardEnd = 0;
   /** Pictures painted this frame (for the debug readout). */
   paintedNow = 0;
+  /**
+   * Highest raster scale pictures are painted at. A big screen with a high pixel ratio, zoomed in,
+   * needs pictures over a thousand pixels wide; when the layers cannot hold what one frame shows,
+   * they would be cleared and repainted over and over and sprites dropped out. Then the cap goes
+   * one zoom step down (pictures drawn slightly enlarged) until the frame fits, and back up once
+   * there is room again.
+   */
+  cap = Infinity;
+  /** A layer drawn in the previous frame had to be cleared in this one. */
+  private thrashed = false;
+  private calm = 0;
+  /** Highest scale asked for in the last frame. */
+  private wanted = 0;
 
   constructor(private gl: WebGL2RenderingContext) {
     // Four layers of 2048² (64 MB) hold even big battles; older pictures make room when they fill.
@@ -107,6 +122,18 @@ export class SpriteAtlas {
 
   /** Starts a frame: `soft` ms may go to nicer pictures, missing ones are painted up to `hard` ms. */
   begin(soft: number, hard: number): void {
+    if (this.thrashed) {
+      const top = Math.min(this.cap, this.wanted);
+      // A whole octave down at once: a quarter step at a time drops sprites for several frames.
+      this.cap = Math.max(1, top / 2);
+      this.calm = 0;
+    } else if (this.cap < Infinity && ++this.calm > CALM_FRAMES && this.usage().full < 50) {
+      this.cap *= 2 ** (1 / ZOOM_STEPS);
+      if (this.cap >= this.wanted) this.cap = Infinity;
+      this.calm = 0;
+    }
+    this.thrashed = false;
+    this.wanted = 0;
     this.frame++;
     this.paintedNow = 0;
     const now = performance.now();
@@ -118,7 +145,9 @@ export class SpriteAtlas {
   cell(s: SceneSprite, zoom: number, dpr: number, time: number): Cell | null {
     // Big rings at a high zoom would not fit a layer: they are painted coarser and drawn enlarged.
     const box = this.outline(s);
-    const scale = Math.min(rasterZoom(zoom) * dpr, (SIZE - PAD * 2 - 2) / Math.max(box.x1 - box.x0, box.y1 - box.y0));
+    const ideal = rasterZoom(zoom) * dpr;
+    if (ideal > this.wanted) this.wanted = ideal;
+    const scale = Math.min(ideal, this.cap, (SIZE - PAD * 2 - 2) / Math.max(box.x1 - box.x0, box.y1 - box.y0));
     const anim = s.anim;
     const animated = anim.kind !== 'still' && this.isMoving(s);
     let base: string;
@@ -313,8 +342,12 @@ export class SpriteAtlas {
       if (this.pages[l].used >= this.frame) continue;
       if (best < 0 || this.pages[l].used < this.pages[best].used) best = l;
     }
-    if (best < 0) return false;
+    if (best < 0) {
+      this.thrashed = true;
+      return false;
+    }
     const page = this.pages[best];
+    if (page.used >= this.frame - 1) this.thrashed = true;
     for (const c of page.cells) {
       this.cells.delete(c.key);
       if (this.latest.get(c.base) === c) this.latest.delete(c.base);

@@ -936,9 +936,11 @@ button.primary {
 /* ----------------------------------------------------------- commands */
 
 #commands {
-  /* Seven columns: the 19 commands of citizens fit three rows without a hidden fourth. */
+  /* Seven columns: the 19 commands of citizens fit three rows. The bar is 170 px high inside its
+     border and the column 379 px wide: 3 × 48 + 2 × 4 + 2 × 8 = 168, 7 × 48 + 6 × 4 + 2 × 9 = 378.
+     One pixel too many shows a scroll bar. */
   --cmd: 48px;
-  padding: 10px;
+  padding: 8px 9px;
   border-left: 1px solid var(--border-soft);
   display: grid;
   grid-template-columns: repeat(7, var(--cmd));
@@ -946,6 +948,13 @@ button.primary {
   gap: 4px;
   align-content: start;
   overflow-y: auto;
+}
+
+/* More than 21 commands (citizens with soldiers or a ship): eight smaller columns, still three rows. */
+#commands.many {
+  --cmd: 42px;
+  gap: 3px;
+  grid-template-columns: repeat(8, var(--cmd));
 }
 
 .cmd {
@@ -2029,6 +2038,10 @@ table.help td:first-child {
     padding: 8px;
     gap: 3px;
   }
+
+  #commands.many {
+    --cmd: 36px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -2059,6 +2072,10 @@ table.help td:first-child {
 
   #commands {
     --cmd: 36px;
+  }
+
+  #commands.many {
+    --cmd: 31px;
   }
 
   #groups {
