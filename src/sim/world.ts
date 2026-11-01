@@ -249,6 +249,8 @@ const START_STOCK: Record<StartResources, Record<Res, number>> = {
 const GRID_CELL = 4;
 /** Longest wall line one drag may place. */
 export const MAX_LINE = 30;
+/** Woodcutters sent together spread over trees up to this many tiles from the one clicked. */
+export const TREE_SPREAD = 4;
 /** Queued orders per unit (enough for a full wall line). */
 export const MAX_QUEUE = 40;
 /** Rally waypoints per building. */
@@ -907,6 +909,53 @@ export class World {
     return best;
   }
 
+  /**
+   * A tree for each worker, in the workers' order: the clicked tree and the reachable trees around it
+   * (nearest first), one worker each; with more workers than trees the round starts over. Each tree
+   * goes to the nearest worker still free, so nobody walks past a tree to reach another.
+   */
+  spreadOverTrees(tree: ResourceNode, workers: Unit[], player: number): ResourceNode[] {
+    const reach = TREE_SPREAD * TREE_SPREAD;
+    const map = this.map;
+    // A tree at the forest edge: some tile beside it is open.
+    const open = (n: ResourceNode) => {
+      for (let i = -1; i <= n.size; i++) {
+        if (map.passable(n.tx + i, n.ty - 1) || map.passable(n.tx + i, n.ty + n.size)) return true;
+        if (map.passable(n.tx - 1, n.ty + i) || map.passable(n.tx + n.size, n.ty + i)) return true;
+      }
+      return false;
+    };
+    const dist = (n: { x: number; y: number }, x: number, y: number) => (n.x - x) * (n.x - x) + (n.y - y) * (n.y - y);
+    const trees = this.resources
+      .filter(
+        (n) =>
+          n !== tree &&
+          !n.dead &&
+          n.nodeType === 'tree' &&
+          n.blockedUntil <= this.tick &&
+          dist(n, tree.x, tree.y) <= reach &&
+          this.isVisibleTo(player, n) &&
+          open(n),
+      )
+      .sort((a, b) => dist(a, tree.x, tree.y) - dist(b, tree.x, tree.y) || a.id - b.id);
+    trees.unshift(tree);
+    const out: ResourceNode[] = new Array(workers.length);
+    const free = workers.map((_, i) => i);
+    for (let t = 0; free.length > 0; t = (t + 1) % trees.length) {
+      const n = trees[t];
+      let best = 0;
+      for (let k = 1; k < free.length; k++) {
+        const a = workers[free[k]];
+        const b = workers[free[best]];
+        const d = dist(a, n.x, n.y) - dist(b, n.x, n.y);
+        if (d < 0 || (d === 0 && a.id < b.id)) best = k;
+      }
+      out[free[best]] = n;
+      free.splice(best, 1);
+    }
+    return out;
+  }
+
   /** Nearest visible deposit of any kind, e.g. for builders of a new storehouse. */
   nearestAnyResource(x: number, y: number, maxDist: number, player: number): ResourceNode | null {
     let best: ResourceNode | null = null;
@@ -1148,7 +1197,10 @@ export class World {
         const units = this.ownUnits(cmd.player, cmd.ids);
         // Citizens work the land, fishing boats the fish; everybody else just goes there.
         const workers = units.filter((u) => canGather(u, target));
-        for (const u of workers) this.assign(u, { kind: 'gather', targetId: target.id, res, lx: target.x, ly: target.y }, cmd.queue ?? false);
+        // Woodcutters spread over the trees around the one clicked instead of crowding a single trunk.
+        const nodes: Array<Entity> =
+          target.kind === 'resource' && target.nodeType === 'tree' && workers.length > 1 ? this.spreadOverTrees(target, workers, cmd.player) : workers.map(() => target);
+        workers.forEach((u, i) => this.assign(u, { kind: 'gather', targetId: nodes[i].id, res, lx: nodes[i].x, ly: nodes[i].y }, cmd.queue ?? false));
         const others = units.filter((u) => !workers.includes(u) && u.role !== 'citizen' && u.role !== 'fisher').map((u) => u.id);
         if (others.length) this.commandMove(cmd.player, others, target.x, target.y, false, cmd.queue ?? false);
         break;

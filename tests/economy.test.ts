@@ -17,6 +17,36 @@ describe('economy', () => {
     expect(tree.amount).toBeLessThan(200);
   });
 
+  it('woodcutters sent together spread over the trees at the edge of a grove', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    // A 4×4 grove: the four trees in its middle have no open side.
+    const grove = [];
+    for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) grove.push(w.addResource('tree', tc.tx + 8 + x, tc.ty + y, 1, 200));
+    const clicked = grove[4];
+    const citizens = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    w.issue({ type: 'gather', player: 0, ids: citizens.map((u) => u.id), targetId: clicked.id });
+    const targets = citizens.map((u) => (u.order as { targetId: number }).targetId);
+    // One tree each, the clicked one among them, none buried inside the grove.
+    expect(new Set(targets).size).toBe(citizens.length);
+    expect(targets).toContain(clicked.id);
+    const inner = new Set([grove[5].id, grove[6].id, grove[9].id, grove[10].id]);
+    expect(targets.filter((t) => inner.has(t))).toEqual([]);
+    const before = w.players[0].stock.wood;
+    run(w, 60);
+    expect(w.players[0].stock.wood).toBeGreaterThan(before + 60);
+  });
+
+  it('miners sent together still work the deposit they were sent to', () => {
+    const w = emptyWorld();
+    const tc = w.buildingsOf(0, 'towncenter')[0];
+    const a = w.addResource('stone', tc.tx + 8, tc.ty, 2, 400);
+    w.addResource('stone', tc.tx + 8, tc.ty + 3, 2, 400);
+    const citizens = w.unitsOf(0).filter((u) => u.role === 'citizen');
+    w.issue({ type: 'gather', player: 0, ids: citizens.map((u) => u.id), targetId: a.id });
+    for (const u of citizens) expect((u.order as { targetId: number }).targetId).toBe(a.id);
+  });
+
   it('farms are endless and need to be built first', () => {
     const w = emptyWorld({ startEpoch: 1 });
     const tc = w.buildingsOf(0, 'towncenter')[0];
