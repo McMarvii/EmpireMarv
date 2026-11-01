@@ -76,3 +76,20 @@ describe('colours', () => {
     expect(shade(once, -0.5)).not.toContain('NaN');
   });
 });
+
+describe('interface size', () => {
+  it('grows with the window in quarter steps and never past what fits', async () => {
+    const { uiScaleFor } = await import('../src/render/graphics');
+    // Automatic: Full HD and smaller stay at 100 %, 1440p gets 150 %, 4K 200 %.
+    expect(uiScaleFor(0, 1366, 768)).toBe(1);
+    expect(uiScaleFor(0, 1920, 1080)).toBe(1);
+    expect(uiScaleFor(0, 2560, 1440)).toBe(1.5);
+    expect(uiScaleFor(0, 3840, 2160)).toBe(2);
+    // An ultrawide screen goes by its height.
+    expect(uiScaleFor(0, 3440, 1440)).toBe(1.5);
+    // A fixed choice applies, but a small window caps it so the bars still fit.
+    expect(uiScaleFor(1.25, 1920, 1080)).toBe(1.25);
+    expect(uiScaleFor(2, 1920, 1080)).toBe(1.5);
+    expect(uiScaleFor(2, 1280, 720)).toBe(1);
+  });
+});
